@@ -1,0 +1,48 @@
+name: mobile_money_voice
+description: Application Mobile Money à commandes vocales en français.
+version: 1.0.0+1
+publish_to: 'none'
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # ── Google Fonts (Sora) ───────────────────────────────
+  google_fonts: ^6.2.1
+
+  # ── HTTP ──────────────────────────────────────────────
+  http: ^1.2.1
+
+  # ── Reconnaissance vocale ─────────────────────────────
+  speech_to_text: ^6.6.0
+
+  # ── Synthèse vocale ───────────────────────────────────
+  flutter_tts: ^4.0.2
+
+  # ── Stockage local (token JWT, préférences) ───────────
+  shared_preferences: ^2.2.3
+  flutter_secure_storage: ^9.0.0
+
+  # ── Internationalisation (dates) ─────────────────────
+  intl: ^0.19.0
+
+  # ── Icônes supplémentaires ────────────────────────────
+  cupertino_icons: ^1.0.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+
+  # Assets (à créer si nécessaire)
+  # assets:
+  #   - assets/images/
+  #   - assets/sounds/
+
+  # Fonts — Sora via google_fonts (pas besoin de déclarer ici)
