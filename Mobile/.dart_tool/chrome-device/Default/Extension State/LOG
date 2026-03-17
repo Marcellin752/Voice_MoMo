@@ -1,3 +1,2 @@
-2026/03/17-10:17:29.107 9987 Reusing MANIFEST /tmp/flutter_tools.VYMWBA/flutter_tools_chrome_device.NUJMTH/Default/Extension State/MANIFEST-000001
-2026/03/17-10:17:29.108 9987 Recovering log #3
-2026/03/17-10:17:29.108 9987 Reusing old log /tmp/flutter_tools.VYMWBA/flutter_tools_chrome_device.NUJMTH/Default/Extension State/000003.log 
+2026/03/17-20:00:37.382 12f35 Creating DB /tmp/flutter_tools.TFHFPL/flutter_tools_chrome_device.UWXGCM/Default/Extension State since it was missing.
+2026/03/17-20:00:37.386 12f35 Reusing MANIFEST /tmp/flutter_tools.TFHFPL/flutter_tools_chrome_device.UWXGCM/Default/Extension State/MANIFEST-000001

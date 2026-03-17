@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 import '../models/user.dart';
 import '../services/mock_service.dart';
@@ -11,20 +14,61 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  static const String _kNameKey = 'settings_full_name';
+  static const String _kNotificationsKey = 'settings_notifications';
+  static const String _kBiometricKey = 'settings_biometric';
+  static const String _kLanguageKey = 'settings_language';
+
+  static const FlutterSecureStorage _secureStorage = FlutterSecureStorage();
+
+  static const Map<String, String> _languages = {
+    'fr': 'Français',
+    'en': 'English',
+  };
+
   AppUser? _user;
   bool _notificationsEnabled = true;
   bool _biometricEnabled = false;
+  String _language = 'fr';
   bool _loading = true;
+  bool _loggingOut = false;
 
   @override
   void initState() {
     super.initState();
-    _loadUser();
+    _loadUserAndPreferences();
   }
 
-  Future<void> _loadUser() async {
+  Future<void> _loadUserAndPreferences() async {
     final user = await MockService.fetchUser();
-    if (mounted) setState(() { _user = user; _loading = false; });
+    final prefs = await SharedPreferences.getInstance();
+    final savedName = prefs.getString(_kNameKey) ?? user.fullName;
+
+    if (!mounted) return;
+    setState(() {
+      _user = AppUser(
+        id: user.id,
+        fullName: savedName,
+        phoneNumber: user.phoneNumber,
+        balance: user.balance,
+        currency: user.currency,
+        avatarUrl: user.avatarUrl,
+      );
+      _notificationsEnabled = prefs.getBool(_kNotificationsKey) ?? true;
+      _biometricEnabled = prefs.getBool(_kBiometricKey) ?? false;
+      _language = prefs.getString(_kLanguageKey) ?? 'fr';
+      _loading = false;
+    });
+  }
+
+  Future<void> _saveBoolPreference(String key, bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(key, value);
+  }
+
+  Future<void> _saveStringPreference(String key, String value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(key, value);
   }
 
   void _confirmLogout() {
@@ -51,10 +95,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: const Text('Annuler'),
           ),
           TextButton(
-            onPressed: () {
+            onPressed: _loggingOut
+                ? null
+                : () {
               Navigator.pop(ctx);
-              Navigator.pushNamedAndRemoveUntil(
-                  context, '/login', (_) => false);
+              _logout();
             },
             style: TextButton.styleFrom(foregroundColor: AppColors.error),
             child: const Text('Déconnecter'),
@@ -62,6 +107,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _logout() async {
+    setState(() => _loggingOut = true);
+    await _secureStorage.delete(key: 'jwt_token');
+    ApiService.logout();
+    if (!mounted) return;
+    Navigator.pushNamedAndRemoveUntil(context, '/login', (_) => false);
   }
 
   void _showEditNameDialog() {
@@ -95,8 +148,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: const Text('Annuler'),
           ),
           TextButton(
-            onPressed: () {
-              // TODO: appeler ApiService pour sauvegarder
+            onPressed: () async {
+              final newName = ctrl.text.trim();
+              if (newName.split(' ').length < 2) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  _errorSnack('Entrez au moins prénom + nom'),
+                );
+                return;
+              }
+              await _saveStringPreference(_kNameKey, newName);
+              if (!mounted) return;
+              setState(() {
+                final current = _user;
+                if (current != null) {
+                  _user = AppUser(
+                    id: current.id,
+                    fullName: newName,
+                    phoneNumber: current.phoneNumber,
+                    balance: current.balance,
+                    currency: current.currency,
+                    avatarUrl: current.avatarUrl,
+                  );
+                }
+              });
               Navigator.pop(ctx);
               ScaffoldMessenger.of(context).showSnackBar(
                 _successSnack('Nom mis à jour'),
@@ -109,12 +183,147 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  void _navigateToChangePin() {
+  void _navigateToChangePin() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.xl),
+        ),
+        title: const Text('Changer le PIN'),
+        content: const Text(
+          'Vous allez définir un nouveau PIN en 2 étapes (saisie + confirmation).',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Annuler'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Continuer'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
     Navigator.pushNamed(context, '/pin', arguments: {
       'phone': _user?.phoneNumber ?? '',
       'fullName': _user?.fullName,
       'isCreating': true,
     });
+  }
+
+  void _showLanguageSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 8),
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppColors.textHint,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 12),
+              const ListTile(
+                title: Text(
+                  'Choisir la langue',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+              ..._languages.entries.map((entry) {
+                final selected = _language == entry.key;
+                return ListTile(
+                  title: Text(entry.value),
+                  trailing: selected
+                      ? const Icon(Icons.check_rounded, color: AppColors.navy)
+                      : null,
+                  onTap: () async {
+                    await _saveStringPreference(_kLanguageKey, entry.key);
+                    if (!mounted) return;
+                    setState(() => _language = entry.key);
+                    if (!ctx.mounted) return;
+                    Navigator.pop(ctx);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      _successSnack('Langue mise à jour: ${entry.value}'),
+                    );
+                  },
+                );
+              }),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _showHelpAndFaq() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppColors.surface,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: const [
+                  Text(
+                    'Aide & FAQ',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                  ),
+                  SizedBox(height: 14),
+                  Text('• PIN démo: 1234'),
+                  SizedBox(height: 8),
+                  Text(
+                    '• Commandes vocales supportées:\n'
+                    '  - "Envoie 5000 à Maman"\n'
+                    '  - "Recharge 2000"\n'
+                    '  - "Quel est mon solde ?" ',
+                  ),
+                  SizedBox(height: 8),
+                  Text(
+                    '• En cas de problème de connexion web, lancez l\'app en serveur web puis ouvrez le lien dans votre navigateur.',
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showAbout() {
+    showAboutDialog(
+      context: context,
+      applicationName: 'VoiceMoney',
+      applicationVersion: 'v1.0.0',
+      applicationLegalese: 'Application Mobile Money a commandes vocales',
+      children: const [
+        SizedBox(height: 8),
+        Text(
+          'Prototype frontend Flutter avec navigation, transactions et assistants vocaux.',
+        ),
+      ],
+    );
   }
 
   SnackBar _successSnack(String message) {
@@ -131,6 +340,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
       behavior: SnackBarBehavior.floating,
       shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppRadius.md)),
+      duration: const Duration(seconds: 2),
+    );
+  }
+
+  SnackBar _errorSnack(String message) {
+    return SnackBar(
+      content: Text(message),
+      backgroundColor: AppColors.error,
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppRadius.md),
+      ),
       duration: const Duration(seconds: 2),
     );
   }
@@ -187,8 +408,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       onTap: null,
                       trailing: Switch(
                         value: _biometricEnabled,
-                        onChanged: (v) =>
-                            setState(() => _biometricEnabled = v),
+                        onChanged: (v) async {
+                          setState(() => _biometricEnabled = v);
+                          await _saveBoolPreference(_kBiometricKey, v);
+                        },
                         activeThumbColor: AppColors.navy,
                       ),
                     ),
@@ -204,16 +427,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       onTap: null,
                       trailing: Switch(
                         value: _notificationsEnabled,
-                        onChanged: (v) =>
-                            setState(() => _notificationsEnabled = v),
+                        onChanged: (v) async {
+                          setState(() => _notificationsEnabled = v);
+                          await _saveBoolPreference(_kNotificationsKey, v);
+                        },
                         activeThumbColor: AppColors.navy,
                       ),
                     ),
                     _SettingsTile(
                       icon: Icons.language_rounded,
                       label: 'Langue',
-                      value: 'Français',
-                      onTap: () {},
+                      value: _languages[_language] ?? 'Français',
+                      onTap: _showLanguageSheet,
                     ),
                   ],
                 ),
@@ -224,13 +449,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     _SettingsTile(
                       icon: Icons.help_outline_rounded,
                       label: 'Aide & FAQ',
-                      onTap: () {},
+                      onTap: _showHelpAndFaq,
                     ),
                     _SettingsTile(
                       icon: Icons.info_outline_rounded,
                       label: 'À propos',
                       value: 'VoiceMoney v1.0.0',
-                      onTap: () {},
+                      onTap: _showAbout,
                     ),
                   ],
                 ),
@@ -241,7 +466,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     width: double.infinity,
                     height: 52,
                     child: OutlinedButton.icon(
-                      onPressed: _confirmLogout,
+                      onPressed: _loggingOut ? null : _confirmLogout,
                       icon: const Icon(Icons.logout_rounded,
                           color: AppColors.error, size: 18),
                       label: const Text(

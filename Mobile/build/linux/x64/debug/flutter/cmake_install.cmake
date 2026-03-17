@@ -1,8 +1,8 @@
-# Install script for directory: /home/rayann-bch/HUB_PROJECTS/Voice_MoMo/Mobile/linux/flutter
+# Install script for directory: /home/ghislino/projects/school/Voice_MoMo/Mobile/linux/flutter
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)
-  set(CMAKE_INSTALL_PREFIX "/home/rayann-bch/HUB_PROJECTS/Voice_MoMo/Mobile/build/linux/x64/debug/bundle")
+  set(CMAKE_INSTALL_PREFIX "/home/ghislino/projects/school/Voice_MoMo/Mobile/build/linux/x64/debug/bundle")
 endif()
 string(REGEX REPLACE "/$" "" CMAKE_INSTALL_PREFIX "${CMAKE_INSTALL_PREFIX}")
 
