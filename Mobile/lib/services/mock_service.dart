@@ -13,7 +13,7 @@ class MockService {
         id: 'u001',
         fullName: 'Kouassi Adjoua',
         phoneNumber: '+229 96 00 11 22',
-        balance: 87500,
+        balance: 1000000000,
         currency: 'FCFA',
       );
 
@@ -117,6 +117,15 @@ class MockService {
   static Future<bool> verifyPin(String pin) async {
     await Future.delayed(const Duration(milliseconds: 800));
     return pin == '1234'; // PIN démo
+  }
+
+  static Future<bool> register({
+    required String fullName,
+    required String phoneNumber,
+    required String pin,
+  }) async {
+    await Future.delayed(const Duration(milliseconds: 900));
+    return true; // Toujours succès en démo
   }
 
   static Future<bool> executeTransaction(TransactionPreview preview) async {

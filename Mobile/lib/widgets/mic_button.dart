@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import 'dart:math' as math;
@@ -259,7 +261,9 @@ class VoiceTranscriptBubble extends StatelessWidget {
           decoration: BoxDecoration(
             color: AppColors.surface,
             borderRadius: BorderRadius.circular(AppRadius.xl),
+            // ignore: prefer_const_literals_to_create_immutables
             boxShadow: [
+              // ignore: prefer_const_constructors
               BoxShadow(
                 color: AppColors.shadowMedium,
                 blurRadius: 12,

@@ -147,10 +147,10 @@ class _LoginScreenState extends State<LoginScreen>
                   color: AppColors.textPrimary,
                   fontWeight: FontWeight.w500,
                 ),
-            decoration: InputDecoration(
+            decoration: const InputDecoration(
               hintText: '+229 96 00 00 00',
               prefixIcon: Padding(
-                padding: const EdgeInsets.only(left: 16, right: 12),
+                padding: EdgeInsets.only(left: 16, right: 12),
                 child: Icon(
                   Icons.phone_android_rounded,
                   color: AppColors.textHint,
@@ -158,7 +158,7 @@ class _LoginScreenState extends State<LoginScreen>
                 ),
               ),
               prefixIconConstraints:
-                  const BoxConstraints(minWidth: 0, minHeight: 0),
+                  BoxConstraints(minWidth: 0, minHeight: 0),
             ),
             validator: (v) {
               if (v == null || v.trim().isEmpty) {
@@ -202,7 +202,7 @@ class _LoginScreenState extends State<LoginScreen>
             style: Theme.of(context).textTheme.bodyMedium,
           ),
           GestureDetector(
-            onTap: () {}, // TODO: navigate to register
+            onTap: () => Navigator.pushNamed(context, '/register'),
             child: Text(
               'Créer un compte',
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(

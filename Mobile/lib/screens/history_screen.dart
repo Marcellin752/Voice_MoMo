@@ -173,7 +173,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                     children: [
                       _TransactionTile(transaction: tx),
                       if (idx < entry.value.length - 1)
-                        Divider(
+                        const Divider(
                           height: 1,
                           indent: 70,
                           color: AppColors.surfaceAlt,
@@ -194,7 +194,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.receipt_long_outlined,
+          const Icon(Icons.receipt_long_outlined,
               size: 56, color: AppColors.textHint),
           const SizedBox(height: 16),
           Text(
@@ -283,7 +283,7 @@ class _TransactionTile extends StatelessWidget {
                           color: AppColors.errorBg,
                           borderRadius: BorderRadius.circular(4),
                         ),
-                        child: Text(
+                        child: const Text(
                           'Échoué',
                           style: TextStyle(
                             fontFamily: 'Sora',

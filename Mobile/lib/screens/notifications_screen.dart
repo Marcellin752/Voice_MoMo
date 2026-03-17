@@ -15,10 +15,10 @@ class NotificationsScreen extends StatelessWidget {
         ),
       ),
       backgroundColor: AppColors.background,
-      body: Center(
+      body: const Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
-          children: const [
+          children: [
             Icon(Icons.notifications_none_outlined, size: 72, color: AppColors.textHint),
             SizedBox(height: 16),
             Text(

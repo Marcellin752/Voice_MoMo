@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../models/transaction.dart';
@@ -249,18 +251,39 @@ class _HomeScreenState extends State<HomeScreen>
                 child: Container(
                   width: 42,
                   height: 42,
-                  decoration: BoxDecoration(
+                  decoration: const BoxDecoration(
                     color: AppColors.surface,
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
                         color: AppColors.shadowMedium,
                         blurRadius: 8,
-                        offset: const Offset(0, 2),
+                        offset: Offset(0, 2),
                       ),
                     ],
                   ),
                   child: const Icon(Icons.notifications_none_rounded,
+                      color: AppColors.textSecondary, size: 20),
+                ),
+              ),
+              const SizedBox(width: 10),
+              GestureDetector(
+                onTap: () => Navigator.pushNamed(context, '/settings'),
+                child: Container(
+                  width: 42,
+                  height: 42,
+                  decoration: const BoxDecoration(
+                    color: AppColors.surface,
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppColors.shadowMedium,
+                        blurRadius: 8,
+                        offset: Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: const Icon(Icons.person_outline_rounded,
                       color: AppColors.textSecondary, size: 20),
                 ),
               ),
@@ -565,7 +588,7 @@ class _HomeScreenState extends State<HomeScreen>
                   children: [
                     _buildTransactionTile(tx),
                     if (i < txs.length - 1)
-                      Divider(
+                      const Divider(
                         height: 1,
                         indent: 68,
                         color: AppColors.surfaceAlt,

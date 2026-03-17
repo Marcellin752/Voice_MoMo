@@ -4,7 +4,15 @@ import '../services/mock_service.dart';
 
 class PinScreen extends StatefulWidget {
   final String phoneNumber;
-  const PinScreen({super.key, required this.phoneNumber});
+  final String? fullName;
+  final bool isCreating;
+
+  const PinScreen({
+    super.key,
+    required this.phoneNumber,
+    this.fullName,
+    this.isCreating = false,
+  });
 
   @override
   State<PinScreen> createState() => _PinScreenState();
@@ -15,6 +23,10 @@ class _PinScreenState extends State<PinScreen>
   String _pin = '';
   bool _loading = false;
   String? _error;
+
+  // For PIN creation: first entry vs confirmation step
+  String? _firstPin;
+  bool get _isConfirming => widget.isCreating && _firstPin != null;
 
   late AnimationController _shakeController;
   late Animation<double> _shakeAnim;
@@ -46,7 +58,11 @@ class _PinScreenState extends State<PinScreen>
       _error = null;
     });
     if (_pin.length == _pinLength) {
-      _verify();
+      if (widget.isCreating) {
+        _handleCreatePin();
+      } else {
+        _verify();
+      }
     }
   }
 
@@ -55,11 +71,54 @@ class _PinScreenState extends State<PinScreen>
     setState(() => _pin = _pin.substring(0, _pin.length - 1));
   }
 
+  Future<void> _handleCreatePin() async {
+    if (!_isConfirming) {
+      // First step: save the PIN and ask for confirmation
+      await Future.delayed(const Duration(milliseconds: 150));
+      setState(() {
+        _firstPin = _pin;
+        _pin = '';
+      });
+    } else {
+      // Second step: confirm the PIN
+      if (_pin == _firstPin) {
+        await _register();
+      } else {
+        await _shakeController.forward(from: 0);
+        setState(() {
+          _pin = '';
+          _firstPin = null;
+          _error = 'Les PINs ne correspondent pas. Réessayez.';
+        });
+      }
+    }
+  }
+
+  Future<void> _register() async {
+    setState(() => _loading = true);
+    final ok = await MockService.register(
+      fullName: widget.fullName ?? '',
+      phoneNumber: widget.phoneNumber,
+      pin: _pin,
+    );
+    if (!mounted) return;
+    if (ok) {
+      Navigator.pushNamedAndRemoveUntil(context, '/home', (_) => false);
+    } else {
+      await _shakeController.forward(from: 0);
+      setState(() {
+        _loading = false;
+        _pin = '';
+        _firstPin = null;
+        _error = "Erreur lors de l'inscription. Réessayez.";
+      });
+    }
+  }
+
   Future<void> _verify() async {
     setState(() => _loading = true);
 
     final ok = await MockService.verifyPin(_pin);
-    // Remplacer par: await ApiService.login(phoneNumber: widget.phoneNumber, pin: _pin)
 
     if (!mounted) return;
 
@@ -75,6 +134,18 @@ class _PinScreenState extends State<PinScreen>
     }
   }
 
+  String get _headerTitle {
+    if (!widget.isCreating) return 'Entrez votre PIN';
+    return _isConfirming ? 'Confirmez votre PIN' : 'Créez votre PIN';
+  }
+
+  String get _headerSubtitle {
+    if (!widget.isCreating) return widget.phoneNumber;
+    return _isConfirming
+        ? 'Entrez à nouveau le même PIN'
+        : widget.phoneNumber;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -82,7 +153,18 @@ class _PinScreenState extends State<PinScreen>
       appBar: AppBar(
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_rounded, size: 20),
-          onPressed: () => Navigator.pop(context),
+          onPressed: () {
+            if (_isConfirming) {
+              // Go back to PIN entry step
+              setState(() {
+                _firstPin = null;
+                _pin = '';
+                _error = null;
+              });
+            } else {
+              Navigator.pop(context);
+            }
+          },
         ),
       ),
       body: SafeArea(
@@ -114,22 +196,31 @@ class _PinScreenState extends State<PinScreen>
         Container(
           width: 64,
           height: 64,
-          decoration: BoxDecoration(
+          decoration: const BoxDecoration(
             color: AppColors.navyDark,
             shape: BoxShape.circle,
           ),
-          child: const Icon(Icons.lock_outline_rounded,
-              color: Colors.white, size: 28),
+          child: Icon(
+            widget.isCreating
+                ? Icons.lock_open_rounded
+                : Icons.lock_outline_rounded,
+            color: Colors.white,
+            size: 28,
+          ),
         ),
         const SizedBox(height: 20),
-        Text(
-          'Entrez votre PIN',
-          style: Theme.of(context).textTheme.headlineMedium,
-          textAlign: TextAlign.center,
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 250),
+          child: Text(
+            _headerTitle,
+            key: ValueKey(_headerTitle),
+            style: Theme.of(context).textTheme.headlineMedium,
+            textAlign: TextAlign.center,
+          ),
         ),
         const SizedBox(height: 8),
         Text(
-          widget.phoneNumber,
+          _headerSubtitle,
           style: Theme.of(context).textTheme.bodyMedium,
           textAlign: TextAlign.center,
         ),
@@ -184,12 +275,14 @@ class _PinScreenState extends State<PinScreen>
           const Icon(Icons.error_outline_rounded,
               color: AppColors.error, size: 16),
           const SizedBox(width: 8),
-          Text(
-            _error!,
-            style: Theme.of(context)
-                .textTheme
-                .bodyMedium
-                ?.copyWith(color: AppColors.error),
+          Flexible(
+            child: Text(
+              _error!,
+              style: Theme.of(context)
+                  .textTheme
+                  .bodyMedium
+                  ?.copyWith(color: AppColors.error),
+            ),
           ),
         ],
       ),
@@ -230,14 +323,14 @@ class _PinScreenState extends State<PinScreen>
         duration: const Duration(milliseconds: 100),
         width: 72,
         height: 72,
-        decoration: BoxDecoration(
+        decoration: const BoxDecoration(
           color: AppColors.surface,
           shape: BoxShape.circle,
           boxShadow: [
             BoxShadow(
               color: AppColors.shadowMedium,
               blurRadius: 8,
-              offset: const Offset(0, 2),
+              offset: Offset(0, 2),
             ),
           ],
         ),

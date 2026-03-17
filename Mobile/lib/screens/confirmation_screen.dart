@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../models/transaction.dart';
@@ -137,7 +139,7 @@ class _ConfirmationScreenState extends State<ConfirmationScreen>
             Container(
               width: 64,
               height: 64,
-              decoration: BoxDecoration(
+              decoration: const BoxDecoration(
                 color: AppColors.amberGlow,
                 shape: BoxShape.circle,
               ),
@@ -194,7 +196,7 @@ class _ConfirmationScreenState extends State<ConfirmationScreen>
   Widget _buildDivider() {
     return Row(
       children: [
-        Expanded(child: Divider(color: AppColors.surfaceAlt, height: 1)),
+        const Expanded(child: Divider(color: AppColors.surfaceAlt, height: 1)),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Text(
@@ -204,7 +206,7 @@ class _ConfirmationScreenState extends State<ConfirmationScreen>
                 ),
           ),
         ),
-        Expanded(child: Divider(color: AppColors.surfaceAlt, height: 1)),
+        const Expanded(child: Divider(color: AppColors.surfaceAlt, height: 1)),
       ],
     );
   }
@@ -308,7 +310,7 @@ class _ConfirmationScreenState extends State<ConfirmationScreen>
           height: 54,
           child: TextButton(
             onPressed: _loading ? null : _cancel,
-            child: Text(
+            child: const Text(
               'Annuler',
               style: TextStyle(color: AppColors.textSecondary),
             ),

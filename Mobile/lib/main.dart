@@ -3,11 +3,13 @@ import 'package:flutter/services.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'theme/app_theme.dart';
 import 'screens/login_screen.dart';
+import 'screens/register_screen.dart';
 import 'screens/pin_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/history_screen.dart';
 import 'screens/confirmation_screen.dart';
 import 'screens/notifications_screen.dart';
+import 'screens/settings_screen.dart';
 import 'models/transaction.dart';
 
 Future<void> main() async {
@@ -36,8 +38,21 @@ class VoiceMoneyApp extends StatelessWidget {
         switch (settings.name) {
           case '/login':
             return _fadeRoute(const LoginScreen(), settings);
+          case '/register':
+            return _slideRoute(const RegisterScreen(), settings);
           case '/pin':
-            final phone = settings.arguments as String? ?? '';
+            final args = settings.arguments;
+            if (args is Map<String, dynamic>) {
+              return _slideRoute(
+                PinScreen(
+                  phoneNumber: args['phone'] as String? ?? '',
+                  fullName: args['fullName'] as String?,
+                  isCreating: args['isCreating'] as bool? ?? false,
+                ),
+                settings,
+              );
+            }
+            final phone = args as String? ?? '';
             return _slideRoute(PinScreen(phoneNumber: phone), settings);
           case '/home':
             return _fadeRoute(const HomeScreen(), settings);
@@ -45,6 +60,8 @@ class VoiceMoneyApp extends StatelessWidget {
             return _slideRoute(const HistoryScreen(), settings);
           case '/notifications':
             return _slideRoute(const NotificationsScreen(), settings);
+          case '/settings':
+            return _slideRoute(const SettingsScreen(), settings);
           case '/confirmation':
             final tx = settings.arguments as TransactionPreview;
             return _slideRoute(ConfirmationScreen(preview: tx), settings);
