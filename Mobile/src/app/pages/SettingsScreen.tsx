@@ -1,9 +1,11 @@
-import { ChevronRight, RefreshCw, User, Settings, LogOut, Check, Moon, Sun } from "lucide-react";
+import { ChevronRight, User, Settings, LogOut, Check, Moon, Sun } from "lucide-react";
 import { Link } from "react-router";
 import { useTheme } from "../contexts/ThemeContext";
+import { getLanguage } from "../utils/localData";
 
 export default function SettingsScreen() {
   const { theme, toggleTheme } = useTheme();
+  const language = getLanguage();
 
   return (
     <div className="flex flex-col min-h-full w-full bg-slate-50 dark:bg-[#121212] px-6 py-8 transition-colors duration-300">
@@ -11,7 +13,10 @@ export default function SettingsScreen() {
         <h1 className="text-2xl font-black tracking-tight text-slate-900 dark:text-white">Paramètres</h1>
       </div>
 
-      <div className="bg-white dark:bg-[#1A1A1A] rounded-3xl p-5 flex justify-between items-center mb-8 shadow-sm border border-slate-100 dark:border-white/5 transition-colors duration-300">
+      <Link
+        to="/app/settings/profile"
+        className="w-full bg-white dark:bg-[#1A1A1A] rounded-3xl p-5 flex justify-between items-center mb-8 shadow-sm border border-slate-100 dark:border-white/5 transition-colors duration-300"
+      >
         <div className="flex items-center space-x-4">
           <div className="p-3 bg-slate-100 dark:bg-white/5 rounded-2xl text-slate-600 dark:text-zinc-400">
             <User size={24} />
@@ -22,12 +27,12 @@ export default function SettingsScreen() {
           </div>
         </div>
         <ChevronRight size={24} className="text-slate-400" />
-      </div>
+      </Link>
 
       <div className="space-y-6">
         <div>
           <h3 className="text-xs font-bold tracking-widest text-slate-500 dark:text-zinc-500 uppercase px-2 mb-3">Préférences</h3>
-          
+
           <div className="bg-white dark:bg-[#1A1A1A] rounded-3xl overflow-hidden shadow-sm border border-slate-100 dark:border-white/5 transition-colors duration-300">
             <div className="flex items-center justify-between p-5 border-b border-slate-100 dark:border-white/5">
               <div className="flex items-center space-x-4">
@@ -39,9 +44,9 @@ export default function SettingsScreen() {
                   <p className="text-xs font-medium text-slate-500">Apparence de l'application</p>
                 </div>
               </div>
-              
+
               {/* Toggle Switch */}
-              <button 
+              <button
                 onClick={toggleTheme}
                 className={`w-14 h-8 rounded-full p-1 transition-colors duration-300 ${theme === 'dark' ? 'bg-[#FFCC00]' : 'bg-slate-200'}`}
               >
@@ -49,10 +54,11 @@ export default function SettingsScreen() {
               </button>
             </div>
 
-            <SettingsItem 
+            <SettingsItem
+              to="/app/settings/language"
               icon={<Settings size={22} />}
               title="Langue"
-              subtitle="Français"
+              subtitle={language === "fr" ? "Francais" : "English"}
               color="text-[#004F71] dark:text-white"
               bgColor="bg-slate-50 dark:bg-white/5"
             />
@@ -62,7 +68,8 @@ export default function SettingsScreen() {
         <div>
           <h3 className="text-xs font-bold tracking-widest text-slate-500 dark:text-zinc-500 uppercase px-2 mb-3">Sécurité</h3>
           <div className="bg-white dark:bg-[#1A1A1A] rounded-3xl overflow-hidden shadow-sm border border-slate-100 dark:border-white/5 transition-colors duration-300">
-            <SettingsItem 
+            <SettingsItem
+              to="/app/settings/pin"
               icon={<Check size={22} />}
               title="Code PIN MTN"
               subtitle="Modifier le code secret"
@@ -89,9 +96,26 @@ export default function SettingsScreen() {
   );
 }
 
-function SettingsItem({ icon, title, subtitle, color, bgColor }: { icon: React.ReactNode, title: string, subtitle: string, color: string, bgColor: string }) {
+function SettingsItem({
+  to,
+  icon,
+  title,
+  subtitle,
+  color,
+  bgColor,
+}: {
+  to: string,
+  icon: React.ReactNode,
+  title: string,
+  subtitle: string,
+  color: string,
+  bgColor: string,
+}) {
   return (
-    <div className="flex items-center justify-between p-5 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors cursor-pointer">
+    <Link
+      to={to}
+      className="w-full flex items-center justify-between p-5 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors cursor-pointer text-left"
+    >
       <div className="flex items-center space-x-4">
         <div className={`p-2.5 rounded-xl ${color} ${bgColor}`}>
           {icon}
@@ -102,6 +126,6 @@ function SettingsItem({ icon, title, subtitle, color, bgColor }: { icon: React.R
         </div>
       </div>
       <ChevronRight size={20} className="text-slate-300 dark:text-zinc-600" />
-    </div>
+    </Link>
   );
 }

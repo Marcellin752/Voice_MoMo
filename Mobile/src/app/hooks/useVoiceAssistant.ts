@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 type AssistantStatus = 'idle' | 'listening' | 'processing' | 'success' | 'error';
 
@@ -7,12 +7,18 @@ export function useVoiceAssistant() {
   const [transcript, setTranscript] = useState('');
   const [feedback, setFeedback] = useState('');
   const [recognition, setRecognition] = useState<any>(null);
+  const statusRef = useRef<AssistantStatus>('idle');
+
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
 
   useEffect(() => {
     // @ts-ignore
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let rec: any = null;
     if (SpeechRecognition) {
-      const rec = new SpeechRecognition();
+      rec = new SpeechRecognition();
       rec.continuous = false;
       rec.interimResults = false;
       rec.lang = 'fr-FR';
@@ -42,8 +48,9 @@ export function useVoiceAssistant() {
       };
 
       rec.onend = () => {
-        if (status === 'listening') {
-           setStatus('idle');
+        // onend can fire asynchronously; rely on a ref to avoid stale closure state.
+        if (statusRef.current === 'listening' || statusRef.current === 'processing') {
+          setStatus('idle');
         }
       };
 
@@ -51,6 +58,16 @@ export function useVoiceAssistant() {
     } else {
       setFeedback('La reconnaissance vocale n\'est pas supportée sur ce navigateur.');
     }
+
+    return () => {
+      if (rec) {
+        rec.onstart = null;
+        rec.onresult = null;
+        rec.onerror = null;
+        rec.onend = null;
+        rec.stop();
+      }
+    };
   }, []);
 
   const speakFeedback = (text: string) => {
@@ -63,7 +80,7 @@ export function useVoiceAssistant() {
 
   const processCommand = (command: string) => {
     const text = command.toLowerCase();
-    
+
     setTimeout(() => {
       if (text.includes('solde')) {
         const msg = 'Votre solde actuel est de 15000 francs CFA.';

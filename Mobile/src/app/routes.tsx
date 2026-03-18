@@ -5,6 +5,12 @@ import Layout from "./components/Layout";
 import HomeScreen from "./pages/HomeScreen";
 import TransactionsScreen from "./pages/TransactionsScreen";
 import SettingsScreen from "./pages/SettingsScreen";
+import ProfileScreen from "./pages/ProfileScreen";
+import LanguageScreen from "./pages/LanguageScreen";
+import PinScreen from "./pages/PinScreen";
+import NotificationsScreen from "./pages/NotificationsScreen";
+import ServicesHubScreen from "./pages/ServicesHubScreen";
+import ServiceActionScreen from "./pages/ServiceActionScreen";
 
 export const router = createBrowserRouter([
   {
@@ -22,6 +28,12 @@ export const router = createBrowserRouter([
       { index: true, Component: HomeScreen },
       { path: "transactions", Component: TransactionsScreen },
       { path: "settings", Component: SettingsScreen },
+      { path: "settings/profile", Component: ProfileScreen },
+      { path: "settings/language", Component: LanguageScreen },
+      { path: "settings/pin", Component: PinScreen },
+      { path: "notifications", Component: NotificationsScreen },
+      { path: "services", Component: ServicesHubScreen },
+      { path: "services/:serviceId", Component: ServiceActionScreen },
     ],
   },
 ]);
