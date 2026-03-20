@@ -180,6 +180,13 @@ cd Nlp-module
 bash run_voice_agent_local.sh
 ```
 
+Note: ce script active automatiquement `DISABLE_SSL_VERIFY=true` en local
+(`VOICE_AGENT_ALLOW_INSECURE_SSL=1` par defaut) pour contourner les reseaux
+avec inspection TLS. Pour desactiver ce comportement:
+```bash
+VOICE_AGENT_ALLOW_INSECURE_SSL=0 bash run_voice_agent_local.sh
+```
+
 2) Terminal B (micro + speaker):
 ```bash
 cd Nlp-module
