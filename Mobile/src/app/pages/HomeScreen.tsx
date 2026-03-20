@@ -2,12 +2,12 @@ import { useMemo, useState } from "react";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import { Mic, Eye, EyeOff, Send, Download, Phone, Wifi, CreditCard, Landmark, FileText, Bell, ArrowDownLeft, ArrowUpRight } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { useVoiceAssistant } from "../hooks/useVoiceAssistant";
+import { useVoiceAssistantNLP } from "../hooks/useVoiceAssistantNLP";
 import { useNavigate } from "react-router";
 import { getProfile } from "../utils/localData";
 
 export default function HomeScreen() {
-  const { status, transcript, feedback, startListening, stopListening } = useVoiceAssistant();
+  const { status, transcript, feedback, startListening, stopListening } = useVoiceAssistantNLP();
   const [showBalance, setShowBalance] = useState(false);
   const navigate = useNavigate();
   const profile = useMemo(() => getProfile(), []);
