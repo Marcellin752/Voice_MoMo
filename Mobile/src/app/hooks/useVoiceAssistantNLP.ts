@@ -86,9 +86,25 @@ export function useVoiceAssistantNLP(nlpApiUrl: string = 'http://localhost:8001'
 
   const speakFeedback = (text: string) => {
     if ('speechSynthesis' in window) {
+      // Cancel any pending speech
+      window.speechSynthesis.cancel();
+      
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = 'fr-FR';
+      utterance.rate = 1;
+      utterance.pitch = 1;
+      utterance.volume = 1; // Max volume
+      
+      // Log for debugging
+      console.log('Speaking:', text);
+      
+      utterance.onstart = () => console.log('Speech started');
+      utterance.onend = () => console.log('Speech ended');
+      utterance.onerror = (event) => console.error('Speech error:', event.error);
+      
       window.speechSynthesis.speak(utterance);
+    } else {
+      console.warn('Speech Synthesis not available');
     }
   };
 
@@ -117,21 +133,27 @@ export function useVoiceAssistantNLP(nlpApiUrl: string = 'http://localhost:8001'
 
   const processCommandWithNLP = async (command: string) => {
     try {
+      console.log('Processing command:', command);
+      
       const parsed = await parseCommandWithNLP(command);
 
       if (!parsed) {
-        setFeedback('Impossible de contacter le service NLP. Veuillez réessayer.');
-        speakFeedback('Impossible de contacter le service NLP. Veuillez réessayer.');
+        const errorMsg = 'Impossible de contacter le service NLP. Veuillez réessayer.';
+        console.error(errorMsg);
+        setFeedback(errorMsg);
+        speakFeedback(errorMsg);
         setStatus('error');
         setTimeout(() => setStatus('idle'), 5000);
         return;
       }
 
+      console.log('NLP Response:', parsed);
       setParsedIntent(parsed);
 
       // Use the confirmation message from NLP or generate one
       const message = parsed.confirmation_message || generateFallbackMessage(parsed);
-
+      
+      console.log('Feedback message:', message);
       setFeedback(message);
       speakFeedback(message);
 
@@ -153,8 +175,9 @@ export function useVoiceAssistantNLP(nlpApiUrl: string = 'http://localhost:8001'
       }, 8000);
     } catch (error) {
       console.error('Command processing failed:', error);
-      setFeedback('Une erreur s\'est produite lors du traitement de votre commande.');
-      speakFeedback('Une erreur s\'est produite lors du traitement de votre commande.');
+      const errorMsg = 'Une erreur s\'est produite lors du traitement de votre commande.';
+      setFeedback(errorMsg);
+      speakFeedback(errorMsg);
       setStatus('error');
       setTimeout(() => setStatus('idle'), 5000);
     }
