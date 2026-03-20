@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<project version="4">
-  <component name="ProjectModuleManager">
-    <modules>
-      <module fileurl="file://$PROJECT_DIR$/mobile_money_voice.iml" filepath="$PROJECT_DIR$/mobile_money_voice.iml" />
-      <module fileurl="file://$PROJECT_DIR$/android/mobile_money_voice_android.iml" filepath="$PROJECT_DIR$/android/mobile_money_voice_android.iml" />
-    </modules>
-  </component>
-</project>

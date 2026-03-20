@@ -112,3 +112,9 @@ node_modules/
 # Vite
 .vite
 dist/
+
+# Flutter/Dart artifacts (not part of this project)
+.dart_tool/
+.metadata
+.flutter-plugins
+.flutter-plugins-dependencies
