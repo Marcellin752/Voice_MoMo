@@ -11,6 +11,7 @@ import PinScreen from "./pages/PinScreen";
 import NotificationsScreen from "./pages/NotificationsScreen";
 import ServicesHubScreen from "./pages/ServicesHubScreen";
 import ServiceActionScreen from "./pages/ServiceActionScreen";
+import ContactsScreen from "./pages/ContactsScreen";
 
 export const router = createBrowserRouter([
   {
@@ -34,6 +35,7 @@ export const router = createBrowserRouter([
       { path: "notifications", Component: NotificationsScreen },
       { path: "services", Component: ServicesHubScreen },
       { path: "services/:serviceId", Component: ServiceActionScreen },
+      { path: "contacts", Component: ContactsScreen },
     ],
   },
 ]);
