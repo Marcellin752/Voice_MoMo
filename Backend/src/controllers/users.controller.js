@@ -16,7 +16,7 @@ function getLanguage(req, res) {
 function updateLanguage(req, res, next) {
   const { language } = req.body || {};
   if (language !== "fr" && language !== "en") {
-    const error = new Error("La langue doit etre 'fr' ou 'en'.");
+    const error = new Error("La langue doit être 'fr' ou 'en'.");
     error.status = 400;
     return next(error);
   }
@@ -30,13 +30,17 @@ function updatePin(req, res, next) {
     error.status = 400;
     return next(error);
   }
-  if (String(newPin).length !== 4 || String(confirmPin).length !== 4) {
-    const error = new Error("Le nouveau PIN doit contenir 4 chiffres.");
+  if (!/^\d{4}$/.test(String(newPin)) || !/^\d{4}$/.test(String(confirmPin))) {
+    const error = new Error(
+      "Le nouveau PIN doit contenir exactement 4 chiffres.",
+    );
     error.status = 400;
     return next(error);
   }
   if (String(newPin) !== String(confirmPin)) {
-    const error = new Error("Le nouveau PIN et sa confirmation ne correspondent pas.");
+    const error = new Error(
+      "Le nouveau PIN et sa confirmation ne correspondent pas.",
+    );
     error.status = 400;
     return next(error);
   }
@@ -46,7 +50,6 @@ function updatePin(req, res, next) {
 function getSecurity(req, res) {
   return res.json(usersService.getSecurityState());
 }
-
 function getNotifications(req, res) {
   return res.json({ notifications: usersService.getNotifications() });
 }
