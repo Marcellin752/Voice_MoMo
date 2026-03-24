@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { sendVoiceCommand } from '../services/voice.service';
 
 type AssistantStatus = 'idle' | 'listening' | 'processing' | 'success' | 'error';
 
@@ -42,13 +43,12 @@ export function useVoiceAssistant() {
         if (event.error === 'not-allowed') {
           setFeedback('Veuillez autoriser le microphone.');
         } else {
-          setFeedback('Je n\'ai pas bien entendu. Veuillez réessayer.');
+          setFeedback("Je n'ai pas bien entendu. Veuillez réessayer.");
         }
-        speakFeedback('Je n\'ai pas bien entendu. Veuillez réessayer.');
+        speakFeedback("Je n'ai pas bien entendu. Veuillez réessayer.");
       };
 
       rec.onend = () => {
-        // onend can fire asynchronously; rely on a ref to avoid stale closure state.
         if (statusRef.current === 'listening' || statusRef.current === 'processing') {
           setStatus('idle');
         }
@@ -56,7 +56,7 @@ export function useVoiceAssistant() {
 
       setRecognition(rec);
     } else {
-      setFeedback('La reconnaissance vocale n\'est pas supportée sur ce navigateur.');
+      setFeedback("La reconnaissance vocale n'est pas supportée sur ce navigateur.");
     }
 
     return () => {
@@ -78,54 +78,20 @@ export function useVoiceAssistant() {
     }
   };
 
-  const processCommand = (command: string) => {
-    const text = command.toLowerCase();
-
-    setTimeout(() => {
-      if (text.includes('solde')) {
-        const msg = 'Votre solde actuel est de 15000 francs CFA.';
-        setFeedback(msg);
-        speakFeedback(msg);
-        setStatus('success');
-      } else if (text.includes('envoi') || text.includes('envoyer') || text.includes('transfert')) {
-        const amountMatch = text.match(/\d+/);
-        const amount = amountMatch ? amountMatch[0] : null;
-        if (amount) {
-          const msg = `Voulez-vous vraiment envoyer ${amount} francs ? Dites oui pour confirmer.`;
-          setFeedback(msg);
-          speakFeedback(msg);
-          setStatus('success');
-        } else {
-          const msg = 'Je n\'ai pas compris le montant. Veuillez répéter "Envoie [montant]".';
-          setFeedback(msg);
-          speakFeedback(msg);
-          setStatus('error');
-        }
-      } else if (text.includes('recharge') || text.includes('recharger') || text.includes('crédit')) {
-        const amountMatch = text.match(/\d+/);
-        const amount = amountMatch ? amountMatch[0] : null;
-        if (amount) {
-          const msg = `Voulez-vous recharger votre compte de ${amount} francs ? Dites oui pour confirmer.`;
-          setFeedback(msg);
-          speakFeedback(msg);
-          setStatus('success');
-        } else {
-          const msg = 'Je n\'ai pas compris le montant. Veuillez répéter "Recharge [montant]".';
-          setFeedback(msg);
-          speakFeedback(msg);
-          setStatus('error');
-        }
-      } else {
-        const msg = 'Commande non reconnue. Essayez de dire "Solde", ou "Envoie 5000 francs".';
-        setFeedback(msg);
-        speakFeedback(msg);
-        setStatus('error');
-      }
-
-      // Reset to idle after a while
-      setTimeout(() => setStatus('idle'), 5000);
-    }, 1000); // Simulate processing delay
-  };
+  const processCommand = useCallback(async (command: string) => {
+    try {
+      const result = await sendVoiceCommand(command);
+      setFeedback(result.message);
+      speakFeedback(result.message);
+      setStatus(result.intent === 'unknown' ? 'error' : 'success');
+    } catch {
+      const msg = "Je n'ai pas pu traiter votre commande. Veuillez réessayer.";
+      setFeedback(msg);
+      speakFeedback(msg);
+      setStatus('error');
+    }
+    setTimeout(() => setStatus('idle'), 5000);
+  }, []);
 
   const startListening = useCallback(() => {
     if (recognition) {
@@ -135,7 +101,7 @@ export function useVoiceAssistant() {
         console.error('Recognition already started');
       }
     } else {
-      // Fallback for browsers without speech recognition (mocking for demo)
+      // Fallback simulation pour navigateurs sans Speech API
       setStatus('listening');
       setFeedback('Je vous écoute... (Simulation)');
       setTimeout(() => {
@@ -146,7 +112,7 @@ export function useVoiceAssistant() {
         processCommand(randomCommand);
       }, 2000);
     }
-  }, [recognition]);
+  }, [recognition, processCommand]);
 
   const stopListening = useCallback(() => {
     if (recognition) {

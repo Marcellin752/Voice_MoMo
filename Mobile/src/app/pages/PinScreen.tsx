@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
-import { getPinUpdatedAt, markPinUpdated } from "../utils/localData";
+import * as usersService from "../services/users.service";
 
 export default function PinScreen() {
   const navigate = useNavigate();
@@ -8,9 +8,16 @@ export default function PinScreen() {
   const [newPin, setNewPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
   const [message, setMessage] = useState("");
-  const lastUpdated = useMemo(() => getPinUpdatedAt(), []);
+  const [loading, setLoading] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null);
 
-  const onSubmit = (e: React.FormEvent) => {
+  useEffect(() => {
+    usersService.getSecurity()
+      .then((res) => setLastUpdated(res.pinUpdatedAt))
+      .catch(() => {});
+  }, []);
+
+  const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (newPin.length !== 4 || confirmPin.length !== 4) {
       setMessage("Le nouveau PIN doit contenir 4 chiffres.");
@@ -21,14 +28,23 @@ export default function PinScreen() {
       return;
     }
     if (oldPin === newPin) {
-      setMessage("Le nouveau PIN doit etre different de l'ancien.");
+      setMessage("Le nouveau PIN doit être différent de l'ancien.");
       return;
     }
-    markPinUpdated();
-    setOldPin("");
-    setNewPin("");
-    setConfirmPin("");
-    setMessage("PIN mis a jour avec succes.");
+    setLoading(true);
+    setMessage("");
+    try {
+      const res = await usersService.updatePin(oldPin, newPin, confirmPin);
+      setLastUpdated(res.pinUpdatedAt);
+      setOldPin("");
+      setNewPin("");
+      setConfirmPin("");
+      setMessage("PIN mis à jour avec succès.");
+    } catch (err: any) {
+      setMessage(err.message || "Erreur lors de la mise à jour du PIN.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -71,13 +87,25 @@ export default function PinScreen() {
             placeholder="****"
           />
         </label>
-        <button type="submit" className="w-full rounded-2xl bg-[#FFCC00] px-4 py-3 font-bold text-[#004F71]">
-          Modifier le PIN
+        <button
+          type="submit"
+          disabled={loading}
+          className="w-full rounded-2xl bg-[#FFCC00] px-4 py-3 font-bold text-[#004F71] disabled:opacity-60"
+        >
+          {loading ? "Modification..." : "Modifier le PIN"}
         </button>
       </form>
 
-      {lastUpdated && <p className="mt-4 text-xs font-medium text-slate-500">Derniere mise a jour: {new Date(lastUpdated).toLocaleString("fr-FR")}</p>}
-      {message && <p className="mt-2 rounded-xl bg-blue-50 px-3 py-2 text-sm text-[#004F71] dark:bg-[#004F71]/20 dark:text-[#FFCC00]">{message}</p>}
+      {lastUpdated && (
+        <p className="mt-4 text-xs font-medium text-slate-500">
+          Dernière mise à jour: {new Date(lastUpdated).toLocaleString("fr-FR")}
+        </p>
+      )}
+      {message && (
+        <p className="mt-2 rounded-xl bg-blue-50 px-3 py-2 text-sm text-[#004F71] dark:bg-[#004F71]/20 dark:text-[#FFCC00]">
+          {message}
+        </p>
+      )}
     </div>
   );
 }

@@ -54,6 +54,10 @@ function getNotifications(req, res) {
   return res.json({ notifications: usersService.getNotifications() });
 }
 
+function getBalance(req, res) {
+  return res.json(usersService.getBalance());
+}
+
 module.exports = {
   getProfile,
   updateProfile,
@@ -62,4 +66,5 @@ module.exports = {
   updatePin,
   getSecurity,
   getNotifications,
+  getBalance,
 };

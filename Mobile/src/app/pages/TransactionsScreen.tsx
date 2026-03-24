@@ -1,56 +1,44 @@
-import { Search, Filter, ArrowDownLeft, ArrowUpRight, Info, Check } from "lucide-react";
-import { useMemo, useState } from "react";
-import { getTransactions } from "../utils/localData";
+import { Search, Filter, ArrowDownLeft, ArrowUpRight, Info } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import * as transactionsService from "../services/transactions.service";
+import type { ApiTransaction } from "../utils/api";
 
 type TxType = "in" | "out";
 
-type Transaction = {
-  id: string;
-  dayLabel: string;
-  type: TxType;
-  title: string;
-  desc: string;
-  time: string;
-  amount: string;
-};
-
-const TRANSACTIONS: Transaction[] = [
-  { id: "t1", dayLabel: "Aujourd'hui", type: "in", title: "Dépôt Agence", desc: "Référence: 19384729", time: "15:32", amount: "+25 000" },
-  { id: "t2", dayLabel: "Hier", type: "out", title: "Achat Crédit", desc: "Vers: 0123456789", time: "19:27", amount: "-2 000" },
-  { id: "t3", dayLabel: "Hier", type: "out", title: "Paiement Marchand", desc: "Super U", time: "11:45", amount: "-15 500" },
-];
-
 export default function TransactionsScreen() {
+  const [allTransactions, setAllTransactions] = useState<ApiTransaction[]>([]);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"all" | TxType>("all");
   const [sortOrder, setSortOrder] = useState<"desc" | "asc">("desc");
   const [showInfo, setShowInfo] = useState(false);
-  const [refreshKey, setRefreshKey] = useState(0);
+  const [loading, setLoading] = useState(true);
+
+  const fetchTransactions = () => {
+    setLoading(true);
+    transactionsService.getTransactions()
+      .then((res) => setAllTransactions(res.transactions))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    fetchTransactions();
+  }, []);
 
   const filteredTransactions = useMemo(() => {
-    const dynamicTransactions = getTransactions().map((tx) => ({
-      id: tx.id,
-      dayLabel: tx.dayLabel,
-      type: tx.type,
-      title: tx.title,
-      desc: tx.desc,
-      time: tx.time,
-      amount: tx.amount,
-    }));
-    const source = [...dynamicTransactions, ...TRANSACTIONS];
     const text = search.trim().toLowerCase();
-    const list = source.filter((tx) => {
+    const list = allTransactions.filter((tx) => {
       const matchesType = filter === "all" || tx.type === filter;
       const matchesText = !text || tx.title.toLowerCase().includes(text) || tx.desc.toLowerCase().includes(text);
       return matchesType && matchesText;
     });
-
-    // Times are demo values; lexicographic ordering works with HH:mm format.
-    return [...list].sort((a, b) => (sortOrder === "desc" ? b.time.localeCompare(a.time) : a.time.localeCompare(b.time)));
-  }, [filter, refreshKey, search, sortOrder]);
+    return [...list].sort((a, b) =>
+      sortOrder === "desc" ? b.time.localeCompare(a.time) : a.time.localeCompare(b.time)
+    );
+  }, [allTransactions, filter, search, sortOrder]);
 
   const groups = useMemo(() => {
-    const byDay: Record<string, Transaction[]> = {};
+    const byDay: Record<string, ApiTransaction[]> = {};
     for (const tx of filteredTransactions) {
       if (!byDay[tx.dayLabel]) byDay[tx.dayLabel] = [];
       byDay[tx.dayLabel].push(tx);
@@ -62,24 +50,14 @@ export default function TransactionsScreen() {
     <div className="flex flex-col min-h-full w-full bg-slate-50 dark:bg-[#121212] px-6 py-8 transition-colors duration-300">
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-2xl font-black tracking-tight text-slate-900 dark:text-white">Transactions</h1>
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => setRefreshKey((prev) => prev + 1)}
-            className="p-2 text-slate-400 hover:text-[#004F71] dark:hover:text-[#FFCC00] transition-colors"
-            aria-label="Rafraichir la liste"
-          >
-            <Check size={24} />
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowInfo((prev) => !prev)}
-            className="p-2 text-slate-400 hover:text-[#004F71] dark:hover:text-[#FFCC00] transition-colors"
-            aria-label="Aide transactions"
-          >
-            <Info size={24} />
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => setShowInfo((prev) => !prev)}
+          className="p-2 text-slate-400 hover:text-[#004F71] dark:hover:text-[#FFCC00] transition-colors"
+          aria-label="Aide transactions"
+        >
+          <Info size={24} />
+        </button>
       </div>
 
       {showInfo && (
@@ -117,7 +95,9 @@ export default function TransactionsScreen() {
         <FilterPill label="DÉPENSE" icon={<ArrowUpRight size={16} />} active={filter === "out"} onClick={() => setFilter("out")} />
       </div>
 
-      {filteredTransactions.length === 0 ? (
+      {loading ? (
+        <div className="text-center text-slate-400 dark:text-zinc-500 py-10">Chargement...</div>
+      ) : filteredTransactions.length === 0 ? (
         <div className="rounded-3xl border border-dashed border-slate-300 dark:border-white/20 px-4 py-8 text-center text-slate-500 dark:text-zinc-400">
           Aucune transaction ne correspond à votre filtre.
         </div>
@@ -130,7 +110,7 @@ export default function TransactionsScreen() {
                 {transactions.map((tx) => (
                   <TransactionItem
                     key={tx.id}
-                    type={tx.type}
+                    type={tx.type === 'recharge' ? 'in' : tx.type}
                     title={tx.title}
                     desc={tx.desc}
                     time={tx.time}
@@ -153,10 +133,10 @@ function FilterPill({ label, icon, active, onClick }: { label: string, icon?: Re
       type="button"
       onClick={onClick}
       className={`flex items-center space-x-2 px-6 py-3 rounded-2xl whitespace-nowrap font-bold text-sm transition-all ${
-      active
-      ? 'bg-[#004F71] dark:bg-[#FFCC00] text-white dark:text-[#004F71] shadow-md shadow-[#004F71]/20 dark:shadow-[#FFCC00]/20'
-      : 'bg-white dark:bg-[#1A1A1A] text-slate-500 border border-slate-200 dark:border-white/5 hover:border-slate-300 dark:hover:border-white/10'
-    }`}
+        active
+          ? 'bg-[#004F71] dark:bg-[#FFCC00] text-white dark:text-[#004F71] shadow-md shadow-[#004F71]/20 dark:shadow-[#FFCC00]/20'
+          : 'bg-white dark:bg-[#1A1A1A] text-slate-500 border border-slate-200 dark:border-white/5 hover:border-slate-300 dark:hover:border-white/10'
+      }`}
     >
       {icon && <span className={active ? "" : "text-slate-400"}>{icon}</span>}
       <span>{label}</span>
@@ -164,7 +144,7 @@ function FilterPill({ label, icon, active, onClick }: { label: string, icon?: Re
   );
 }
 
-function TransactionItem({ type, title, desc, time, amount, icon }: { type: 'in'|'out', title: string, desc: string, time: string, amount: string, icon: React.ReactNode }) {
+function TransactionItem({ type, title, desc, time, amount, icon }: { type: 'in' | 'out', title: string, desc: string, time: string, amount: string, icon: React.ReactNode }) {
   const isOut = type === 'out';
   return (
     <div className="flex items-center justify-between p-5 bg-white dark:bg-[#1A1A1A] rounded-3xl shadow-sm border border-slate-100 dark:border-white/5 transition-colors duration-300">
