@@ -50,7 +50,7 @@ async function updatePin(req, res, next) {
     return next(error);
   }
   try {
-    const result = await usersService.updatePin(req.user.userId, newPin);
+    const result = await usersService.updatePin(req.user.userId, oldPin, newPin);
     return res.json(result);
   } catch (err) {
     return next(err);

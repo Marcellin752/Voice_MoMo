@@ -90,16 +90,32 @@ function updateLanguage(userId, lang) {
 
 // ─── PIN ──────────────────────────────────────────────────────────────────────
 
-async function updatePin(userId, newPin) {
+async function updatePin(userId, oldPin, newPin) {
+  // Vérifier l'ancien PIN
+  let storedHash;
+  if (await _useDb()) {
+    const result = await db.query("SELECT pin_hash FROM users WHERE id = $1", [userId]);
+    if (result.rows.length === 0) {
+      const err = new Error("Utilisateur introuvable."); err.status = 404; throw err;
+    }
+    storedHash = result.rows[0].pin_hash;
+  } else {
+    const u = authService._getInMemoryUserById(userId);
+    if (!u) { const err = new Error("Utilisateur introuvable."); err.status = 404; throw err; }
+    storedHash = u.pinHash;
+  }
+
+  const valid = await bcrypt.compare(String(oldPin), storedHash);
+  if (!valid) {
+    const err = new Error("Ancien PIN incorrect."); err.status = 401; throw err;
+  }
+
   const ROUNDS = parseInt(process.env.BCRYPT_ROUNDS, 10) || 10;
   const pinHash = await bcrypt.hash(String(newPin), ROUNDS);
   const pinUpdatedAt = new Date().toISOString();
 
   if (await _useDb()) {
-    await db.query(
-      "UPDATE users SET pin_hash = $1, updated_at = NOW() WHERE id = $2",
-      [pinHash, userId]
-    );
+    await db.query("UPDATE users SET pin_hash = $1, updated_at = NOW() WHERE id = $2", [pinHash, userId]);
   } else {
     authService._updateInMemoryPin(userId, pinHash);
   }

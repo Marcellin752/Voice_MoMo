@@ -93,10 +93,20 @@ async function createTransaction(userId, input) {
 
   if (await authService._isDbAvailable()) {
     try {
-      // Mapper le type mobile (in/out/recharge) vers le type DB
       const dbType = type === "in" ? "receive" : type === "recharge" ? "recharge" : "send";
       const senderId   = dbType === "receive" ? null : userId;
       const receiverId = dbType === "receive" ? userId : null;
+
+      // Vérifier le solde avant débit
+      if (dbType === "send") {
+        const balanceResult = await db.query("SELECT balance FROM users WHERE id = $1", [userId]);
+        const currentBalance = parseFloat(balanceResult.rows[0]?.balance || 0);
+        if (numericAmount > currentBalance) {
+          const err = new Error("Solde insuffisant pour effectuer cette opération.");
+          err.status = 400;
+          throw err;
+        }
+      }
 
       const result = await db.query(
         `INSERT INTO transactions (type, amount, sender_id, receiver_id, label, note, fee)
@@ -104,15 +114,35 @@ async function createTransaction(userId, input) {
          RETURNING *`,
         [dbType, numericAmount, senderId, receiverId, title || "Opération", desc || null],
       );
+
+      // Mettre à jour le solde en DB
+      if (dbType === "send") {
+        await db.query("UPDATE users SET balance = balance - $1 WHERE id = $2", [numericAmount, userId]);
+      } else if (dbType === "receive" || dbType === "recharge") {
+        await db.query("UPDATE users SET balance = balance + $1 WHERE id = $2", [numericAmount, userId]);
+      }
+
       return _mapDbRow(result.rows[0]);
-    } catch {
+    } catch (e) {
+      if (e.status === 400) throw e;
       // table absente → fallback in-memory
     }
   }
 
   // Mode in-memory
-  const now = new Date();
   const mobileType = type === "in" || type === "recharge" ? type : "out";
+
+  // Vérifier le solde avant débit (in-memory)
+  if (mobileType === "out") {
+    const u = authService._getInMemoryUserById(userId);
+    if (u && numericAmount > u.balance) {
+      const err = new Error("Solde insuffisant pour effectuer cette opération.");
+      err.status = 400;
+      throw err;
+    }
+  }
+
+  const now = new Date();
   const tx = {
     id:       `t_${Date.now()}`,
     userId,
@@ -124,6 +154,17 @@ async function createTransaction(userId, input) {
     amount:   _formatAmount(numericAmount, mobileType),
   };
   _transactions.unshift(tx);
+
+  // Mettre à jour le solde in-memory
+  const u = authService._getInMemoryUserById(userId);
+  if (u) {
+    if (mobileType === "out") {
+      authService._updateInMemoryUser(userId, { balance: u.balance - numericAmount });
+    } else {
+      authService._updateInMemoryUser(userId, { balance: u.balance + numericAmount });
+    }
+  }
+
   return tx;
 }
 
