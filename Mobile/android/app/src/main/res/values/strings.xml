@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Voice MoMo</string>
+    <string name="title_activity_main">Voice MoMo</string>
+    <string name="package_name">com.voicemomo.app</string>
+    <string name="custom_url_scheme">com.voicemomo.app</string>
+</resources>
