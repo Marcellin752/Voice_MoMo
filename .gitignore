@@ -4,3 +4,11 @@ node_modules/
 .dart_tool/
 dist/
 .env
+
+# Android build outputs
+Mobile/android/app/build/
+Mobile/android/.gradle/
+Mobile/android/app/src/main/assets/public/
+
+# Claude
+.claude/
