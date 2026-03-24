@@ -1,6 +1,5 @@
-import { CapacitorConfig } from '@capacitor/cli';
-
-const config: CapacitorConfig = {
+/** @type {import('@capacitor/cli').CapacitorConfig} */
+const config = {
   appId: 'com.voicemomo.app',
   appName: 'Voice MoMo',
   webDir: 'dist',
@@ -18,4 +17,4 @@ const config: CapacitorConfig = {
   },
 };
 
-export default config;
+module.exports = config;
