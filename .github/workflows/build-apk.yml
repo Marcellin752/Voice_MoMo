@@ -57,3 +57,16 @@ jobs:
           name: voice-momo-debug
           path: Mobile/android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 7
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: "Voice MoMo v${{ github.run_number }}"
+          body: |
+            APK de test généré automatiquement.
+            **Installation** : télécharge `app-debug.apk`, active "Sources inconnues" dans les paramètres Android, puis installe.
+          files: Mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          prerelease: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
