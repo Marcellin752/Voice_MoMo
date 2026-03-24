@@ -5,12 +5,6 @@ from app.models import Intent, ParseCommandResponse, ParseMetadata
 
 AMOUNT_PATTERN = re.compile(r"(\d[\d\s.,]*)")
 
-# Solde utilisateur (simulé, à connecter avec API réelle)
-user_state = {
-    "balance": 50000,
-    "services_balance": 500,
-}
-
 
 def _parse_amount(text: str) -> int | None:
     match = AMOUNT_PATTERN.search(text)
@@ -42,10 +36,8 @@ def parse_with_fallback(text: str) -> ParseCommandResponse:
         )
 
     if "solde" in lowered:
-        balance_msg = f"Votre solde est de {user_state['balance']} francs et {user_state['services_balance']} pour vos services."
         return ParseCommandResponse(
             intent=Intent.BALANCE,
-            confirmation_message=balance_msg,
             understood_text=text,
             metadata=ParseMetadata(confidence=0.9),
         )

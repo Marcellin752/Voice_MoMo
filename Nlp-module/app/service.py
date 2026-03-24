@@ -1,11 +1,11 @@
 from app.fallback import parse_with_fallback
-from app.gemini_client import GeminiClient
+from app.grok_client import GrokClient
 from app.models import ParseCommandResponse
 
 
 class CommandParserService:
     def __init__(self) -> None:
-        self.client = GeminiClient()
+        self.client = GrokClient()
 
     async def parse(self, text: str) -> ParseCommandResponse:
         try:

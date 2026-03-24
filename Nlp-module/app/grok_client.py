@@ -135,9 +135,6 @@ class GrokClient:
 
     @staticmethod
     def _build_confirmation(intent: str, amount: int | None, recipient: str | None, bill_type: str | None) -> str | None:
-        if intent == Intent.BALANCE.value:
-            # Mock balance response - in production, fetch actual balance from API
-            return "Votre solde est de 50000 francs et 500 pour vos services."
         if intent == Intent.TRANSFER.value:
             if amount and recipient:
                 return f"Voulez-vous envoyer {amount} francs a {recipient} ?"
