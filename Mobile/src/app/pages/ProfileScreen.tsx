@@ -1,28 +1,45 @@
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
-import { getProfile, saveProfile } from "../utils/localData";
+import * as usersService from "../services/users.service";
 
 export default function ProfileScreen() {
   const navigate = useNavigate();
-  const initial = useMemo(() => getProfile(), []);
-  const [fullName, setFullName] = useState(initial.fullName);
-  const [email, setEmail] = useState(initial.email);
-  const [phone, setPhone] = useState(initial.phone);
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const onSubmit = (e: React.FormEvent) => {
+  useEffect(() => {
+    usersService.getProfile()
+      .then((p) => {
+        setFullName(p.fullName);
+        setEmail(p.email);
+        setPhone(p.phone);
+      })
+      .catch(() => {});
+  }, []);
+
+  const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!fullName.trim()) {
       setMessage("Le nom est requis.");
       return;
     }
-
-    saveProfile({
-      fullName: fullName.trim(),
-      email: email.trim(),
-      phone: phone.trim(),
-    });
-    setMessage("Profil mis a jour avec succes.");
+    setLoading(true);
+    setMessage("");
+    try {
+      await usersService.updateProfile({
+        fullName: fullName.trim(),
+        email: email.trim(),
+        phone: phone.trim(),
+      });
+      setMessage("Profil mis à jour avec succès.");
+    } catch (err: any) {
+      setMessage(err.message || "Erreur lors de la mise à jour.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -66,12 +83,20 @@ export default function ProfileScreen() {
           />
         </label>
 
-        <button type="submit" className="w-full rounded-2xl bg-[#FFCC00] px-4 py-3 font-bold text-[#004F71]">
-          Enregistrer
+        <button
+          type="submit"
+          disabled={loading}
+          className="w-full rounded-2xl bg-[#FFCC00] px-4 py-3 font-bold text-[#004F71] disabled:opacity-60"
+        >
+          {loading ? "Enregistrement..." : "Enregistrer"}
         </button>
       </form>
 
-      {message && <p className="mt-4 rounded-xl bg-blue-50 px-3 py-2 text-sm text-[#004F71] dark:bg-[#004F71]/20 dark:text-[#FFCC00]">{message}</p>}
+      {message && (
+        <p className="mt-4 rounded-xl bg-blue-50 px-3 py-2 text-sm text-[#004F71] dark:bg-[#004F71]/20 dark:text-[#FFCC00]">
+          {message}
+        </p>
+      )}
     </div>
   );
 }

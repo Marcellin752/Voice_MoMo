@@ -1,16 +1,39 @@
-import { useMemo, useState } from "react";
+import { useState, useEffect, SetStateAction } from "react";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import { Mic, Eye, EyeOff, Send, Download, Phone, Wifi, CreditCard, Landmark, FileText, Bell, ArrowDownLeft, ArrowUpRight } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useVoiceAssistant } from "../hooks/useVoiceAssistant";
 import { useNavigate } from "react-router";
-import { getProfile } from "../utils/localData";
+import * as usersService from "../services/users.service";
+import * as transactionsService from "../services/transactions.service";
+import type { ApiProfile, ApiTransaction } from "../utils/api";
 
 export default function HomeScreen() {
   const { status, transcript, feedback, startListening, stopListening } = useVoiceAssistant();
   const [showBalance, setShowBalance] = useState(false);
   const navigate = useNavigate();
-  const profile = useMemo(() => getProfile(), []);
+
+  const [profile, setProfile] = useState<Pick<ApiProfile, 'fullName'>>({ fullName: "Utilisateur" });
+  const [balance, setBalance] = useState<number | null>(null);
+  const [transactions, setTransactions] = useState<ApiTransaction[]>([]);
+
+  useEffect(() => {
+    usersService.getProfile()
+      .then((p: { fullName: any; }) => setProfile({ fullName: p.fullName }))
+      .catch(() => {});
+
+    usersService.getBalance()
+      .then((b: { balance: SetStateAction<number | null>; }) => setBalance(b.balance))
+      .catch(() => {});
+
+    transactionsService.getTransactions()
+      .then((res: { transactions: any[]; }) => setTransactions(res.transactions.slice(0, 5)))
+      .catch(() => {});
+  }, []);
+
+  const formattedBalance = balance !== null
+    ? balance.toLocaleString("fr-FR")
+    : "••••••";
 
   return (
     <div className="flex flex-col min-h-full w-full relative bg-slate-50 dark:bg-[#121212] transition-colors duration-300">
@@ -31,7 +54,7 @@ export default function HomeScreen() {
             </div>
             <div>
               <p className="text-xs font-bold opacity-80 uppercase tracking-widest">Bonjour</p>
-              <h2 className="text-lg font-black tracking-tight">{profile.fullName || "Utilisateur"}</h2>
+              <h2 className="text-lg font-black tracking-tight">{profile.fullName}</h2>
             </div>
           </div>
           <button
@@ -57,10 +80,10 @@ export default function HomeScreen() {
             </button>
           </div>
           <div className="flex items-baseline space-x-2">
-             <h3 className="text-4xl font-black text-slate-900 dark:text-white tracking-tighter">
-                {showBalance ? "15.000" : "••••••"}
-             </h3>
-             <span className="text-lg font-bold text-slate-500 dark:text-zinc-500">FCFA</span>
+            <h3 className="text-4xl font-black text-slate-900 dark:text-white tracking-tighter">
+              {showBalance ? formattedBalance : "••••••"}
+            </h3>
+            <span className="text-lg font-bold text-slate-500 dark:text-zinc-500">FCFA</span>
           </div>
         </div>
       </div>
@@ -82,10 +105,10 @@ export default function HomeScreen() {
             className="flex flex-col items-center justify-center cursor-pointer group"
             aria-label="Afficher plus de services"
           >
-             <div className="w-14 h-14 rounded-[20px] bg-transparent flex items-center justify-center text-[#004F71] dark:text-[#FFCC00] group-hover:bg-slate-100 dark:group-hover:bg-white/10 transition-colors mb-1">
-                <span className="font-black text-3xl">+</span>
-             </div>
-             <span className="text-[11px] font-semibold text-slate-700 dark:text-zinc-300 text-center">Plus</span>
+            <div className="w-14 h-14 rounded-[20px] bg-transparent flex items-center justify-center text-[#004F71] dark:text-[#FFCC00] group-hover:bg-slate-100 dark:group-hover:bg-white/10 transition-colors mb-1">
+              <span className="font-black text-3xl">+</span>
+            </div>
+            <span className="text-[11px] font-semibold text-slate-700 dark:text-zinc-300 text-center">Plus</span>
           </button>
         </div>
       </div>
@@ -103,11 +126,19 @@ export default function HomeScreen() {
           </button>
         </div>
         <div className="space-y-3">
-          <TransactionItem type="out" title="Achat Crédit" time="Aujourd'hui, 14:30" amount="-2 000" />
-          <TransactionItem type="in" title="Dépôt Agence" time="Hier, 10:15" amount="+15 000" />
-          <TransactionItem type="out" title="Transfert à Paul" time="15 Mars, 09:00" amount="-5 000" />
-          <TransactionItem type="out" title="Paiement Canal+" time="12 Mars, 20:45" amount="-10 000" />
-          <TransactionItem type="in" title="Réception de Marie" time="10 Mars, 11:20" amount="+8 500" />
+          {transactions.length > 0 ? (
+            transactions.map((tx) => (
+              <TransactionItem
+                key={tx.id}
+                type={tx.type === 'recharge' ? 'in' : tx.type}
+                title={tx.title}
+                time={`${tx.dayLabel}, ${tx.time}`}
+                amount={tx.amount}
+              />
+            ))
+          ) : (
+            <p className="text-sm text-slate-400 dark:text-zinc-500 text-center py-4">Aucune transaction récente.</p>
+          )}
         </div>
       </div>
 
@@ -171,7 +202,7 @@ function ActionIcon({ icon, label, onClick }: { icon: React.ReactNode, label: st
   );
 }
 
-function TransactionItem({ type, title, time, amount }: { type: 'in'|'out', title: string, time: string, amount: string }) {
+function TransactionItem({ type, title, time, amount }: { type: 'in' | 'out', title: string, time: string, amount: string }) {
   const isOut = type === 'out';
   return (
     <div className="flex items-center justify-between p-4 bg-white dark:bg-[#1A1A1A] rounded-2xl shadow-sm border border-slate-100 dark:border-white/5 transition-colors duration-300">

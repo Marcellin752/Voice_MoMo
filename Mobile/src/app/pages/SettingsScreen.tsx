@@ -1,11 +1,26 @@
 import { ChevronRight, User, Settings, LogOut, Check, Moon, Sun } from "lucide-react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { useTheme } from "../contexts/ThemeContext";
-import { getLanguage } from "../utils/localData";
+import { useAuth } from "../contexts/AuthContext";
+import { useState, useEffect } from "react";
+import * as usersService from "../services/users.service";
 
 export default function SettingsScreen() {
   const { theme, toggleTheme } = useTheme();
-  const language = getLanguage();
+  const { logout } = useAuth();
+  const navigate = useNavigate();
+  const [language, setLanguage] = useState<"fr" | "en">("fr");
+
+  useEffect(() => {
+    usersService.getLanguage()
+      .then((res) => setLanguage(res.language))
+      .catch(() => {});
+  }, []);
+
+  const handleLogout = () => {
+    logout();
+    navigate("/");
+  };
 
   return (
     <div className="flex flex-col min-h-full w-full bg-slate-50 dark:bg-[#121212] px-6 py-8 transition-colors duration-300">
@@ -80,7 +95,11 @@ export default function SettingsScreen() {
         </div>
 
         <div className="pt-4">
-          <Link to="/" className="flex items-center justify-between p-5 bg-white dark:bg-[#1A1A1A] rounded-3xl shadow-sm border border-slate-100 dark:border-white/5 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors group">
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="w-full flex items-center justify-between p-5 bg-white dark:bg-[#1A1A1A] rounded-3xl shadow-sm border border-slate-100 dark:border-white/5 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors group"
+          >
             <div className="flex items-center space-x-4">
               <div className="p-2.5 bg-red-50 dark:bg-red-500/10 rounded-xl text-red-500 group-hover:bg-red-500 group-hover:text-white transition-colors">
                 <LogOut size={22} />
@@ -89,7 +108,7 @@ export default function SettingsScreen() {
                 <h4 className="font-bold text-red-500">Se déconnecter</h4>
               </div>
             </div>
-          </Link>
+          </button>
         </div>
       </div>
     </div>

@@ -1,15 +1,30 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
-import { getLanguage, saveLanguage } from "../utils/localData";
+import * as usersService from "../services/users.service";
 
 export default function LanguageScreen() {
   const navigate = useNavigate();
-  const [language, setLanguage] = useState<"fr" | "en">(getLanguage());
+  const [language, setLanguage] = useState<"fr" | "en">("fr");
   const [saved, setSaved] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  const onSave = () => {
-    saveLanguage(language);
-    setSaved(true);
+  useEffect(() => {
+    usersService.getLanguage()
+      .then((res) => setLanguage(res.language))
+      .catch(() => {});
+  }, []);
+
+  const onSave = async () => {
+    setLoading(true);
+    setSaved(false);
+    try {
+      await usersService.updateLanguage(language);
+      setSaved(true);
+    } catch {
+      // silently ignore
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -36,12 +51,21 @@ export default function LanguageScreen() {
         >
           English
         </button>
-        <button type="button" onClick={onSave} className="mt-2 w-full rounded-2xl bg-[#FFCC00] px-4 py-3 font-bold text-[#004F71]">
-          Valider
+        <button
+          type="button"
+          onClick={onSave}
+          disabled={loading}
+          className="mt-2 w-full rounded-2xl bg-[#FFCC00] px-4 py-3 font-bold text-[#004F71] disabled:opacity-60"
+        >
+          {loading ? "Enregistrement..." : "Valider"}
         </button>
       </div>
 
-      {saved && <p className="mt-4 rounded-xl bg-green-50 px-3 py-2 text-sm text-green-700 dark:bg-green-500/10 dark:text-green-400">Langue enregistree.</p>}
+      {saved && (
+        <p className="mt-4 rounded-xl bg-green-50 px-3 py-2 text-sm text-green-700 dark:bg-green-500/10 dark:text-green-400">
+          Langue enregistrée.
+        </p>
+      )}
     </div>
   );
 }

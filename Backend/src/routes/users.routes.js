@@ -12,5 +12,6 @@ router.put("/language", usersController.updateLanguage);
 router.put("/pin", usersController.updatePin);
 router.get("/security", usersController.getSecurity);
 router.get("/notifications", usersController.getNotifications);
+router.get("/balance", usersController.getBalance);
 
 module.exports = router;

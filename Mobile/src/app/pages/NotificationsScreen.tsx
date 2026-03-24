@@ -1,12 +1,19 @@
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
-
-const notifications = [
-  { id: "n1", title: "Depot recu", content: "Vous avez recu +25 000 FCFA.", when: "Aujourd'hui 15:32" },
-  { id: "n2", title: "Paiement confirme", content: "Votre paiement marchand a ete valide.", when: "Hier 11:45" },
-];
+import * as usersService from "../services/users.service";
+import type { ApiNotification } from "../utils/api";
 
 export default function NotificationsScreen() {
   const navigate = useNavigate();
+  const [notifications, setNotifications] = useState<ApiNotification[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    usersService.getNotifications()
+      .then((res) => setNotifications(res.notifications))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
 
   return (
     <div className="min-h-full px-6 py-8 bg-slate-50 dark:bg-[#121212]">
@@ -17,15 +24,21 @@ export default function NotificationsScreen() {
         </button>
       </div>
 
-      <div className="space-y-3">
-        {notifications.map((n) => (
-          <div key={n.id} className="rounded-3xl border border-slate-200 dark:border-white/10 bg-white dark:bg-[#1A1A1A] p-4">
-            <p className="font-bold text-slate-900 dark:text-white">{n.title}</p>
-            <p className="text-sm text-slate-600 dark:text-zinc-300">{n.content}</p>
-            <p className="mt-1 text-xs text-slate-400">{n.when}</p>
-          </div>
-        ))}
-      </div>
+      {loading ? (
+        <p className="text-center text-slate-400 dark:text-zinc-500 py-10">Chargement...</p>
+      ) : notifications.length === 0 ? (
+        <p className="text-center text-slate-400 dark:text-zinc-500 py-10">Aucune notification.</p>
+      ) : (
+        <div className="space-y-3">
+          {notifications.map((n) => (
+            <div key={n.id} className="rounded-3xl border border-slate-200 dark:border-white/10 bg-white dark:bg-[#1A1A1A] p-4">
+              <p className="font-bold text-slate-900 dark:text-white">{n.title}</p>
+              <p className="text-sm text-slate-600 dark:text-zinc-300">{n.content}</p>
+              <p className="mt-1 text-xs text-slate-400">{n.when}</p>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

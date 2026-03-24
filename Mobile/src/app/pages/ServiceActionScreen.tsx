@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router";
-import { addTransaction } from "../utils/localData";
+import * as transactionsService from "../services/transactions.service";
 
 const SERVICE_LABELS: Record<string, string> = {
   transfert: "Transfert",
@@ -18,6 +18,7 @@ export default function ServiceActionScreen() {
   const [amount, setAmount] = useState("");
   const [target, setTarget] = useState("");
   const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(false);
 
   const serviceLabel = useMemo(() => {
     if (!serviceId) return "Service";
@@ -26,24 +27,30 @@ export default function ServiceActionScreen() {
 
   const isIncoming = serviceId === "banque";
 
-  const onSubmit = (e: React.FormEvent) => {
+  const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const numericAmount = Number(amount);
     if (!numericAmount || numericAmount <= 0) {
       setMessage("Veuillez saisir un montant valide.");
       return;
     }
-
-    addTransaction({
-      title: serviceLabel,
-      desc: target.trim() ? `Destination: ${target.trim()}` : "Operation effectuee via application",
-      amount: `${isIncoming ? "+" : "-"}${numericAmount.toLocaleString("fr-FR")}`,
-      type: isIncoming ? "in" : "out",
-    });
-
-    setMessage(`${serviceLabel} effectue avec succes.`);
-    setAmount("");
-    setTarget("");
+    setLoading(true);
+    setMessage("");
+    try {
+      await transactionsService.createTransaction({
+        title: serviceLabel,
+        desc: target.trim() ? `Destination: ${target.trim()}` : "Opération effectuée via application",
+        amount: numericAmount,
+        type: isIncoming ? "in" : "out",
+      });
+      setMessage(`${serviceLabel} effectué avec succès.`);
+      setAmount("");
+      setTarget("");
+    } catch (err: any) {
+      setMessage(err.message || "Erreur lors de l'opération.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -75,8 +82,12 @@ export default function ServiceActionScreen() {
             placeholder="Ex: 0123456789"
           />
         </label>
-        <button type="submit" className="w-full rounded-2xl bg-[#FFCC00] px-4 py-3 font-bold text-[#004F71]">
-          Confirmer
+        <button
+          type="submit"
+          disabled={loading}
+          className="w-full rounded-2xl bg-[#FFCC00] px-4 py-3 font-bold text-[#004F71] disabled:opacity-60"
+        >
+          {loading ? "Traitement..." : "Confirmer"}
         </button>
       </form>
 
@@ -88,7 +99,11 @@ export default function ServiceActionScreen() {
         Voir l'historique
       </button>
 
-      {message && <p className="mt-4 rounded-xl bg-green-50 px-3 py-2 text-sm text-green-700 dark:bg-green-500/10 dark:text-green-400">{message}</p>}
+      {message && (
+        <p className="mt-4 rounded-xl bg-green-50 px-3 py-2 text-sm text-green-700 dark:bg-green-500/10 dark:text-green-400">
+          {message}
+        </p>
+      )}
     </div>
   );
 }

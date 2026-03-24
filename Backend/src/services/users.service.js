@@ -5,6 +5,7 @@ const userState = {
   phone: "0123456789",
   language: "fr",
   pinUpdatedAt: null,
+  balance: 15000,
   notifications: [
     {
       id: "n1",
@@ -56,6 +57,10 @@ function getNotifications() {
   return userState.notifications;
 }
 
+function getBalance() {
+  return { balance: userState.balance };
+}
+
 module.exports = {
   getProfile,
   updateProfile,
@@ -64,4 +69,5 @@ module.exports = {
   updatePin,
   getSecurityState,
   getNotifications,
+  getBalance,
 };
