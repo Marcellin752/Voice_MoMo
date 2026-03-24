@@ -1,16 +1,23 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, Body, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 import logging
 import json
+from typing import Optional
 
 from app.models import ParseCommandRequest, ParseCommandResponse
 from app.service import CommandParserService
 from app.gemini_voice_service import get_voice_service
+from app.action_executor import get_action_executor
+from app.transaction_cache import get_transaction_cache
 
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Voice MoMo NLP Service", version="0.1.0")
+
+# Instances globales
+executor = get_action_executor()
+cache = get_transaction_cache()
 
 # Add CORS middleware to allow requests from the mobile frontend
 app.add_middleware(
@@ -78,40 +85,23 @@ async def voice_command(audio_file: UploadFile = File(...)) -> Response:
         
         logger.info(f"✅ Analyse complétée: intent={nlp_result.intent.value}, confidence={nlp_result.metadata.confidence}")
         
-        # 3. Exécuter la transaction selon l'intent
-        # (INTÉGRATION AVEC TON BACKEND EXISTANT ICI)
+        # 3. Exécuter l'action selon l'intent
+        user_id = "default"  # En production, obtenir du contexte utilisateur
         
-        if nlp_result.intent.value == "balance":
-            logger.info("💰 Balance check requested")
-            # Appeler ton service de consultation de solde
-            # balance = get_user_balance(user_id)
-            # nlp_result.confirmation_message = f"Votre solde: {balance} XOF"
+        action_result = executor.execute(
+            user_id=user_id,
+            intent=nlp_result.intent,
+            amount=nlp_result.amount,
+            recipient=nlp_result.recipient,
+            service_type=nlp_result.bill_type,
+            needs_confirmation=nlp_result.needs_confirmation
+        )
         
-        elif nlp_result.intent.value == "transfer":
-            amount = nlp_result.amount
-            recipient = nlp_result.recipient
-            
-            if nlp_result.needs_confirmation:
-                logger.info(f"📝 Confirmation requise: {amount} XOF → {recipient}")
-                # Mettre en cache la transaction en attente de confirmation
-                # session.pending_transaction = {"type": "transfer", "amount": amount, "recipient": recipient}
-            else:
-                logger.info(f"✅ Transfert: {amount} XOF → {recipient}")
-                # execute_transfer(user_id, amount, recipient)
+        logger.info(f"🎯 Exécution action: success={action_result.success}, message={action_result.message}")
         
-        elif nlp_result.intent.value == "recharge":
-            amount = nlp_result.amount
-            logger.info(f"📱 Recharge: {amount} XOF")
-            # execute_recharge(user_id, amount)
-        
-        elif nlp_result.intent.value == "bill_payment":
-            amount = nlp_result.amount
-            bill_type = nlp_result.bill_type
-            logger.info(f"📄 Paiement: {amount} XOF pour {bill_type}")
-            # execute_payment(user_id, amount, bill_type)
-        
-        # 4. Retourner le résultat NLP + audio optionnel
+        # 4. Construire la réponse
         response_data = nlp_result.model_dump()
+        response_data.update(action_result.to_dict())
         
         if result["audio_response"]:
             # Si on a l'audio, l'ajouter au JSON
@@ -139,8 +129,90 @@ async def voice_command(audio_file: UploadFile = File(...)) -> Response:
 @app.get("/api/health")
 async def api_health():
     """Vérifier que le service vocal est opérationnel"""
+    cache.cleanup_expired()
+    
     return {
         "status": "ok",
         "service": "Gemini Voice Command Processor",
-        "audio_endpoint": "/api/voice-command"
+        "audio_endpoint": "/api/voice-command",
+        "cache_transactions": cache.size(),
+        "features": [
+            "voice_command",
+            "balance_check",
+            "money_transfer",
+            "phone_recharge",
+            "bill_payment",
+            "action_confirmation"
+        ]
+    }
+
+
+# ============================================================================
+# ENDPOINTS DE CONFIRMATION/ANNULATION D'ACTIONS
+# ============================================================================
+
+@app.post("/api/confirm")
+async def confirm_action(
+    transaction_id: str = Body(...),
+    user_id: str = Body(..., default="default")
+):
+    """
+    ✅ Confirmer une action en attente
+    
+    Utilisé après la réponse de confirmation vocale ("Oui")
+    """
+    logger.info(f"✅ Confirmation reçue pour: {transaction_id}")
+    
+    result = executor.confirm_action(transaction_id, user_id)
+    
+    if not result.success:
+        raise HTTPException(status_code=400, detail=result.message)
+    
+    return {
+        "success": result.success,
+        "message": result.message,
+        "intent": result.intent,
+        "data": result.data
+    }
+
+
+@app.post("/api/cancel")
+async def cancel_action(
+    transaction_id: str = Body(...),
+    user_id: str = Body(..., default="default")
+):
+    """
+    ❌ Annuler une action en attente
+    
+    Utilisé après la réponse de refus vocal ("Non")
+    """
+    logger.info(f"❌ Annulation reçue pour: {transaction_id}")
+    
+    result = executor.cancel_action(transaction_id, user_id)
+    
+    if not result.success:
+        raise HTTPException(status_code=400, detail=result.message)
+    
+    return {
+        "success": result.success,
+        "message": result.message,
+        "intent": result.intent
+    }
+
+
+@app.get("/api/pending-transactions")
+async def get_pending_transactions(user_id: str = "default"):
+    """
+    📋 Lister les transactions en attente
+    
+    DEBUG ONLY - À utiliser pour le monitoring
+    """
+    tx = cache.get_by_user(user_id)
+    
+    if not tx:
+        return {"user_id": user_id, "pending": None}
+    
+    return {
+        "user_id": user_id,
+        "pending": tx.to_dict()
     }
