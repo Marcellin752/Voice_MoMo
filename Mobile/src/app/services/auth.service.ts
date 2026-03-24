@@ -1,7 +1,7 @@
 import { request } from '../utils/api';
 import type { ApiUser } from '../utils/api';
 
-export type RegisterResponse = { message: string; user: ApiUser };
+export type RegisterResponse = { message: string; token: string; user: ApiUser };
 export type LoginResponse = { token: string; user: ApiUser };
 
 export function register(phone: string, pin: string) {

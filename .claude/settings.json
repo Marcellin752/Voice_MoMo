@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s -X POST http://localhost:3001/api/auth/register -H \"Content-Type: application/json\" -d '{\"\"phone\"\":\"\"0612345678\"\",\"\"pin\"\":\"\"1234\"\"}')",
+      "Bash(xargs kill:*)"
+    ]
+  }
+}

@@ -2,13 +2,17 @@ const authService = require("../services/auth.service");
 
 /**
  * POST /api/auth/register
- * Body: { phone, pin }
+ * Body: { phone, pin, fullName? }
  */
 async function register(req, res, next) {
   try {
-    const { phone, pin } = req.body || {};
-    const user = await authService.register(phone, pin);
-    return res.status(201).json({ message: "Compte créé avec succès.", user });
+    const { phone, pin, fullName } = req.body || {};
+    const result = await authService.register(phone, pin, fullName);
+    return res.status(201).json({
+      message: "Compte créé avec succès.",
+      token: result.token,
+      user: result.user,
+    });
   } catch (error) {
     return next(error);
   }

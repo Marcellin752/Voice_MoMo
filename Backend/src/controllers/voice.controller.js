@@ -1,30 +1,26 @@
 const nlpService = require("../services/nlp.service");
 const transactionService = require("../services/transaction.service");
 
-/**
- * POST /api/voice/command
- * Body: { command: string }
- */
-function processVoiceCommand(req, res, next) {
+async function processVoiceCommand(req, res, next) {
   try {
     const { command } = req.body || {};
     const parsed = nlpService.parseVoiceCommand(command);
 
     if (parsed.intent === "transfer" && parsed.amount) {
-      transactionService.createTransaction({
+      await transactionService.createTransaction(req.user.userId, {
         title: "Transfert vocal",
-        desc: "Opération initiée par commande vocale",
+        desc:  "Opération initiée par commande vocale",
         amount: parsed.amount,
-        type: "out", // transfert = débit
+        type:  "out",
       });
     }
 
     if (parsed.intent === "topup" && parsed.amount) {
-      transactionService.createTransaction({
+      await transactionService.createTransaction(req.user.userId, {
         title: "Recharge vocale",
-        desc: "Opération initiée par commande vocale",
+        desc:  "Opération initiée par commande vocale",
         amount: parsed.amount,
-        type: "recharge", // recharge = son propre type
+        type:  "recharge",
       });
     }
 
