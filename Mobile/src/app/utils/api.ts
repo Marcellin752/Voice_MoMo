@@ -32,8 +32,10 @@ export type ApiUser = { id: string; phone: string };
 export type ApiProfile = {
   id: string;
   fullName: string;
-  email: string;
   phone: string;
+  email?: string;      // non stocké côté backend, champ UI seulement
+  balance?: number;
+  currency?: string;
 };
 
 export type ApiTransaction = {

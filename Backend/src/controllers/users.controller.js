@@ -1,16 +1,25 @@
 const usersService = require("../services/users.service");
 
-function getProfile(req, res) {
-  return res.json(usersService.getProfile());
+async function getProfile(req, res, next) {
+  try {
+    const profile = await usersService.getProfile(req.user.userId);
+    return res.json(profile);
+  } catch (err) {
+    return next(err);
+  }
 }
 
-function updateProfile(req, res) {
-  const profile = usersService.updateProfile(req.body || {});
-  return res.json(profile);
+async function updateProfile(req, res, next) {
+  try {
+    const profile = await usersService.updateProfile(req.user.userId, req.body || {});
+    return res.json(profile);
+  } catch (err) {
+    return next(err);
+  }
 }
 
 function getLanguage(req, res) {
-  return res.json(usersService.getLanguage());
+  return res.json(usersService.getLanguage(req.user.userId));
 }
 
 function updateLanguage(req, res, next) {
@@ -20,10 +29,10 @@ function updateLanguage(req, res, next) {
     error.status = 400;
     return next(error);
   }
-  return res.json(usersService.updateLanguage(language));
+  return res.json(usersService.updateLanguage(req.user.userId, language));
 }
 
-function updatePin(req, res, next) {
+async function updatePin(req, res, next) {
   const { oldPin, newPin, confirmPin } = req.body || {};
   if (!oldPin || !newPin || !confirmPin) {
     const error = new Error("oldPin, newPin et confirmPin sont requis.");
@@ -31,31 +40,43 @@ function updatePin(req, res, next) {
     return next(error);
   }
   if (!/^\d{4}$/.test(String(newPin)) || !/^\d{4}$/.test(String(confirmPin))) {
-    const error = new Error(
-      "Le nouveau PIN doit contenir exactement 4 chiffres.",
-    );
+    const error = new Error("Le nouveau PIN doit contenir exactement 4 chiffres.");
     error.status = 400;
     return next(error);
   }
   if (String(newPin) !== String(confirmPin)) {
-    const error = new Error(
-      "Le nouveau PIN et sa confirmation ne correspondent pas.",
-    );
+    const error = new Error("Le nouveau PIN et sa confirmation ne correspondent pas.");
     error.status = 400;
     return next(error);
   }
-  return res.json(usersService.updatePin());
+  try {
+    const result = await usersService.updatePin(req.user.userId, newPin);
+    return res.json(result);
+  } catch (err) {
+    return next(err);
+  }
 }
 
 function getSecurity(req, res) {
   return res.json(usersService.getSecurityState());
 }
-function getNotifications(req, res) {
-  return res.json({ notifications: usersService.getNotifications() });
+
+async function getNotifications(req, res, next) {
+  try {
+    const notifications = await usersService.getNotifications(req.user.userId);
+    return res.json({ notifications });
+  } catch (err) {
+    return next(err);
+  }
 }
 
-function getBalance(req, res) {
-  return res.json(usersService.getBalance());
+async function getBalance(req, res, next) {
+  try {
+    const result = await usersService.getBalance(req.user.userId);
+    return res.json(result);
+  } catch (err) {
+    return next(err);
+  }
 }
 
 module.exports = {
