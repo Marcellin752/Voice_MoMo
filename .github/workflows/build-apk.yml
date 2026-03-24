@@ -36,12 +36,12 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
       - name: Install Capacitor CLI
         working-directory: Mobile
         run: npx cap sync android
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
 
       - name: Make gradlew executable
         working-directory: Mobile/android
