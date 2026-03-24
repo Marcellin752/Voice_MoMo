@@ -6,8 +6,18 @@ const userState = {
   language: "fr",
   pinUpdatedAt: null,
   notifications: [
-    { id: "n1", title: "Depot recu", content: "Vous avez recu +25 000 FCFA.", when: "Aujourd'hui 15:32" },
-    { id: "n2", title: "Paiement confirme", content: "Votre paiement marchand a ete valide.", when: "Hier 11:45" },
+    {
+      id: "n1",
+      title: "Dépôt reçu",
+      content: "Vous avez reçu +25 000 FCFA.",
+      when: "Aujourd'hui 15:32",
+    },
+    {
+      id: "n2",
+      title: "Paiement confirmé",
+      content: "Votre paiement marchand a été validé.",
+      when: "Hier 11:45",
+    },
   ],
 };
 
@@ -21,7 +31,8 @@ function getProfile() {
 }
 
 function updateProfile(data) {
-  if (typeof data.fullName === "string") userState.fullName = data.fullName.trim();
+  if (typeof data.fullName === "string")
+    userState.fullName = data.fullName.trim();
   if (typeof data.email === "string") userState.email = data.email.trim();
   if (typeof data.phone === "string") userState.phone = data.phone.trim();
   return getProfile();
@@ -30,21 +41,17 @@ function updateProfile(data) {
 function getLanguage() {
   return { language: userState.language };
 }
-
-function updateLanguage(language) {
-  userState.language = language;
+function updateLanguage(lang) {
+  userState.language = lang;
   return getLanguage();
 }
-
 function updatePin() {
   userState.pinUpdatedAt = new Date().toISOString();
   return { pinUpdatedAt: userState.pinUpdatedAt };
 }
-
 function getSecurityState() {
   return { pinUpdatedAt: userState.pinUpdatedAt };
 }
-
 function getNotifications() {
   return userState.notifications;
 }
