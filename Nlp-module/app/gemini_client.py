@@ -1,12 +1,13 @@
-import json
+"""
+Gemini 2.0 Flash NLP Client for Mobile Money Voice Commands
+Replaces Grok with Google's free Gemini 2.0 Flash API
+"""
 
-import httpx
+import json
+import google.generativeai as genai
 
 from app.config import settings
 from app.models import (
-    GrokMessage,
-    GrokRequest,
-    GrokResponse,
     Intent,
     ParseCommandResponse,
     ParseMetadata,
@@ -36,57 +37,74 @@ Regles:
 """.strip()
 
 
-class GrokClient:
+class GeminiClient:
+    """Google Gemini 2.0 Flash based NLP command parser"""
+    
     def __init__(self) -> None:
-        self.base_url = settings.xai_base_url.rstrip("/")
-        self.api_key = settings.xai_api_key
-        self.model = settings.xai_model
-        self.timeout = settings.request_timeout_seconds
-
-    async def parse_command(self, text: str) -> ParseCommandResponse:
+        """Initialize Gemini client with API key from config"""
+        self.api_key = settings.gemini_api_key
         if not self.api_key:
-            raise RuntimeError("XAI_API_KEY is not configured")
-
-        request_payload = GrokRequest(
-            model=self.model,
-            messages=[
-                GrokMessage(role="system", content=SYSTEM_PROMPT),
-                GrokMessage(role="user", content=text),
-            ],
-            temperature=0.1,
-        )
-
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.post(
-                f"{self.base_url}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                },
-                json=request_payload.model_dump(),
+            raise RuntimeError("GEMINI_API_KEY is not configured in environment")
+        
+        # Configure Gemini API
+        genai.configure(api_key=self.api_key)
+        self.model = genai.GenerativeModel('gemini-2.0-flash-exp')
+    
+    async def parse_command(self, text: str) -> ParseCommandResponse:
+        """
+        Parse a voice command using Gemini 2.0 Flash
+        
+        Args:
+            text: User's voice command as text
+            
+        Returns:
+            ParseCommandResponse with intent, entities, and metadata
+        """
+        if not self.api_key:
+            raise RuntimeError("GEMINI_API_KEY is not configured")
+        
+        # Build prompt
+        full_prompt = f"{SYSTEM_PROMPT}\n\nUser command: {text}"
+        
+        try:
+            # Call Gemini API synchronously (gemini-2.0-flash-exp doesn't support async yet in free tier)
+            response = self.model.generate_content(
+                full_prompt,
+                generation_config=genai.GenerationConfig(
+                    temperature=0.1,
+                    max_output_tokens=500,
+                ),
             )
-            response.raise_for_status()
-            parsed = GrokResponse.model_validate(response.json())
-
-        content = parsed.choices[0].message.content.strip() if parsed.choices else "{}"
+            
+            content = response.text.strip() if response.text else "{}"
+        except Exception as e:
+            # If Gemini fails, return error response (will be caught by fallback)
+            raise RuntimeError(f"Gemini API error: {str(e)}")
+        
+        # Parse JSON response
         data = self._extract_json(content)
-
+        
+        # Normalize intent
         intent_value = str(data.get("intent", "unknown")).lower().strip()
         if intent_value not in {item.value for item in Intent}:
             intent_value = Intent.UNKNOWN.value
-
+        
+        # Normalize amount
         amount = self._normalize_amount(data.get("amount"))
-
+        
+        # Normalize recipient
         recipient = data.get("recipient")
         recipient = str(recipient).strip() if recipient else None
-
+        
+        # Normalize bill type
         bill_type = data.get("bill_type")
         bill_type = str(bill_type).strip() if bill_type else None
-
+        
+        # Determine if confirmation needed
         needs_confirmation = bool(data.get("needs_confirmation", False))
         if intent_value in {Intent.TRANSFER.value, Intent.RECHARGE.value, Intent.BILL_PAYMENT.value}:
             needs_confirmation = True
-
+        
         return ParseCommandResponse(
             intent=Intent(intent_value),
             amount=amount,
@@ -96,32 +114,48 @@ class GrokClient:
             confirmation_message=self._build_confirmation(intent_value, amount, recipient, bill_type),
             understood_text=text,
             metadata=ParseMetadata(
-                provider="grok",
-                model=self.model,
-                confidence=float(data.get("confidence", 0.7)),
+                provider="gemini",
+                model="gemini-2.0-flash-exp",
+                confidence=float(data.get("confidence", 0.8)),
                 raw_output=content,
             ),
         )
-
+    
     @staticmethod
     def _extract_json(content: str) -> dict:
+        """
+        Extract JSON from response text.
+        Handles markdown code blocks and malformed JSON.
+        """
         content = content.strip()
+        
+        # Strip markdown code blocks
         if content.startswith("```"):
             content = content.strip("`")
             if content.startswith("json"):
                 content = content[4:].strip()
+        
+        # Try to parse if looks like JSON
         if content.startswith("{") and content.endswith("}"):
-            return json.loads(content)
-
+            try:
+                return json.loads(content)
+            except json.JSONDecodeError:
+                pass
+        
+        # Try to find JSON block within response
         start = content.find("{")
         end = content.rfind("}")
         if start >= 0 and end > start:
-            return json.loads(content[start : end + 1])
-
+            try:
+                return json.loads(content[start : end + 1])
+            except json.JSONDecodeError:
+                pass
+        
         return {}
-
+    
     @staticmethod
     def _normalize_amount(raw_amount: object) -> int | None:
+        """Normalize amount from various types to integer"""
         if raw_amount is None:
             return None
         if isinstance(raw_amount, int):
@@ -129,25 +163,36 @@ class GrokClient:
         if isinstance(raw_amount, float):
             return int(raw_amount)
         if isinstance(raw_amount, str):
+            # Remove spaces, commas, periods used as separators
             cleaned = raw_amount.strip().replace(" ", "").replace(",", "").replace(".", "")
             return int(cleaned) if cleaned.isdigit() else None
         return None
-
+    
     @staticmethod
-    def _build_confirmation(intent: str, amount: int | None, recipient: str | None, bill_type: str | None) -> str | None:
+    def _build_confirmation(
+        intent: str,
+        amount: int | None,
+        recipient: str | None,
+        bill_type: str | None,
+    ) -> str | None:
+        """Build localized French confirmation message for user"""
         if intent == Intent.BALANCE.value:
             # Mock balance response - in production, fetch actual balance from API
             return "Votre solde est de 50000 francs et 500 pour vos services."
+        
         if intent == Intent.TRANSFER.value:
             if amount and recipient:
                 return f"Voulez-vous envoyer {amount} francs a {recipient} ?"
             return "Voulez-vous confirmer ce transfert ?"
+        
         if intent == Intent.RECHARGE.value:
             if amount:
                 return f"Voulez-vous acheter {amount} francs de credit ?"
             return "Voulez-vous confirmer cette recharge ?"
+        
         if intent == Intent.BILL_PAYMENT.value:
             if amount and bill_type:
                 return f"Voulez-vous payer {amount} francs pour la facture {bill_type} ?"
             return "Voulez-vous confirmer ce paiement de facture ?"
+        
         return None
