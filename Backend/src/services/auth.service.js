@@ -1,77 +1,117 @@
-const jwt = require("jsonwebtoken");
 const bcrypt = require("bcrypt");
+const jwt = require("jsonwebtoken");
+const db = require("../config/db");
 
 const ROUNDS = parseInt(process.env.BCRYPT_ROUNDS, 10) || 10;
 
-// Structure : { phone -> { id, phone, pinHash } }
-const usersDB = {};
-
-/**
- * Inscrit un utilisateur (crée un hash de son PIN).
- * @param {string} phone
- * @param {string} pin   — 4 chiffres
- * @returns {{ id, phone }}
- */
-async function register(phone, pin) {
+async function register(phone, pin, fullName) {
   const cleaned = _cleanPhone(phone);
   _validatePhone(cleaned);
   _validatePin(pin);
 
-  if (usersDB[cleaned]) {
-    const err = new Error("Ce numéro est déjà enregistré.");
+  if (!fullName || String(fullName).trim().length < 2) {
+    const err = new Error("Le nom complet est requis (minimum 2 caractères).");
+    err.status = 400;
+    throw err;
+  }
+
+  const existing = await db.query(
+    "SELECT id FROM users WHERE phone_number = $1",
+    [cleaned],
+  );
+  if (existing.rows.length > 0) {
+    const err = new Error("Ce numéro de téléphone est déjà enregistré.");
     err.status = 409;
     throw err;
   }
 
   const pinHash = await bcrypt.hash(String(pin), ROUNDS);
-  const user = { id: `u_${Date.now()}`, phone: cleaned, pinHash };
-  usersDB[cleaned] = user;
+  const result = await db.query(
+    `INSERT INTO users (full_name, phone_number, pin_hash)
+     VALUES ($1, $2, $3)
+     RETURNING id, full_name, phone_number, balance, currency, created_at`,
+    [fullName.trim(), cleaned, pinHash],
+  );
 
-  return { id: user.id, phone: user.phone };
+  const user = result.rows[0];
+  const token = _generateToken(user);
+  await _saveSession(user.id, token);
+
+  return { token, user: _formatUser(user) };
 }
 
-/**
- * Connecte un utilisateur et retourne un JWT signé.
- * @param {string} phone
- * @param {string} pin
- * @returns {{ token: string, user: { id, phone } }}
- */
 async function login(phone, pin) {
   const cleaned = _cleanPhone(phone);
   _validatePhone(cleaned);
   _validatePin(pin);
 
-  const user = usersDB[cleaned];
-  if (!user) {
-    const err = new Error("Numéro introuvable.");
+  const result = await db.query(
+    "SELECT * FROM users WHERE phone_number = $1 AND is_active = TRUE",
+    [cleaned],
+  );
+
+  if (result.rows.length === 0) {
+    const err = new Error("Numéro introuvable ou compte désactivé.");
     err.status = 404;
     throw err;
   }
 
-  const match = await bcrypt.compare(String(pin), user.pinHash);
+  const user = result.rows[0];
+  const match = await bcrypt.compare(String(pin), user.pin_hash);
+
   if (!match) {
     const err = new Error("PIN incorrect.");
     err.status = 401;
     throw err;
   }
 
-  const token = jwt.sign(
-    { userId: user.id, phone: user.phone },
-    process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRES_IN || "7d" },
-  );
+  const token = _generateToken(user);
+  await _saveSession(user.id, token);
 
-  return { token, user: { id: user.id, phone: user.phone } };
+  return { token, user: _formatUser(user) };
 }
 
-// Helpers privés
+async function logout(token) {
+  await db.query("UPDATE sessions SET revoked = TRUE WHERE token = $1", [
+    token,
+  ]);
+}
+
+async function verifyToken(token) {
+  let decoded;
+  try {
+    decoded = jwt.verify(token, process.env.JWT_SECRET);
+  } catch (err) {
+    const error = new Error(
+      err.name === "TokenExpiredError"
+        ? "Session expirée, veuillez vous reconnecter."
+        : "Token invalide.",
+    );
+    error.status = 401;
+    throw error;
+  }
+
+  const result = await db.query(
+    `SELECT id FROM sessions
+     WHERE token = $1 AND revoked = FALSE AND expires_at > NOW()`,
+    [token],
+  );
+
+  if (result.rows.length === 0) {
+    const err = new Error("Session révoquée ou expirée.");
+    err.status = 401;
+    throw err;
+  }
+
+  return { userId: decoded.userId, phone: decoded.phone };
+}
 
 function _cleanPhone(phone) {
   return String(phone || "").replace(/\s+/g, "");
 }
 
-function _validatePhone(cleaned) {
-  if (cleaned.length < 8) {
+function _validatePhone(c) {
+  if (c.length < 8) {
     const err = new Error("Numéro de téléphone invalide (minimum 8 chiffres).");
     err.status = 400;
     throw err;
@@ -86,4 +126,31 @@ function _validatePin(pin) {
   }
 }
 
-module.exports = { register, login };
+function _generateToken(user) {
+  return jwt.sign(
+    { userId: user.id, phone: user.phone_number },
+    process.env.JWT_SECRET,
+    { expiresIn: process.env.JWT_EXPIRES_IN || "7d" },
+  );
+}
+
+async function _saveSession(userId, token) {
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  await db.query(
+    "INSERT INTO sessions (user_id, token, expires_at) VALUES ($1, $2, $3)",
+    [userId, token, expiresAt],
+  );
+}
+
+function _formatUser(user) {
+  return {
+    id: user.id,
+    fullName: user.full_name,
+    phone: user.phone_number,
+    balance: parseFloat(user.balance || 0),
+    currency: user.currency,
+    createdAt: user.created_at,
+  };
+}
+
+module.exports = { register, login, logout, verifyToken };

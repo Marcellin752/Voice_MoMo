@@ -1,85 +1,93 @@
-// Simulation en mémoire (à remplacer par la vraie DB)
-const transactions = [
-  {
-    id: "t1",
-    dayLabel: "Aujourd'hui",
-    type: "in",
-    title: "Depot Agence",
-    desc: "Reference: 19384729",
-    time: "15:32",
-    amount: "+25 000",
-  },
-  {
-    id: "t2",
-    dayLabel: "Hier",
-    type: "out",
-    title: "Achat Credit",
-    desc: "Vers: 0123456789",
-    time: "19:27",
-    amount: "-2 000",
-  },
-  {
-    id: "t3",
-    dayLabel: "Hier",
-    type: "out",
-    title: "Paiement Marchand",
-    desc: "Super U",
-    time: "11:45",
-    amount: "-15 500",
-  },
-];
+const db = require("../config/db");
 
-/**
- * Retourne les transactions filtrées.
- * @param {{ q?: string, type?: string }} filters
- */
-function getTransactions(filters = {}) {
-  const search = (filters.q || "").toLowerCase();
-  const type = filters.type;
+// Types valides selon le schéma (ENUM transaction_type)
+const VALID_TYPES = ["send", "receive", "recharge", "payment"];
 
-  return transactions.filter((tx) => {
-    const typeMatches = !type || type === "all" || tx.type === type;
-    const textMatches =
-      !search ||
-      tx.title.toLowerCase().includes(search) ||
-      tx.desc.toLowerCase().includes(search);
-    return typeMatches && textMatches;
-  });
+async function getTransactions(userId, filters = {}) {
+  const conditions = ["t.sender_id = $1 OR t.receiver_id = $1"];
+  const values = [userId];
+  let idx = 2;
+
+  if (filters.type && VALID_TYPES.includes(filters.type)) {
+    conditions.push(`t.type = $${idx++}`);
+    values.push(filters.type);
+  }
+
+  if (filters.q) {
+    conditions.push(`(t.label ILIKE $${idx++} OR t.note ILIKE $${idx - 1})`);
+    values.push(`%${filters.q}%`);
+  }
+
+  const result = await db.query(
+    `SELECT t.id, t.type, t.status, t.amount, t.label,
+            t.phone_number, t.service_code, t.note, t.fee, t.created_at,
+            t.sender_id, t.receiver_id
+     FROM transactions t
+     WHERE ${conditions.join(" AND ")}
+     ORDER BY t.created_at DESC`,
+    values,
+  );
+  return result.rows;
 }
 
-/**
- * Crée une nouvelle transaction et l'ajoute en tête de liste.
- * @param {{ title?: string, desc?: string, amount: number, type: "in"|"out"|"recharge" }} input
- */
-function createTransaction(input) {
-  const now = new Date();
-  const amountValue = Number(input.amount);
-  const normalizedAmount = Number.isNaN(amountValue) ? 0 : amountValue;
+async function createTransaction(userId, input) {
+  const {
+    type,
+    amount,
+    label,
+    phone_number,
+    service_code,
+    account_number,
+    note,
+    fee,
+  } = input;
 
-  // "in" = crédit, tout le reste (out, recharge) = débit
-  const isCredit = input.type === "in";
-  const sign = isCredit ? "+" : "-";
+  if (!VALID_TYPES.includes(type)) {
+    const err = new Error(
+      `Type invalide. Valeurs acceptées: ${VALID_TYPES.join(", ")}`,
+    );
+    err.status = 400;
+    throw err;
+  }
 
-  const tx = {
-    id: `t_${Date.now()}`,
-    dayLabel: "Aujourd'hui",
-    type:
-      input.type === "in"
-        ? "in"
-        : input.type === "recharge"
-          ? "recharge"
-          : "out",
-    title: input.title || "Opération",
-    desc: input.desc || "Opération effectuée via API",
-    time: now.toLocaleTimeString("fr-FR", {
-      hour: "2-digit",
-      minute: "2-digit",
-    }),
-    amount: `${sign}${Math.abs(normalizedAmount).toLocaleString("fr-FR")}`,
-  };
+  const amountNum = parseFloat(amount);
+  if (isNaN(amountNum) || amountNum <= 0) {
+    const err = new Error("Le montant doit être un nombre supérieur à zéro.");
+    err.status = 400;
+    throw err;
+  }
 
-  transactions.unshift(tx);
-  return tx;
+  if (!label || String(label).trim().length === 0) {
+    const err = new Error("Le libellé (label) est requis.");
+    err.status = 400;
+    throw err;
+  }
+
+  // sender_id = l'utilisateur connecté pour send/recharge/payment
+  // receiver_id = l'utilisateur connecté pour receive
+  const senderId = type === "receive" ? null : userId;
+  const receiverId = type === "receive" ? userId : null;
+
+  const result = await db.query(
+    `INSERT INTO transactions
+       (type, amount, sender_id, receiver_id, label, phone_number, service_code, account_number, note, fee)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+     RETURNING *`,
+    [
+      type,
+      amountNum,
+      senderId,
+      receiverId,
+      label.trim(),
+      phone_number || null,
+      service_code || null,
+      account_number || null,
+      note || null,
+      parseFloat(fee) || 0,
+    ],
+  );
+
+  return result.rows[0];
 }
 
 module.exports = { getTransactions, createTransaction };
