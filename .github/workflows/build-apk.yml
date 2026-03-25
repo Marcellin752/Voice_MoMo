@@ -58,18 +58,15 @@ jobs:
           path: Mobile/android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
 
-      - name: Distribute via Firebase App Distribution
-        run: |
-          npm install -g firebase-tools
-          python3 -c "import os,json; d=json.loads(os.environ['FIREBASE_SA'].strip()); open('/tmp/sa.json','w').write(json.dumps(d)); print('SA type:',d.get('type'))"
-          gcloud auth activate-service-account --key-file=/tmp/sa.json
-          firebase appdistribution:distribute \
-            Mobile/android/app/build/outputs/apk/debug/app-debug.apk \
-            --app "$FIREBASE_APP_ID" \
-            --groups "testers" \
-            --project voicemomo-21ab1 \
-            --release-notes "Build #${{ github.run_number }}"
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: "Voice MoMo — Build ${{ github.run_number }}"
+          body: |
+            APK de test généré automatiquement.
+            **Installation** : télécharge `app-debug.apk`, active "Sources inconnues" dans les paramètres Android, puis installe.
+          files: Mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          prerelease: true
         env:
-          FIREBASE_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
-          GOOGLE_APPLICATION_CREDENTIALS: /tmp/sa.json
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
