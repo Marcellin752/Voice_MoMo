@@ -71,13 +71,14 @@ async function getTransactions(userId, filters = {}) {
     }
   }
 
-  // Mode in-memory
+  // Mode in-memory — filtre par userId pour que les nouveaux comptes soient vides
   const search = (filters.q || "").toLowerCase();
   const typeFilter = filters.type;
   return _transactions.filter((tx) => {
+    const matchUser = tx.userId === userId;
     const matchType = !typeFilter || typeFilter === "all" || tx.type === typeFilter;
     const matchText = !search || tx.title.toLowerCase().includes(search) || tx.desc.toLowerCase().includes(search);
-    return matchType && matchText;
+    return matchUser && matchType && matchText;
   });
 }
 

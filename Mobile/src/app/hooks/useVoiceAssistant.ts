@@ -121,7 +121,13 @@ export function useVoiceAssistant() {
           return;
         }
 
-        await SR.requestPermissions();
+        const permission = await SR.requestPermissions();
+        if ((permission as any).speechRecognition !== 'granted' && (permission as any).microphone !== 'granted') {
+          setFeedback('Veuillez autoriser le microphone pour utiliser cette fonctionnalité.');
+          setStatus('error');
+          setTimeout(() => setStatus('idle'), 4000);
+          return;
+        }
 
         setStatus('listening');
         setTranscript('');
