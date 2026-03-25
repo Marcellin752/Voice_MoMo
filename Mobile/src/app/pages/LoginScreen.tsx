@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, Link } from "react-router";
 import { ArrowRight, Phone, Lock } from "lucide-react";
 import * as authService from "../services/auth.service";
 import { useAuth } from "../contexts/AuthContext";
@@ -20,18 +20,11 @@ export default function LoginScreen() {
     setError("");
     setLoading(true);
     try {
-      let result = await authService.login(phone, pin).catch(async (err: { status: number; }) => {
-        // Auto-inscription si l'utilisateur n'existe pas encore
-        if (err.status === 404) {
-          await authService.register(phone, pin);
-          return authService.login(phone, pin);
-        }
-        throw err;
-      });
+      const result = await authService.login(phone, pin);
       setAuth(result.token, result.user);
       navigate("/app");
     } catch (err: any) {
-      setError(err.message || "Connexion impossible. Vérifiez vos informations.");
+      setError(err.message || "Numéro ou PIN incorrect.");
     } finally {
       setLoading(false);
     }
@@ -91,7 +84,7 @@ export default function LoginScreen() {
             </p>
           )}
 
-          <div className="w-full mt-auto mb-10">
+          <div className="w-full mt-auto mb-10 space-y-4">
             <button
               type="submit"
               disabled={!isValid || loading}
@@ -104,6 +97,12 @@ export default function LoginScreen() {
               <span>{loading ? "Connexion..." : "Se connecter"}</span>
               {!loading && <ArrowRight size={22} />}
             </button>
+            <p className="text-center text-sm text-slate-500 dark:text-zinc-400">
+              Pas encore de compte ?{" "}
+              <Link to="/register" className="font-bold text-[#004F71] dark:text-[#FFCC00]">
+                Créer un compte
+              </Link>
+            </p>
           </div>
         </form>
       </div>
