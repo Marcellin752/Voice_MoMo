@@ -1,6 +1,7 @@
 import { createBrowserRouter } from "react-router";
 import WelcomeScreen from "./pages/WelcomeScreen";
 import LoginScreen from "./pages/LoginScreen";
+import RegisterScreen from "./pages/RegisterScreen";
 import Layout from "./components/Layout";
 import HomeScreen from "./pages/HomeScreen";
 import TransactionsScreen from "./pages/TransactionsScreen";
@@ -21,6 +22,10 @@ export const router = createBrowserRouter([
   {
     path: "/login",
     Component: LoginScreen,
+  },
+  {
+    path: "/register",
+    Component: RegisterScreen,
   },
   {
     path: "/app",
