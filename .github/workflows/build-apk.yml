@@ -61,7 +61,7 @@ jobs:
       - name: Distribute via Firebase App Distribution
         run: |
           npm install -g firebase-tools
-          python3 -c "import os; open('/tmp/sa.json','w').write(os.environ['FIREBASE_SA'])"
+          python3 -c "import os,json; d=json.loads(os.environ['FIREBASE_SA'].strip()); open('/tmp/sa.json','w').write(json.dumps(d)); print('SA type:',d.get('type'))"
           gcloud auth activate-service-account --key-file=/tmp/sa.json
           firebase appdistribution:distribute \
             Mobile/android/app/build/outputs/apk/debug/app-debug.apk \
