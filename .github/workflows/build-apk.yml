@@ -61,12 +61,15 @@ jobs:
       - name: Distribute via Firebase App Distribution
         run: |
           npm install -g firebase-tools
-          echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > /tmp/sa.json
+          python3 -c "import os; open('/tmp/sa.json','w').write(os.environ['FIREBASE_SA'])"
+          gcloud auth activate-service-account --key-file=/tmp/sa.json
           firebase appdistribution:distribute \
             Mobile/android/app/build/outputs/apk/debug/app-debug.apk \
-            --app "${{ secrets.FIREBASE_APP_ID }}" \
+            --app "$FIREBASE_APP_ID" \
             --groups "testers" \
             --project voicemomo-21ab1 \
-            --release-notes "Build #${{ github.run_number }} — ${{ github.sha }}"
+            --release-notes "Build #${{ github.run_number }}"
         env:
+          FIREBASE_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
           GOOGLE_APPLICATION_CREDENTIALS: /tmp/sa.json
