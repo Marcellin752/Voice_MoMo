@@ -22,8 +22,7 @@ export default function RegisterScreen() {
     setError("");
     setLoading(true);
     try {
-      await authService.register(phone, pin, firstName, lastName);
-      const result = await authService.login(phone, pin);
+      const result = await authService.register(phone, pin, firstName, lastName);
       setAuth(result.token, result.user);
       navigate("/app");
     } catch (err: any) {

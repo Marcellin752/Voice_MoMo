@@ -1,7 +1,7 @@
 import { request } from '../utils/api';
 
 export type VoiceCommandResponse = {
-  intent: 'balance' | 'transfer' | 'topup' | 'unknown';
+  intent: 'balance' | 'transfer' | 'topup' | 'payment' | 'unknown';
   amount?: number;
   message: string;
 };
