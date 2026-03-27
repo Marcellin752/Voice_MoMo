@@ -1,10 +1,17 @@
 import { useState } from "react";
 import { Users, Search, Phone, UserCircle, ChevronRight, AlertCircle } from "lucide-react";
+import { Capacitor } from "@capacitor/core";
 
 type Contact = {
   name: string[];
   tel: string[];
   email?: string[];
+};
+
+type NativeContactPayload = {
+  name?: { display: string | null };
+  phones?: { number: string | null }[];
+  emails?: { address: string | null }[];
 };
 
 declare global {
@@ -26,16 +33,65 @@ export default function ContactsScreen() {
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
 
-  const isSupported = typeof navigator !== "undefined" && "contacts" in navigator;
+  const isWebContactApiSupported = typeof navigator !== "undefined" && "contacts" in navigator;
+  const isNative = Capacitor.isNativePlatform();
+
+  const toUiContacts = (nativeContacts: NativeContactPayload[]): Contact[] =>
+    nativeContacts
+      .map((entry) => {
+        const displayName = entry.name?.display?.trim();
+        const phones = (entry.phones ?? [])
+          .map((phone) => phone.number?.trim())
+          .filter((value): value is string => Boolean(value));
+        const emails = (entry.emails ?? [])
+          .map((email) => email.address?.trim())
+          .filter((value): value is string => Boolean(value));
+
+        return {
+          name: [displayName || "Inconnu"],
+          tel: phones,
+          email: emails,
+        };
+      })
+      .filter((entry) => entry.name.length > 0 && entry.tel.length > 0);
 
   const loadContacts = async () => {
-    if (!isSupported || !navigator.contacts) {
-      setError("L'accès aux contacts n'est pas supporté par ce navigateur. Utilisez Chrome sur Android.");
-      return;
-    }
     setLoading(true);
     setError(null);
+
     try {
+      if (isNative) {
+        const { Contacts } = await import("@capacitor-community/contacts");
+
+        const currentPermission = await Contacts.checkPermissions();
+        const permission =
+          currentPermission.contacts === "granted"
+            ? currentPermission
+            : await Contacts.requestPermissions();
+
+        if (permission.contacts !== "granted" && permission.contacts !== "limited") {
+          setError("Permission refusée. Autorisez l'accès aux contacts dans les paramètres de l'application.");
+          return;
+        }
+
+        const result = await Contacts.getContacts({
+          projection: {
+            name: true,
+            phones: true,
+            emails: true,
+          },
+        });
+
+        setContacts(toUiContacts(result.contacts as NativeContactPayload[]));
+        setLoaded(true);
+        return;
+      }
+
+      if (!isWebContactApiSupported || !navigator.contacts) {
+        setError("L'accès aux contacts n'est pas supporté sur cet environnement.");
+        return;
+      }
+
       const props = await navigator.contacts.getProperties();
       const selected = await navigator.contacts.select(
         props.filter((p) => ["name", "tel", "email"].includes(p)),
@@ -45,7 +101,7 @@ export default function ContactsScreen() {
       setLoaded(true);
     } catch (err: unknown) {
       if (err instanceof Error && err.name !== "AbortError") {
-        setError("Impossible d'accéder aux contacts. Veuillez vérifier les permissions.");
+        setError("Impossible d'accéder aux contacts. Vérifiez les permissions de l'application.");
       }
     } finally {
       setLoading(false);

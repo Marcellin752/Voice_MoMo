@@ -33,7 +33,8 @@ export type ApiProfile = {
   id: string;
   fullName: string;
   phone: string;
-  email?: string;      // non stocké côté backend, champ UI seulement
+  email?: string;
+  avatarUrl?: string;
   balance?: number;
   currency?: string;
 };
