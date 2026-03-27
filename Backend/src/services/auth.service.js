@@ -21,7 +21,7 @@ async function _isDbAvailable() {
 }
 
 // ─── Store in-memory (fallback sans DB) ──────────────────────────────────────
-// Map<phone, { id, fullName, phone, email, avatarUrl, pinHash, balance, currency }>
+// Map<phone, { id, fullName, phone, pinHash, balance, currency }>
 const _users = new Map();
 let _userIdCounter = 1;
 
@@ -73,16 +73,7 @@ async function register(phone, pin, fullName) {
 
   const pinHash = await bcrypt.hash(String(pin), ROUNDS);
   const id = `u_${_userIdCounter++}`;
-  const userData = {
-    id,
-    fullName: name,
-    phone: cleaned,
-    email: "",
-    avatarUrl: "",
-    pinHash,
-    balance: 15000,
-    currency: "FCFA",
-  };
+  const userData = { id, fullName: name, phone: cleaned, pinHash, balance: 15000, currency: "FCFA" };
   _users.set(cleaned, userData);
 
   const token = _generateToken(id, cleaned);
@@ -139,15 +130,7 @@ async function login(phone, pin) {
   const token = _generateToken(userData.id, cleaned);
   return {
     token,
-    user: {
-      id: userData.id,
-      fullName: userData.fullName,
-      phone: cleaned,
-      email: userData.email,
-      avatarUrl: userData.avatarUrl,
-      balance: userData.balance,
-      currency: userData.currency,
-    },
+    user: { id: userData.id, fullName: userData.fullName, phone: cleaned, balance: userData.balance, currency: userData.currency },
   };
 }
 
@@ -201,8 +184,6 @@ function _formatDbUser(user) {
     id: user.id,
     fullName: user.full_name,
     phone: user.phone_number,
-    email: user.email || "",
-    avatarUrl: user.avatar_url || "",
     balance: parseFloat(user.balance || 0),
     currency: user.currency,
   };
@@ -224,8 +205,6 @@ function _updateInMemoryUser(userId, data) {
   for (const [phone, u] of _users.entries()) {
     if (u.id === userId) {
       if (data.fullName) u.fullName = data.fullName;
-      if (typeof data.email === "string") u.email = data.email;
-      if (typeof data.avatarUrl === "string") u.avatarUrl = data.avatarUrl;
       if (data.phone) {
         _users.delete(phone);
         u.phone = data.phone;
