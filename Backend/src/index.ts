@@ -4,13 +4,13 @@ import http from "http";
 import path from "path";
 import cors from "cors";
 import { Server } from "socket.io";
-import { createRedisConnection } from "./redis-connection";
+import { createRedisSubscriberConnection } from "./redis-connection";
 import { USSD_EVENT_CHANNEL } from "./notifications/event-bus";
 import transactionRoutes from "./api/routes/transaction.routes";
 import statusRoutes from "./api/routes/status.routes";
 import { AppError } from "./shared/errors/app-errors";
 import { logger } from "./shared/logger/logger";
-import { ussdQueue } from "./queue/job-queue";
+import { getUssdQueue, isUssdQueueAvailable } from "./queue/job-queue";
 import { startModemHealthcheck } from "./modem/modem-health";
 import { modemPool } from "./modem/modem-pool";
 
@@ -34,7 +34,7 @@ async function bootstrap(): Promise<void> {
 
   registerLegacyRoutes(app);
 
-  if (process.env.BULL_BOARD_ENABLED === "true") {
+  if (process.env.BULL_BOARD_ENABLED === "true" && isUssdQueueAvailable()) {
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { createBullBoard } = require("@bull-board/api");
@@ -45,7 +45,7 @@ async function bootstrap(): Promise<void> {
       const serverAdapter = new ExpressAdapter();
       serverAdapter.setBasePath("/admin/queues");
       createBullBoard({
-        queues: [new BullMQAdapter(ussdQueue)],
+        queues: [new BullMQAdapter(getUssdQueue())],
         serverAdapter,
       });
       app.use("/admin/queues", serverAdapter.getRouter());
@@ -86,27 +86,35 @@ async function bootstrap(): Promise<void> {
     logger.info("socket connected", { id: socket.id });
   });
 
-  try {
-    const sub = createRedisConnection();
-    await sub.subscribe(USSD_EVENT_CHANNEL);
-    sub.on("message", (_ch, msg) => {
-      try {
-        const data = JSON.parse(msg) as {
-          userId?: string;
-          event?: string;
-          voiceResponse?: string;
-          jobId?: string;
-          success?: boolean;
-        };
-        if (data.userId) {
-          io.to(`user:${data.userId}`).emit(data.event || "ussd", data);
+  if (isUssdQueueAvailable()) {
+    try {
+      const sub = createRedisSubscriberConnection();
+      await sub.subscribe(USSD_EVENT_CHANNEL);
+      sub.on("message", (_ch, msg) => {
+        try {
+          const data = JSON.parse(msg) as {
+            userId?: string;
+            event?: string;
+            voiceResponse?: string;
+            jobId?: string;
+            success?: boolean;
+          };
+          if (data.userId) {
+            io.to(`user:${data.userId}`).emit(data.event || "ussd", data);
+          }
+        } catch (e) {
+          logger.error("invalid redis event", { err: e });
         }
-      } catch (e) {
-        logger.error("invalid redis event", { err: e });
-      }
-    });
-  } catch (e) {
-    logger.error("CRITICAL: Redis subscriber indisponible — WebSocket temps réel limité.", { err: e });
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      logger.error("Redis subscriber indisponible — WebSocket temps réel limité.", {
+        message: msg,
+        stack: e instanceof Error ? e.stack : undefined,
+      });
+    }
+  } else {
+    logger.info("SKIP_REDIS=true — pas d’abonnement Redis (WebSocket USSD désactivé).");
   }
 
   startModemHealthcheck(modemPool);

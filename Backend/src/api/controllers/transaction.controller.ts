@@ -1,4 +1,5 @@
 import type { Request, Response, NextFunction } from "express";
+import type { Job } from "bullmq";
 import { z } from "zod";
 import { randomUUID } from "crypto";
 import { AppError } from "../../shared/errors/app-errors";
@@ -7,7 +8,7 @@ import { SUPPORTED_COUNTRIES } from "../../shared/constants/countries";
 import { getCountryConfig } from "../../core/country-router/country-router";
 import { buildPendingVoiceResponse } from "../../core/voice-adapter/voice-adapter";
 import * as transactionRepository from "../../db/repositories/transaction.repository";
-import { ussdQueue } from "../../queue/job-queue";
+import { getUssdQueue, isUssdQueueAvailable, ussdQueue } from "../../queue/job-queue";
 import { logger } from "../../shared/logger/logger";
 
 const actionSchema = z.enum([
@@ -44,6 +45,15 @@ export async function postTransaction(req: Request, res: Response, next: NextFun
     const body = parsed.data;
     if (!req.user || req.user.userId !== body.userId) {
       res.status(403).json({ error: "userId ne correspond pas au token." });
+      return;
+    }
+
+    if (!isUssdQueueAvailable()) {
+      res.status(503).json({
+        error:
+          "POST /api/v1/transaction désactivé (SKIP_REDIS=true). Mettez SKIP_REDIS=false et démarrez Redis (npm run dev:redis), ou utilisez uniquement l’API legacy.",
+        code: "REDIS_DISABLED",
+      });
       return;
     }
 
@@ -126,7 +136,14 @@ export async function getTransactionStatus(req: Request, res: Response, next: Ne
     if (row.status === "COMPLETED") status = "completed";
     if (row.status === "FAILED") status = "failed";
 
-    const job = await ussdQueue.getJob(jobId);
+    let job: Job | undefined;
+    if (isUssdQueueAvailable()) {
+      try {
+        job = await getUssdQueue().getJob(jobId);
+      } catch (e) {
+        logger.warn("statut BullMQ indisponible", { err: e });
+      }
+    }
     if (job && (status === "pending" || status === "processing")) {
       const st = await job.getState();
       if (st === "active") status = "processing";
