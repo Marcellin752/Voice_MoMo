@@ -1,0 +1,85 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: mtn
+      POSTGRES_PASSWORD: mtn
+      POSTGRES_DB: mtn_ussd
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mtn -d mtn_ussd"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mtn-network
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redisdata:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - mtn-network
+
+  api:
+    build: .
+    environment:
+      PORT: 3001
+      NODE_ENV: production
+      DATABASE_URL: postgresql://mtn:mtn@postgres:5432/mtn_ussd
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production-min-32-chars-please!!}
+      PIN_ENCRYPTION_KEY: ${PIN_ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      USE_MOCK_MODEM: "true"
+      MOCK_FAILURE_RATE: "0"
+      BULL_BOARD_ENABLED: "true"
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: sh -c "npx prisma migrate deploy && node dist/index.js"
+    networks:
+      - mtn-network
+
+  worker:
+    build: .
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://mtn:mtn@postgres:5432/mtn_ussd
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production-min-32-chars-please!!}
+      PIN_ENCRYPTION_KEY: ${PIN_ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      USE_MOCK_MODEM: "true"
+      MOCK_FAILURE_RATE: "0"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: node dist/worker.js
+    networks:
+      - mtn-network
+
+volumes:
+  pgdata:
+  redisdata:
+
+networks:
+  mtn-network:
+    driver: bridge
