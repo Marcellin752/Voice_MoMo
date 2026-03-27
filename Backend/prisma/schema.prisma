@@ -1,0 +1,44 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Transaction USSD MTN — userId référence l’utilisateur JWT (table users principale), sans FK Prisma.
+model MtnUssdTransaction {
+  id            String    @id @default(uuid())
+  userId        String
+  jobId         String    @unique
+  action        String
+  country       String
+  toNumber      String?
+  amount        Decimal?  @db.Decimal(15, 2)
+  status        String
+  mtnResponse   String?
+  voiceResponse String?
+  failureReason String?
+  mtnRef        String?
+  retryCount    Int       @default(0)
+  createdAt     DateTime  @default(now())
+  completedAt   DateTime?
+
+  @@index([userId])
+  @@map("mtn_ussd_transactions")
+}
+
+model ModemStatus {
+  id            String   @id @default(uuid())
+  portPath      String   @unique
+  country       String
+  simNumber     String
+  isOnline      Boolean  @default(false)
+  signalLevel   Int?
+  lastHeartbeat DateTime?
+  lastError     String?
+  updatedAt     DateTime @updatedAt
+
+  @@map("mtn_modem_status")
+}
