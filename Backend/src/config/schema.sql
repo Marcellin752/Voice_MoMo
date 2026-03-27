@@ -5,6 +5,7 @@ CREATE TABLE users (
   pin_hash     VARCHAR(255) NOT NULL,
   balance      DECIMAL(15,2) NOT NULL DEFAULT 0.00,
   currency     VARCHAR(10)  NOT NULL DEFAULT 'FCFA',
+  email        VARCHAR(150),
   avatar_url   TEXT,
   is_active    BOOLEAN      NOT NULL DEFAULT TRUE,
   created_at   TIMESTAMP    NOT NULL DEFAULT NOW(),

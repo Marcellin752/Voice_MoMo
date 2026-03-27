@@ -5,7 +5,7 @@ export function getProfile() {
   return request<ApiProfile>('GET', '/api/users/profile');
 }
 
-export function updateProfile(data: Partial<Pick<ApiProfile, 'fullName' | 'email' | 'phone'>>) {
+export function updateProfile(data: Partial<Pick<ApiProfile, 'fullName' | 'email' | 'phone' | 'avatarUrl'>>) {
   return request<ApiProfile>('PUT', '/api/users/profile', data);
 }
 

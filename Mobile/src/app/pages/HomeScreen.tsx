@@ -7,20 +7,34 @@ import { useNavigate } from "react-router";
 import * as usersService from "../services/users.service";
 import * as transactionsService from "../services/transactions.service";
 import type { ApiProfile, ApiTransaction } from "../utils/api";
+import { useLanguage } from "../contexts/LanguageContext";
+
+const PROFILE_UPDATED_EVENT = "momo:profile-updated";
 
 export default function HomeScreen() {
   const { status, transcript, feedback, startListening, stopListening } = useVoiceAssistant();
+  const { t } = useLanguage();
   const [showBalance, setShowBalance] = useState(false);
   const navigate = useNavigate();
 
-  const [profile, setProfile] = useState<Pick<ApiProfile, 'fullName'>>({ fullName: "Utilisateur" });
+  const [profile, setProfile] = useState<Pick<ApiProfile, "fullName"> & { avatarUrl?: string }>({
+    fullName: "Utilisateur",
+    avatarUrl: "",
+  });
   const [balance, setBalance] = useState<number | null>(null);
   const [transactions, setTransactions] = useState<ApiTransaction[]>([]);
 
   useEffect(() => {
-    usersService.getProfile()
-      .then((p: { fullName: any; }) => setProfile({ fullName: p.fullName }))
-      .catch(() => {});
+    const loadProfile = () => {
+      usersService
+        .getProfile()
+        .then((p: { fullName: any; avatarUrl?: string }) =>
+          setProfile({ fullName: p.fullName, avatarUrl: p.avatarUrl || "" })
+        )
+        .catch(() => {});
+    };
+
+    loadProfile();
 
     usersService.getBalance()
       .then((b: { balance: SetStateAction<number | null>; }) => setBalance(b.balance))
@@ -29,6 +43,19 @@ export default function HomeScreen() {
     transactionsService.getTransactions()
       .then((res: { transactions: any[]; }) => setTransactions(res.transactions.slice(0, 5)))
       .catch(() => {});
+
+    const onProfileUpdated = (event: Event) => {
+      const customEvent = event as CustomEvent<{ fullName?: string; avatarUrl?: string }>;
+      const fullName = customEvent.detail?.fullName;
+      const avatarUrl = customEvent.detail?.avatarUrl;
+      setProfile((prev) => ({
+        fullName: fullName || prev.fullName,
+        avatarUrl: avatarUrl ?? prev.avatarUrl,
+      }));
+    };
+
+    window.addEventListener(PROFILE_UPDATED_EVENT, onProfileUpdated);
+    return () => window.removeEventListener(PROFILE_UPDATED_EVENT, onProfileUpdated);
   }, []);
 
   const formattedBalance = balance !== null
@@ -47,13 +74,16 @@ export default function HomeScreen() {
           <div className="flex items-center space-x-3">
             <div className="w-12 h-12 rounded-full bg-white border-2 border-white overflow-hidden shadow-sm">
               <ImageWithFallback
-                src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=150&auto=format&fit=crop"
+                src={
+                  profile.avatarUrl ||
+                  "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=150&auto=format&fit=crop"
+                }
                 alt="User Avatar"
                 className="w-full h-full object-cover"
               />
             </div>
             <div>
-              <p className="text-xs font-bold opacity-80 uppercase tracking-widest">Bonjour</p>
+              <p className="text-xs font-bold opacity-80 uppercase tracking-widest">{t("home_greeting")}</p>
               <h2 className="text-lg font-black tracking-tight">{profile.fullName}</h2>
             </div>
           </div>
@@ -71,7 +101,7 @@ export default function HomeScreen() {
       <div className="px-6 -mt-10 relative z-20 mb-6">
         <div className="bg-white dark:bg-[#1A1A1A] rounded-3xl p-6 shadow-xl shadow-slate-200/50 dark:shadow-none border border-slate-100 dark:border-white/5 transition-colors duration-300">
           <div className="flex justify-between items-center mb-2">
-            <p className="text-sm font-bold text-slate-500 dark:text-zinc-400">Solde Mobile Money</p>
+            <p className="text-sm font-bold text-slate-500 dark:text-zinc-400">{t("home_balance_title")}</p>
             <button
               onClick={() => setShowBalance(!showBalance)}
               className="p-2 bg-slate-50 dark:bg-white/5 rounded-full text-[#004F71] dark:text-[#FFCC00] hover:bg-slate-100 dark:hover:bg-white/10 transition-colors"
@@ -133,13 +163,13 @@ export default function HomeScreen() {
       {/* Recent Transactions */}
       <div className="px-6 pb-6">
         <div className="flex justify-between items-center mb-4">
-          <h3 className="font-bold text-lg text-slate-900 dark:text-white tracking-tight">Historique récent</h3>
+          <h3 className="font-bold text-lg text-slate-900 dark:text-white tracking-tight">{t("home_history_title")}</h3>
           <button
             type="button"
             onClick={() => navigate("/app/transactions")}
             className="text-sm font-bold text-[#004F71] dark:text-[#FFCC00] cursor-pointer"
           >
-            Voir tout
+            {t("home_see_all")}
           </button>
         </div>
         <div className="space-y-3">
@@ -154,7 +184,7 @@ export default function HomeScreen() {
               />
             ))
           ) : (
-            <p className="text-sm text-slate-400 dark:text-zinc-500 text-center py-4">Aucune transaction récente.</p>
+            <p className="text-sm text-slate-400 dark:text-zinc-500 text-center py-4">{t("home_no_tx")}</p>
           )}
         </div>
       </div>
