@@ -1,2 +1,4 @@
 .env
 node_modules/
+MODIFICATIONS_SUMMARY.md
+tests.sh

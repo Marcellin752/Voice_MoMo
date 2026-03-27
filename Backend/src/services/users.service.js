@@ -4,7 +4,6 @@ const authService = require("./auth.service");
 
 // Préférences de langue par userId (in-memory, pas de colonne DB)
 const languageStore = {};
-let usersProfileColumnsEnsured = false;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -12,20 +11,12 @@ async function _useDb() {
   return authService._isDbAvailable();
 }
 
-async function _ensureUsersProfileColumns() {
-  if (usersProfileColumnsEnsured) return;
-  await db.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS email VARCHAR(150)");
-  await db.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT");
-  usersProfileColumnsEnsured = true;
-}
-
 // ─── Profil ───────────────────────────────────────────────────────────────────
 
 async function getProfile(userId) {
   if (await _useDb()) {
-    await _ensureUsersProfileColumns();
     const result = await db.query(
-      "SELECT id, full_name, phone_number, email, avatar_url, balance, currency FROM users WHERE id = $1",
+      "SELECT id, full_name, phone_number, balance, currency FROM users WHERE id = $1",
       [userId]
     );
     if (result.rows.length === 0) {
@@ -34,15 +25,7 @@ async function getProfile(userId) {
       throw err;
     }
     const u = result.rows[0];
-    return {
-      id: u.id,
-      fullName: u.full_name,
-      phone: u.phone_number,
-      email: u.email || "",
-      avatarUrl: u.avatar_url || "",
-      balance: parseFloat(u.balance),
-      currency: u.currency,
-    };
+    return { id: u.id, fullName: u.full_name, phone: u.phone_number, balance: parseFloat(u.balance), currency: u.currency };
   }
 
   const u = authService._getInMemoryUserById(userId);
@@ -51,20 +34,11 @@ async function getProfile(userId) {
     err.status = 404;
     throw err;
   }
-  return {
-    id: u.id,
-    fullName: u.fullName,
-    phone: u.phone,
-    email: u.email || "",
-    avatarUrl: u.avatarUrl || "",
-    balance: u.balance,
-    currency: u.currency,
-  };
+  return { id: u.id, fullName: u.fullName, phone: u.phone, balance: u.balance, currency: u.currency };
 }
 
 async function updateProfile(userId, data) {
   if (await _useDb()) {
-    await _ensureUsersProfileColumns();
     const fields = [];
     const values = [];
     let idx = 1;
@@ -77,14 +51,6 @@ async function updateProfile(userId, data) {
       fields.push(`phone_number = $${idx++}`);
       values.push(data.phone.trim());
     }
-    if (typeof data.email === "string") {
-      fields.push(`email = $${idx++}`);
-      values.push(data.email.trim());
-    }
-    if (typeof data.avatarUrl === "string") {
-      fields.push(`avatar_url = $${idx++}`);
-      values.push(data.avatarUrl.trim());
-    }
     if (fields.length === 0) {
       const err = new Error("Aucun champ valide à mettre à jour.");
       err.status = 400;
@@ -95,19 +61,11 @@ async function updateProfile(userId, data) {
     values.push(userId);
 
     const result = await db.query(
-      `UPDATE users SET ${fields.join(", ")} WHERE id = $${idx} RETURNING id, full_name, phone_number, email, avatar_url, balance, currency`,
+      `UPDATE users SET ${fields.join(", ")} WHERE id = $${idx} RETURNING id, full_name, phone_number, balance, currency`,
       values
     );
     const u = result.rows[0];
-    return {
-      id: u.id,
-      fullName: u.full_name,
-      phone: u.phone_number,
-      email: u.email || "",
-      avatarUrl: u.avatar_url || "",
-      balance: parseFloat(u.balance),
-      currency: u.currency,
-    };
+    return { id: u.id, fullName: u.full_name, phone: u.phone_number, balance: parseFloat(u.balance), currency: u.currency };
   }
 
   const u = authService._updateInMemoryUser(userId, data);
@@ -116,15 +74,7 @@ async function updateProfile(userId, data) {
     err.status = 404;
     throw err;
   }
-  return {
-    id: u.id,
-    fullName: u.fullName,
-    phone: u.phone,
-    email: u.email || "",
-    avatarUrl: u.avatarUrl || "",
-    balance: u.balance,
-    currency: u.currency,
-  };
+  return { id: u.id, fullName: u.fullName, phone: u.phone, balance: u.balance, currency: u.currency };
 }
 
 // ─── Langue ───────────────────────────────────────────────────────────────────

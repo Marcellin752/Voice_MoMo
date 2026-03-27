@@ -5,6 +5,7 @@ const authRoutes = require("./routes/auth.routes");
 const usersRoutes = require("./routes/users.routes");
 const transactionsRoutes = require("./routes/transactions.routes");
 const voiceRoutes = require("./routes/voice.routes");
+const mmiRoutes = require("./routes/mmi.routes");
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -29,6 +30,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/users", usersRoutes);
 app.use("/api/transactions", transactionsRoutes);
 app.use("/api/voice", voiceRoutes);
+app.use("/api/mmi", mmiRoutes);
 
 // Error 404
 app.use((req, res) => {
