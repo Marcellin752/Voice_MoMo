@@ -1,6 +1,6 @@
 import { useState, useEffect, SetStateAction } from "react";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
-import { Mic, Eye, EyeOff, Send, Download, Phone, Wifi, CreditCard, Landmark, FileText, Bell, ArrowDownLeft, ArrowUpRight } from "lucide-react";
+import { Mic, Eye, EyeOff, Bell, ArrowDownLeft, ArrowUpRight } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useVoiceAssistant } from "../hooks/useVoiceAssistant";
 import { useNavigate } from "react-router";
@@ -68,7 +68,7 @@ export default function HomeScreen() {
       </div>
 
       {/* Balance Card - Overlapping Header */}
-      <div className="px-6 -mt-10 relative z-20 mb-8">
+      <div className="px-6 -mt-10 relative z-20 mb-6">
         <div className="bg-white dark:bg-[#1A1A1A] rounded-3xl p-6 shadow-xl shadow-slate-200/50 dark:shadow-none border border-slate-100 dark:border-white/5 transition-colors duration-300">
           <div className="flex justify-between items-center mb-2">
             <p className="text-sm font-bold text-slate-500 dark:text-zinc-400">Solde Mobile Money</p>
@@ -88,33 +88,50 @@ export default function HomeScreen() {
         </div>
       </div>
 
-      {/* Quick Actions Grid */}
-      <div className="px-6 mb-8">
-        <h3 className="font-bold text-lg mb-4 text-slate-900 dark:text-white tracking-tight">Services</h3>
-        <div className="grid grid-cols-4 gap-4">
-          <ActionIcon icon={<Send size={26} />} label="Transfert" onClick={() => navigate("/app/services/transfert")} />
-          <ActionIcon icon={<Download size={26} />} label="Retrait" onClick={() => navigate("/app/services/retrait")} />
-          <ActionIcon icon={<Phone size={26} />} label="Crédit" onClick={() => navigate("/app/services/credit")} />
-          <ActionIcon icon={<Wifi size={26} />} label="Forfaits" onClick={() => navigate("/app/services/forfaits")} />
-          <ActionIcon icon={<CreditCard size={26} />} label="MoMoPay" onClick={() => navigate("/app/services/momopay")} />
-          <ActionIcon icon={<Landmark size={26} />} label="Banque" onClick={() => navigate("/app/services/banque")} />
-          <ActionIcon icon={<FileText size={26} />} label="Factures" onClick={() => navigate("/app/services/factures")} />
-          <button
-            type="button"
-            onClick={() => navigate("/app/services")}
-            className="flex flex-col items-center justify-center cursor-pointer group"
-            aria-label="Afficher plus de services"
-          >
-            <div className="w-14 h-14 rounded-[20px] bg-transparent flex items-center justify-center text-[#004F71] dark:text-[#FFCC00] group-hover:bg-slate-100 dark:group-hover:bg-white/10 transition-colors mb-1">
-              <span className="font-black text-3xl">+</span>
-            </div>
-            <span className="text-[11px] font-semibold text-slate-700 dark:text-zinc-300 text-center">Plus</span>
-          </button>
-        </div>
+      {/* Voice Assistant - Centered */}
+      <div className="flex flex-col items-center justify-center py-8 gap-4">
+        <AnimatePresence>
+          {status !== 'idle' && (
+            <motion.div
+              initial={{ opacity: 0, y: 20, scale: 0.9 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 20, scale: 0.9 }}
+              className="bg-white dark:bg-[#1A1A1A] p-4 rounded-2xl shadow-xl shadow-slate-200/50 dark:shadow-none border border-slate-100 dark:border-white/10 max-w-[260px]"
+            >
+              <p className="text-[#004F71] dark:text-[#FFCC00] text-sm font-bold italic">"{transcript || '...'}"</p>
+              {feedback && (
+                <p className={`text-xs mt-1 font-medium ${status === 'error' ? 'text-red-500' : 'text-slate-500 dark:text-zinc-400'}`}>
+                  {feedback}
+                </p>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <motion.button
+          onClick={status === 'idle' ? startListening : stopListening}
+          whileTap={{ scale: 0.9 }}
+          className={`relative w-20 h-20 rounded-full flex items-center justify-center shadow-xl border-[3px] border-slate-50 dark:border-[#121212] ${
+            status === 'idle'
+              ? 'bg-[#004F71] text-white hover:bg-[#003B5C]'
+              : 'bg-red-500 text-white'
+          }`}
+        >
+          {status === 'listening' || status === 'processing' ? (
+            <motion.div
+              animate={{
+                boxShadow: ["0 0 0 0px rgba(239, 68, 68, 0.4)", "0 0 0 20px rgba(239, 68, 68, 0)"]
+              }}
+              transition={{ repeat: Infinity, duration: 1.5 }}
+              className="absolute inset-0 rounded-full"
+            />
+          ) : null}
+          <Mic size={32} className={status === 'listening' ? 'animate-pulse' : ''} />
+        </motion.button>
       </div>
 
       {/* Recent Transactions */}
-      <div className="px-6 pb-32">
+      <div className="px-6 pb-6">
         <div className="flex justify-between items-center mb-4">
           <h3 className="font-bold text-lg text-slate-900 dark:text-white tracking-tight">Historique récent</h3>
           <button
@@ -142,63 +159,7 @@ export default function HomeScreen() {
         </div>
       </div>
 
-      {/* Floating Voice Assistant Button (FAB) */}
-      <div className="fixed bottom-[90px] w-full max-w-md mx-auto pointer-events-none z-50 flex flex-col items-end justify-end px-6 space-y-3 right-0 left-0">
-
-        <AnimatePresence>
-          {status !== 'idle' && (
-            <motion.div
-              initial={{ opacity: 0, y: 20, scale: 0.9 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 20, scale: 0.9 }}
-              className="pointer-events-auto bg-white dark:bg-[#1A1A1A] p-4 rounded-2xl shadow-xl shadow-slate-200/50 dark:shadow-none border border-slate-100 dark:border-white/10 max-w-[260px] mr-2"
-            >
-              <p className="text-[#004F71] dark:text-[#FFCC00] text-sm font-bold italic">"{transcript || '...'}"</p>
-              {feedback && (
-                <p className={`text-xs mt-1 font-medium ${status === 'error' ? 'text-red-500' : 'text-slate-500 dark:text-zinc-400'}`}>
-                  {feedback}
-                </p>
-              )}
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        <motion.button
-          onClick={status === 'idle' ? startListening : stopListening}
-          whileTap={{ scale: 0.9 }}
-          className={`pointer-events-auto relative w-16 h-16 rounded-full flex items-center justify-center shadow-xl z-20 border-[3px] border-slate-50 dark:border-[#121212] ${
-            status === 'idle'
-              ? 'bg-[#004F71] text-white hover:bg-[#003B5C]'
-              : 'bg-red-500 text-white'
-          }`}
-        >
-          {status === 'listening' || status === 'processing' ? (
-            <motion.div
-              animate={{
-                boxShadow: ["0 0 0 0px rgba(239, 68, 68, 0.4)", "0 0 0 20px rgba(239, 68, 68, 0)"]
-              }}
-              transition={{ repeat: Infinity, duration: 1.5 }}
-              className="absolute inset-0 rounded-full"
-            />
-          ) : null}
-          <Mic size={28} className={status === 'listening' ? 'animate-pulse' : ''} />
-        </motion.button>
-
-      </div>
     </div>
-  );
-}
-
-function ActionIcon({ icon, label, onClick }: { icon: React.ReactNode, label: string, onClick: () => void }) {
-  return (
-    <button type="button" onClick={onClick} className="flex flex-col items-center justify-center cursor-pointer group">
-      <div className="w-14 h-14 rounded-[20px] bg-transparent flex items-center justify-center text-[#004F71] dark:text-[#FFCC00] transition-all group-active:scale-95 group-hover:bg-slate-100 dark:group-hover:bg-white/10 mb-1">
-        {icon}
-      </div>
-      <span className="text-[11px] font-bold text-slate-700 dark:text-zinc-300 text-center leading-tight">
-        {label}
-      </span>
-    </button>
   );
 }
 
