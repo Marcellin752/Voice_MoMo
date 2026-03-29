@@ -57,9 +57,11 @@ export function useVoiceAssistantNLP(
   // Transaction ID pour confirmation
   const transactionIdRef = useRef<string | null>(null);
 
-  // Initialiser token JWT
+  // Initializar token JWT
   useEffect(() => {
-    tokenRef.current = jwtToken || localStorage.getItem('auth_token');
+    const token = jwtToken || localStorage.getItem('momo.auth.token');
+    tokenRef.current = token;
+    console.log(`🔐 [AUTH] Token inicializado${token ? ': presente' : ': NO ENCONTRADO'}`);
   }, [jwtToken]);
 
   // Initialiser la reconnaissance vocale
@@ -99,6 +101,7 @@ export function useVoiceAssistantNLP(
    */
   const startListening = useCallback(async () => {
     try {
+      console.log('🎤 [START] Demande d\'accès microphone...');
       // Demander l'accès au microphone
       const stream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
@@ -108,13 +111,38 @@ export function useVoiceAssistantNLP(
         }
       });
       
+      console.log('✅ [AUDIO] Microphone accès autorisé');
       streamRef.current = stream;
       
-      // Créer MediaRecorder
-      const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: 'audio/webm;codecs=opus' // fallback will handle if not supported
-      });
+      // Détecter les MIME types supportés
+      const supportedMimeTypes = [
+        'audio/webm',
+        'audio/wav',
+        'audio/ogg',
+        'audio/mp4',
+        'audio/webm;codecs=opus',
+      ];
       
+      let selectedMimeType = '';
+      for (const mimeType of supportedMimeTypes) {
+        if (MediaRecorder.isTypeSupported(mimeType)) {
+          selectedMimeType = mimeType;
+          console.log(`✅ [AUDIO] MIME type supporté: ${mimeType}`);
+          break;
+        }
+      }
+      
+      if (!selectedMimeType) {
+        // Fallback: créer sans spécifier le MIME type
+        console.warn('⚠️ [AUDIO] Aucun MIME type spécifique supporté, utilisation du défaut du navigateur');
+        selectedMimeType = '';
+      }
+      
+      // Créer MediaRecorder
+      const mediaRecorderOptions = selectedMimeType ? { mimeType: selectedMimeType } : {};
+      const mediaRecorder = new MediaRecorder(stream, mediaRecorderOptions);
+      
+      console.log(`📝 [AUDIO] MediaRecorder initié (format: ${selectedMimeType || 'default'})`);
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
       
@@ -127,9 +155,16 @@ export function useVoiceAssistantNLP(
       
       // Lorsque l'enregistrement est terminé
       mediaRecorder.onstop = async () => {
+        console.log('⏹️ [AUDIO] Enregistrement terminé, construction du Blob...');
         // Construire le Blob audio
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        console.log(`🎵 Audio enregistré: ${audioBlob.size} bytes`);
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
+        console.log(`🎵 [SUCCESS] Audio enregistré: ${audioBlob.size} bytes (WAV format)`);
+        if (audioBlob.size === 0) {
+          console.error('❌ [ERROR] Audio blob est vide!');
+          setStatus('error');
+          setFeedback('Erreur: aucun audio enregistré. Réessayez.');
+          return;
+        }
         
         // Envoyer à l'API backend
         await sendAudioToBackend(audioBlob);
@@ -142,12 +177,17 @@ export function useVoiceAssistantNLP(
       setTranscript('');
       setParsedIntent(null);
       
-      console.log('✅ Enregistrement démarré');
+      console.log('✅ [SUCCESS] Enregistrement démarré');
+      setStatus('listening');
+      setIsListening(true);
+      setFeedback('Je vous écoute...');
+      setTranscript('');
+      setParsedIntent(null);
       
       // Auto-stop après 15 secondes max
       const timeout = setTimeout(() => {
         if (mediaRecorderRef.current?.state === 'recording') {
-          console.log('⏱️ Arrêt auto (15s)');
+          console.log('⏱️ [TIMEOUT] Arrêt auto après 15s');
           stopListening();
         }
       }, 15000);
@@ -155,10 +195,18 @@ export function useVoiceAssistantNLP(
       return () => clearTimeout(timeout);
       
     } catch (error: any) {
-      console.error('❌ Erreur accès microphone:', error);
+      console.error('❌ [ERROR] Erreur accès microphone:', error);
+      console.error('   Type:', error.name);
+      console.error('   Message:', error.message);
       setStatus('error');
-      setFeedback('Accès au microphone refusé. Vérifiez les permissions.');
-      speakFeedback('Accès au microphone refusé.');
+      const errorMsg = error.name === 'NotAllowedError' 
+        ? 'Accès microphone refusé. Vérifiez les permissions du navigateur.'
+        : error.name === 'NotFoundError'
+        ? 'Aucun microphone trouvé.'
+        : 'Erreur accès microphone: ' + error.message;
+      setFeedback(errorMsg);
+      console.error('📢 [FEEDBACK]', errorMsg);
+      speakFeedback(errorMsg);
     }
   }, []);
 
@@ -185,30 +233,46 @@ export function useVoiceAssistantNLP(
    */
   const sendAudioToBackend = async (audioBlob: Blob) => {
     try {
-      console.log('📤 Envoi audio au backend...');
+      console.log('📤 [START] Envoi audio au backend...');
+      console.log(`   URL: ${nlpApiUrl}/api/voice-command`);
+      console.log(`   Size: ${audioBlob.size} bytes`);
+      console.log(`   Type: ${audioBlob.type}`);
       
       // FormData pour uploader le fichier
       const formData = new FormData();
-      formData.append('audio_file', audioBlob, 'audio.webm');
+      formData.append('audio_file', audioBlob, 'audio.wav');
       
       // Headers avec JWT
       const headers: any = {};
       if (tokenRef.current) {
         headers['Authorization'] = `Bearer ${tokenRef.current}`;
+        console.log('🔐 [AUTH] Token JWT présent');
+      } else {
+        console.warn('⚠️ [AUTH] Pas de token JWT trouvé');
       }
       
+      console.log('📡 [NETWORK] Envoi de la requête...');
       const response = await fetch(`${nlpApiUrl}/api/voice-command`, {
         method: 'POST',
         headers,
         body: formData,
       });
 
+      console.log(`📥 [RESPONSE] Status: ${response.status} ${response.statusText}`);
+
       if (!response.ok) {
-        throw new Error(`Backend error: ${response.status}`);
+        const errorText = await response.text();
+        console.error(`❌ [ERROR] Backend error: ${response.status}`);
+        console.error(`   Response body: ${errorText}`);
+        throw new Error(`Backend error: ${response.status} - ${errorText}`);
       }
 
       const result: ParsedResponse = await response.json();
-      console.log('✅ Backend response:', result);
+      console.log('✅ [SUCCESS] Réponse backend reçue');
+      console.log(`   Intent: ${result.intent}`);
+      console.log(`   Confidence: ${result.metadata?.confidence}`);
+      console.log(`   Understood: "${result.understood_text}"`);
+      console.log(`   Needs confirmation: ${result.requires_confirmation}`);
       
       // Sauvegarder l'intent parsé
       setParsedIntent(result);
@@ -217,40 +281,48 @@ export function useVoiceAssistantNLP(
       // Sauvegarder le transaction_id si présent (pour confirmation)
       if (result.transaction_id) {
         transactionIdRef.current = result.transaction_id;
-        console.log(`💾 Transaction ID: ${result.transaction_id}`);
+        console.log(`💾 [CACHE] Transaction ID: ${result.transaction_id}`);
       }
       
       // Afficher le message de réponse
       const message = result.message || result.confirmation_message || 'Action exécutée';
+      console.log(`📢 [FEEDBACK] Message: "${message}"`);
       setFeedback(message);
       
       // Jouer l'audio de réponse s'il existe
       if (result.audio_base64) {
+        console.log('🔊 [AUDIO] Audio de réponse trouvé, lecture...');
         await playAudioResponse(result.audio_base64);
       } else {
-        // Sinon utiliser TTS pour le message
+        console.log('💬 [TTS] Pas d\'audio de réponse, utilisation TTS');
         speakFeedback(message);
       }
       
       // Gérer l'état selon si confirmation nécessaire
       if (result.requires_confirmation) {
-        console.log('⏳ Attente de confirmation pour:', result.intent);
+        console.log(`⏳ [STATE] Attente de confirmation pour: ${result.intent}`);
         setStatus('awaiting_confirmation');
       } else {
+        console.log(`✅ [STATE] Action réussie: ${result.intent}`);
         setStatus('success');
         // Reset à idle après 3s
         setTimeout(() => {
           if (statusRef.current === 'success') {
+            console.log('[STATE] Reset to idle');
             setStatus('idle');
           }
         }, 3000);
       }
       
     } catch (error) {
-      console.error('❌ Erreur envoi audio:', error);
+      console.error('❌ [ERROR] Erreur envoi audio:');
+      console.error('   Type:', (error as any)?.name);
+      console.error('   Message:', (error as any)?.message);
+      console.error('   Stack:', (error as any)?.stack);
       setStatus('error');
-      const errorMsg = 'Erreur lors du traitement audio. Veuillez réessayer.';
+      const errorMsg = (error as any)?.message || 'Erreur lors du traitement audio. Veuillez réessayer.';
       setFeedback(errorMsg);
+      console.error(`📢 [FEEDBACK] ERROR: ${errorMsg}`);
       speakFeedback(errorMsg);
       
       setTimeout(() => setStatus('idle'), 5000);
@@ -329,12 +401,13 @@ export function useVoiceAssistantNLP(
    */
   const confirmAction = useCallback(async () => {
     if (!transactionIdRef.current) {
-      console.warn('❌ Pas de transaction_id pour confirmer');
+      console.warn('❌ [ERROR] Pas de transaction_id pour confirmer');
+      setFeedback('Erreur: pas de transaction à confirmer');
       return;
     }
 
     try {
-      console.log(`✅ Confirmation de transaction: ${transactionIdRef.current}`);
+      console.log(`✅ [START] Confirmation de transaction: ${transactionIdRef.current}`);
       
       const headers: any = {
         'Content-Type': 'application/json',
@@ -343,6 +416,7 @@ export function useVoiceAssistantNLP(
         headers['Authorization'] = `Bearer ${tokenRef.current}`;
       }
 
+      console.log('📡 [NETWORK] Envoi confirmation...');
       const response = await fetch(`${nlpApiUrl}/api/confirm`, {
         method: 'POST',
         headers,
@@ -352,11 +426,13 @@ export function useVoiceAssistantNLP(
       });
 
       if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`❌ [ERROR] Status ${response.status}: ${errorText}`);
         throw new Error(`Confirmation error: ${response.status}`);
       }
 
       const result = await response.json();
-      console.log('✅ Action confirmée:', result);
+      console.log('✅ [SUCCESS] Action confirmée:', result);
       
       setFeedback(result.message || 'Action confirmée');
       speakFeedback(result.message || 'Action confirmée');
@@ -367,7 +443,7 @@ export function useVoiceAssistantNLP(
       setTimeout(() => setStatus('idle'), 3000);
       
     } catch (error) {
-      console.error('❌ Erreur confirmation:', error);
+      console.error('❌ [ERROR] Erreur confirmation:', error);
       setFeedback('Erreur lors de la confirmation.');
       speakFeedback('Erreur lors de la confirmation.');
       setStatus('error');
@@ -379,12 +455,13 @@ export function useVoiceAssistantNLP(
    */
   const cancelAction = useCallback(async () => {
     if (!transactionIdRef.current) {
-      console.warn('❌ Pas de transaction_id pour annuler');
+      console.warn('❌ [ERROR] Pas de transaction_id pour annuler');
+      setFeedback('Erreur: pas de transaction à annuler');
       return;
     }
 
     try {
-      console.log(`❌ Annulation de transaction: ${transactionIdRef.current}`);
+      console.log(`❌ [START] Annulation de transaction: ${transactionIdRef.current}`);
       
       const headers: any = {
         'Content-Type': 'application/json',
@@ -393,6 +470,7 @@ export function useVoiceAssistantNLP(
         headers['Authorization'] = `Bearer ${tokenRef.current}`;
       }
 
+      console.log('📡 [NETWORK] Envoi annulation...');
       const response = await fetch(`${nlpApiUrl}/api/cancel`, {
         method: 'POST',
         headers,

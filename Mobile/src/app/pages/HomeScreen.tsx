@@ -2,14 +2,19 @@ import { useState, useEffect, SetStateAction } from "react";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import { Mic, Eye, EyeOff, Send, Download, Phone, Wifi, CreditCard, Landmark, FileText, Bell, ArrowDownLeft, ArrowUpRight } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { useVoiceAssistant } from "../hooks/useVoiceAssistant";
+import { useVoiceAssistantNLP } from "../hooks/useVoiceAssistantNLP";
 import { useNavigate } from "react-router";
+import { useAuth } from "../contexts/AuthContext";
 import * as usersService from "../services/users.service";
 import * as transactionsService from "../services/transactions.service";
 import type { ApiProfile, ApiTransaction } from "../utils/api";
 
 export default function HomeScreen() {
-  const { status, transcript, feedback, startListening, stopListening } = useVoiceAssistant();
+  const { token } = useAuth();
+  const { status, transcript, feedback, startListening, stopListening, confirmAction, cancelAction, parsedIntent } = useVoiceAssistantNLP(
+    'http://localhost:8000',
+    token || undefined
+  );
   const [showBalance, setShowBalance] = useState(false);
   const navigate = useNavigate();
 

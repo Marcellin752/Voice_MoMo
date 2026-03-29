@@ -70,31 +70,39 @@ class ActionExecutor:
         """
         Exécuter une action selon l'intent
         """
-        logger.info(f"🚀 Exécution action: {intent.value} (confirmation: {needs_confirmation})")
+        logger.info(f"🚀 EXECUTE intent={intent.value}, user_id={user_id}")
+        logger.info(f"   amount={amount}, recipient={recipient}, service_type={service_type}")
+        logger.info(f"   needs_confirmation={needs_confirmation}")
         
         # Route vers le bon handler
         if intent == Intent.BALANCE:
+            logger.info(f"   → Handler: BALANCE")
             return self._handle_balance(user_id)
         
         elif intent == Intent.TRANSFER:
+            logger.info(f"   → Handler: TRANSFER")
             return self._handle_transfer(
                 user_id, amount, recipient, needs_confirmation
             )
         
         elif intent == Intent.RECHARGE:
+            logger.info(f"   → Handler: RECHARGE")
             return self._handle_recharge(
                 user_id, amount, needs_confirmation
             )
         
         elif intent == Intent.BILL_PAYMENT:
+            logger.info(f"   → Handler: BILL_PAYMENT")
             return self._handle_bill_payment(
                 user_id, amount, service_type, needs_confirmation
             )
         
         elif intent == Intent.HELP:
+            logger.info(f"   → Handler: HELP")
             return self._handle_help()
         
         else:
+            logger.error(f"   ❌ Intent non supporté: {intent.value}")
             return ActionResult(
                 success=False,
                 intent=intent.value,
@@ -152,16 +160,20 @@ class ActionExecutor:
         """
         Annuler une action en attente
         """
-        logger.info(f"❌ Annulation transaction: {transaction_id}")
+        logger.info(f"❌ CANCEL transaction_id={transaction_id}, user_id={user_id}")
         
         tx = self.cache.cancel(transaction_id)
+        logger.info(f"   Transaction annulée: {tx is not None}")
+        
         if not tx:
+            logger.error(f"   ❌ Transaction introuvable ou expirée")
             return ActionResult(
                 success=False,
                 intent="cancel",
                 message="Transaction pas trouvée ou expirée"
             )
         
+        logger.info(f"   ✅ Action annulée: {tx.intent}")
         return ActionResult(
             success=True,
             intent="cancel",
@@ -174,10 +186,17 @@ class ActionExecutor:
     
     def _handle_balance(self, user_id: str) -> ActionResult:
         """Consulter le solde"""
-        logger.info(f"💰 Vérification solde pour: {user_id}")
+        logger.info(f"💰 BALANCE CHECK pour user_id={user_id}")
         
-        user = self.users_db.get(user_id) or self.users_db["default"]
+        user = self.users_db.get(user_id)
+        logger.info(f"   User trouvé: {user is not None}")
+        
+        if not user:
+            logger.info(f"   → Fallback à user par défaut")
+            user = self.users_db["default"]
+        
         balance = user.get("balance", 0)
+        logger.info(f"   ✅ Balance: {balance:,.0f} XOF")
         
         message = f"Votre solde actuel est de {balance:,.0f} francs CFA."
         

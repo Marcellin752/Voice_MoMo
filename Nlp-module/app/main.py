@@ -4,10 +4,11 @@ from fastapi.responses import Response
 import logging
 import json
 from typing import Optional
+import io
 
 from app.models import ParseCommandRequest, ParseCommandResponse
 from app.service import CommandParserService
-from app.gemini_voice_service import get_voice_service
+from app.gemini_voice_service import get_voice_service  # Using gRPC with updated model support
 from app.action_executor import get_action_executor
 from app.transaction_cache import get_transaction_cache
 from app.auth import extract_user_from_request, JWTManager
@@ -66,6 +67,66 @@ logger.info("🛡️ Rate limiting middleware enabled")
 service = CommandParserService()
 
 
+def convert_audio_format(audio_bytes: bytes, from_format: str, to_format: str = "wav") -> bytes:
+    """
+    Convertir l'audio d'un format à un autre
+    Nécessaire car Gemini STT ne supporte pas WebM
+    """
+    if from_format == to_format:
+        return audio_bytes
+    
+    logger.info(f"🔄 Conversion audio: {from_format} → {to_format}")
+    
+    try:
+        # Essayer avec pydub si disponible
+        from pydub import AudioSegment
+        import struct
+        
+        if from_format == "webm" and to_format == "wav":
+            # WebM → WAV
+            try:
+                audio = AudioSegment.from_file(io.BytesIO(audio_bytes), format="webm")
+                wav_io = io.BytesIO()
+                audio.export(wav_io, format="wav")
+                wav_data = wav_io.getvalue()
+                logger.info(f"✅ WebM→WAV conversion réussie ({len(wav_data)} bytes)")
+                return wav_data
+            except Exception as e:
+                logger.warning(f"⚠️ Erreur conversion WebM: {e}, fallback sur ffmpeg")
+        
+        # Fallback avec ffmpeg en ligne de commande
+        import subprocess
+        import tempfile
+        import os
+        
+        with tempfile.NamedTemporaryFile(suffix=f'.{from_format}', delete=False) as f_in:
+            f_in.write(audio_bytes)
+            f_in.flush()
+            
+            with tempfile.NamedTemporaryFile(suffix=f'.{to_format}', delete=False) as f_out:
+                try:
+                    cmd = [
+                        'ffmpeg', '-i', f_in.name,
+                        '-acodec', 'pcm_s16le',
+                        '-ar', '16000',
+                        '-ac', '1',
+                        f_out.name,
+                        '-loglevel', 'error'
+                    ]
+                    subprocess.run(cmd, check=True, capture_output=True, timeout=10)
+                    
+                    wav_data = open(f_out.name, 'rb').read()
+                    logger.info(f"✅ FFmpeg conversion réussie: {len(wav_data)} bytes")
+                    return wav_data
+                finally:
+                    os.unlink(f_in.name)
+                    os.unlink(f_out.name)
+    
+    except Exception as e:
+        logger.warning(f"⚠️ Erreur conversion audio: {e}, utilisation format original")
+        return audio_bytes
+
+
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -107,6 +168,108 @@ async def get_token(user_id: str = "default") -> dict:
         "token_type": "bearer",
         "user_id": user_id,
         "expires_in": "24h"
+    }
+
+
+@app.post("/api/auth/login", tags=["🔐 Authentication"])
+async def login(phone: str = Body(...), pin: str = Body(...)):
+    """
+    🔐 **Login utilisateur (MODE TEST)**
+    
+    Endpoint de développement pour tester le login.
+    Accepte n'importe quel numéro de téléphone et PIN.
+    
+    **Request**:
+    ```json
+    {
+      "phone": "0197722311",
+      "pin": "1234"
+    }
+    ```
+    
+    **Response**:
+    ```json
+    {
+      "token": "eyJ0eXAiOiJKV1QiLCJhbGc...",
+      "user": {
+        "id": "user_0197722311",
+        "phone": "0197722311",
+        "name": "Utilisateur Test",
+        "balance": 50000,
+        "currency": "XOF"
+      }
+    }
+    ```
+    
+    ⚠️ EN PRODUCTION: À remplacer par une vraie authentification avec API Mobile Money
+    """
+    # Mode TEST: Accept any phone/pin combination
+    user_id = f"user_{phone}"
+    token = JWTManager.encode_token(user_id, {"phone": phone})
+    
+    logger.info(f"✅ Login TEST pour phone={phone}")
+    
+    return {
+        "token": token,
+        "user": {
+            "id": user_id,
+            "phone": phone,
+            "name": f"Utilisateur {phone[-4:]}",
+            "balance": 50000,
+            "currency": "XOF"
+        }
+    }
+
+
+@app.post("/api/auth/register", tags=["🔐 Authentication"])
+async def register(phone: str = Body(...), pin: str = Body(...)):
+    """
+    🔐 **Register nouvel utilisateur (MODE TEST)**
+    
+    Endpoint de développement pour tester la création de compte.
+    Accepte n'importe quel numéro de téléphone et PIN.
+    
+    **Request**:
+    ```json
+    {
+      "phone": "0197722311",
+      "pin": "1234"
+    }
+    ```
+    
+    **Response**:
+    ```json
+    {
+      "message": "Compte créé avec succès",
+      "token": "eyJ0eXAiOiJKV1QiLCJhbGc...",
+      "user": {
+        "id": "user_0197722311",
+        "phone": "0197722311",
+        "name": "Utilisateur Test",
+        "balance": 50000,
+        "currency": "XOF"
+      }
+    }
+    ```
+    
+    ⚠️ EN PRODUCTION: À remplacer par une vraie création de compte avec API Mobile Money
+    """
+    # Mode TEST: Always create new account
+    user_id = f"user_{phone}"
+    token = JWTManager.encode_token(user_id, {"phone": phone})
+    
+    logger.info(f"✅ Registration TEST pour phone={phone}")
+    
+    return {
+        "message": "Compte créé avec succès",
+        "token": token,
+        "user": {
+            "id": user_id,
+            "phone": phone,
+            "name": f"Utilisateur {phone[-4:]}",
+            "balance": 50000,
+            "currency": "XOF"
+        }
     }
 
 
@@ -179,9 +342,17 @@ async def voice_command(request: Request, audio_file: UploadFile = File(...)) ->
         audio_bytes = await audio_file.read()
         audio_format = audio_file.filename.split('.')[-1].lower() if audio_file.filename else "wav"
         
-        logger.info(f"🎙️ Commande vocale reçue pour user_id={user_id}: {audio_file.filename} ({len(audio_bytes)} bytes)")
+        logger.info(f"🎙️ Commande vocale reçue pour user_id={user_id}: {audio_file.filename} ({len(audio_bytes)} bytes, format={audio_format})")
+        
+        # Convertir WebM en WAV si nécessaire (Gemini STT ne supporte pas WebM)
+        if audio_format.lower() in ("webm", "opus"):
+            audio_bytes_converted = convert_audio_format(audio_bytes, audio_format, "wav")
+            audio_format = "wav"
+            if len(audio_bytes_converted) > 0:
+                audio_bytes = audio_bytes_converted
         
         # 2. Traiter avec Gemini Voice Service (TOUT EN UN !)
+        logger.info(f"🎙️ Traitement Gemini pour {len(audio_bytes)} bytes ({audio_format})")
         voice_service = get_voice_service()
         result = voice_service.process_voice_command(
             audio_bytes=audio_bytes,
@@ -189,10 +360,11 @@ async def voice_command(request: Request, audio_file: UploadFile = File(...)) ->
         )
         
         if not result["success"]:
-            logger.error(f"❌ Erreur traitement vocal: {result['error']}")
+            logger.error(f"❌ ERREUR TRAITEMENT VOCAL: {result['error']}")
+            logger.error(f"   Détails: {result.get('nlp_result')}")
             return Response(
                 content=result["nlp_result"].model_dump_json(),
-                status_code=500,
+                status_code=200,  # 200 OK car c'est une réponse valide (fallback)
                 media_type="application/json"
             )
         
@@ -230,10 +402,14 @@ async def voice_command(request: Request, audio_file: UploadFile = File(...)) ->
         )
         
     except Exception as e:
-        logger.error(f"❌ Exception dans /api/voice-command: {str(e)}")
+        import traceback
+        logger.error(f"❌ EXCEPTION CRITIQUE dans /api/voice-command:")
+        logger.error(f"   Type: {type(e).__name__}")
+        logger.error(f"   Message: {str(e)}")
+        logger.error(f"   Traceback:\n{traceback.format_exc()}")
         return Response(
             content=json.dumps({
-                "error": str(e),
+                "error": f"{type(e).__name__}: {str(e)}",
                 "intent": "unknown"
             }),
             status_code=500,
