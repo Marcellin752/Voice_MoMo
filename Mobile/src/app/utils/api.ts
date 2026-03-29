@@ -1,4 +1,4 @@
-const BASE_URL = 'http://localhost:3001';
+const BASE_URL = 'http://localhost:8000';
 const TOKEN_KEY = 'momo.auth.token';
 
 export function getToken(): string | null {
@@ -10,20 +10,37 @@ export async function request<T>(method: string, path: string, body?: unknown): 
   const token = getToken();
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
+  console.log(`📡 [API] ${method} ${BASE_URL}${path}`);
+  if (token) console.log('🔑 [AUTH] Token JWT présent');
+  if (body) console.log('📦 [PAYLOAD]', body);
+
   const res = await fetch(`${BASE_URL}${path}`, {
     method,
     headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
 
+  console.log(`📨 [RESPONSE] Status: ${res.status} ${res.statusText}`);
+
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ message: res.statusText }));
-    const error = new Error(err.message || 'Erreur réseau') as Error & { status: number };
+    let errData: any;
+    try {
+      errData = await res.json();
+    } catch {
+      errData = { message: res.statusText };
+    }
+    
+    console.error(`❌ [ERROR] ${res.status} ${res.statusText}`);
+    console.error('   Details:', errData);
+    
+    const error = new Error(errData.message || errData.detail || 'Erreur réseau') as Error & { status: number };
     error.status = res.status;
     throw error;
   }
 
-  return res.json() as Promise<T>;
+  const data = await res.json() as Promise<T>;
+  console.log('✅ [SUCCESS] Réponse complète');
+  return data;
 }
 
 // Types partagés entre les services
