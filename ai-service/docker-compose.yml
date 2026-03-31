@@ -1,0 +1,93 @@
+# Local AI voice stack — STT + NLU + TTS + Ollama + orchestrator
+# From repo root: cd ai-service && docker compose up --build
+# Backend Voice MoMo must be reachable (BACKEND_URL). On Linux host use your LAN IP if needed.
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+    networks:
+      - ai-network
+
+  stt-service:
+    build:
+      context: ./stt
+      dockerfile: Dockerfile
+    ports:
+      - "5001:5001"
+    environment:
+      WHISPER_MODEL: ${WHISPER_MODEL:-}
+    restart: unless-stopped
+    networks:
+      - ai-network
+
+  nlu-service:
+    build:
+      context: ./nlu
+      dockerfile: Dockerfile
+    ports:
+      - "5002:5002"
+    environment:
+      OLLAMA_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-mistral}
+      CONTACTS_JSON_PATH: /data/contacts.json
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    volumes:
+      - ./data:/data:ro
+    depends_on:
+      - ollama
+    restart: unless-stopped
+    networks:
+      - ai-network
+
+  tts-service:
+    build:
+      context: ./tts
+      dockerfile: Dockerfile
+    ports:
+      - "5003:5003"
+    environment:
+      COQUI_MODEL: ${COQUI_MODEL:-}
+    restart: unless-stopped
+    networks:
+      - ai-network
+
+  orchestrator:
+    build:
+      context: ./orchestrator
+      dockerfile: Dockerfile
+    ports:
+      - "5004:5004"
+    environment:
+      PORT: "5004"
+      STT_URL: http://stt-service:5001
+      NLU_URL: http://nlu-service:5002
+      TTS_URL: http://tts-service:5003
+      OLLAMA_URL: http://ollama:11434
+      BACKEND_URL: ${BACKEND_URL:-http://host.docker.internal:3001}
+      DEFAULT_VOICE_COUNTRY: ${DEFAULT_VOICE_COUNTRY:-BJ}
+      PIN_ENCRYPTION_KEY: ${PIN_ENCRYPTION_KEY:-}
+      USE_V1_USSD: ${USE_V1_USSD:-false}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - stt-service
+      - nlu-service
+      - tts-service
+    restart: unless-stopped
+    networks:
+      - ai-network
+
+volumes:
+  ollama_data:
+
+networks:
+  ai-network:
+    driver: bridge

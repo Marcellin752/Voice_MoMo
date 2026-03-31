@@ -1,0 +1,4 @@
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+TTS==0.22.0
+torch>=2.0.0
