@@ -12,3 +12,12 @@ Mobile/android/app/src/main/assets/public/
 
 # Claude
 .claude/
+
+# AI local service artifacts
+ai-service/**/.venv/
+ai-service/**/__pycache__/
+ai-service/**/*.pyc
+ai-service/.pytest_cache/
+ai-service/.mypy_cache/
+ai-service/.ruff_cache/
+ai-service/.cache/
