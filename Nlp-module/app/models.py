@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 class Intent(str, Enum):
     BALANCE = "balance"
     TRANSFER = "transfer"
+    WITHDRAW = "withdraw"
     RECHARGE = "recharge"
     BILL_PAYMENT = "bill_payment"
     HELP = "help"

@@ -8,10 +8,12 @@ import io
 
 from app.models import ParseCommandRequest, ParseCommandResponse
 from app.service import CommandParserService
-from app.gemini_voice_service import get_voice_service  # Using gRPC with updated model support
+from app.entity_normalizer import normalize_parsed_entities
+from app.gemini_rest_service import get_voice_service
 from app.action_executor import get_action_executor
 from app.transaction_cache import get_transaction_cache
 from app.auth import extract_user_from_request, JWTManager
+from app.config import settings
 from app.rate_limiter import rate_limit_middleware
 
 logger = logging.getLogger(__name__)
@@ -130,6 +132,44 @@ def convert_audio_format(audio_bytes: bytes, from_format: str, to_format: str = 
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/api/users/profile", tags=["👤 Users"])
+async def get_profile(user_id: str = "default") -> dict:
+    """Mock User Profile Endpoint pour que le Frontend Mobile affiche l'utilisateur"""
+    user_data = executor.users_db.get(user_id, executor.users_db["default"])
+    return {
+        "id": user_id,
+        "fullName": user_data.get("name", "Utilisateur Mobile"),
+        "phone": user_data.get("phone", "+221771234567"),
+        "balance": user_data.get("balance", 0)
+    }
+
+@app.get("/api/users/balance", tags=["💰 Users Solde"])
+async def get_balance(user_id: str = "default") -> dict:
+    """Mock User Balance Endpoint pour le Frontend Mobile"""
+    user_data = executor.users_db.get(user_id, executor.users_db["default"])
+    return {
+        "balance": user_data.get("balance", 0),
+        "currency": "FCFA"
+    }
+
+@app.get("/api/transactions", tags=["📄 Transactions"])
+async def get_transactions(user_id: str = "default") -> dict:
+    """Mock Transactions Endpoint pour le Frontend Mobile"""
+    return {
+        "transactions": [
+            {
+                "id": "tx-1",
+                "dayLabel": "Aujourd'hui",
+                "type": "out",
+                "title": "Paiement Facture",
+                "desc": "CIE",
+                "time": "14:30",
+                "amount": "15000"
+            }
+        ]
+    }
 
 
 @app.post("/api/auth/token", tags=["🔐 Authentication"])
@@ -358,17 +398,33 @@ async def voice_command(request: Request, audio_file: UploadFile = File(...)) ->
             audio_bytes=audio_bytes,
             audio_format=audio_format
         )
-        
-        if not result["success"]:
-            logger.error(f"❌ ERREUR TRAITEMENT VOCAL: {result['error']}")
-            logger.error(f"   Détails: {result.get('nlp_result')}")
+
+        # Si Gemini échoue, renvoyer une erreur claire au frontend
+        if not result.get("success", False) or result.get("error"):
+            error_msg = result.get("error") or "Voice processing failed"
+            if "API Error 403" in error_msg:
+                error_msg = "Accès à Gemini bloqué par le réseau (Web Filter 403)."
+
+            logger.error(f"❌ ERREUR TRAITEMENT VOCAL: {error_msg}")
             return Response(
-                content=result["nlp_result"].model_dump_json(),
-                status_code=200,  # 200 OK car c'est une réponse valide (fallback)
+                content=json.dumps({
+                    "intent": "unknown",
+                    "message": error_msg,
+                    "understood_text": "",
+                    "requires_confirmation": False,
+                    "data": {},
+                    "metadata": {
+                        "provider": "gemini-rest",
+                        "model": settings.gemini_model,
+                        "confidence": 0.0,
+                        "raw_output": error_msg,
+                    },
+                }, ensure_ascii=False),
+                status_code=200,
                 media_type="application/json"
             )
         
-        nlp_result: ParseCommandResponse = result["nlp_result"]
+        nlp_result: ParseCommandResponse = normalize_parsed_entities(result["nlp_result"])
         
         logger.info(f"✅ Analyse complétée: intent={nlp_result.intent.value}, confidence={nlp_result.metadata.confidence}")
         

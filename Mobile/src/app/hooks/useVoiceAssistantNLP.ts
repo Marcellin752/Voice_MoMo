@@ -45,6 +45,7 @@ export function useVoiceAssistantNLP(
   // MediaRecorder pour audio brut
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const recorderMimeTypeRef = useRef<string>('audio/webm');
   const audioContextRef = useRef<AudioContext | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   
@@ -141,6 +142,7 @@ export function useVoiceAssistantNLP(
       // Créer MediaRecorder
       const mediaRecorderOptions = selectedMimeType ? { mimeType: selectedMimeType } : {};
       const mediaRecorder = new MediaRecorder(stream, mediaRecorderOptions);
+      recorderMimeTypeRef.current = selectedMimeType || mediaRecorder.mimeType || 'audio/webm';
       
       console.log(`📝 [AUDIO] MediaRecorder initié (format: ${selectedMimeType || 'default'})`);
       mediaRecorderRef.current = mediaRecorder;
@@ -156,9 +158,20 @@ export function useVoiceAssistantNLP(
       // Lorsque l'enregistrement est terminé
       mediaRecorder.onstop = async () => {
         console.log('⏹️ [AUDIO] Enregistrement terminé, construction du Blob...');
-        // Construire le Blob audio
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
-        console.log(`🎵 [SUCCESS] Audio enregistré: ${audioBlob.size} bytes (WAV format)`);
+        // Conserver le vrai MIME type pour éviter d'envoyer un faux WAV
+        const mimeType = recorderMimeTypeRef.current || 'audio/webm';
+        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
+        const audioExtension = mimeType.includes('webm')
+          ? 'webm'
+          : mimeType.includes('wav')
+          ? 'wav'
+          : mimeType.includes('ogg') || mimeType.includes('opus')
+          ? 'ogg'
+          : mimeType.includes('mp4') || mimeType.includes('aac')
+          ? 'm4a'
+          : 'webm';
+
+        console.log(`🎵 [SUCCESS] Audio enregistré: ${audioBlob.size} bytes (${mimeType})`);
         if (audioBlob.size === 0) {
           console.error('❌ [ERROR] Audio blob est vide!');
           setStatus('error');
@@ -167,7 +180,7 @@ export function useVoiceAssistantNLP(
         }
         
         // Envoyer à l'API backend
-        await sendAudioToBackend(audioBlob);
+        await sendAudioToBackend(audioBlob, `audio.${audioExtension}`);
       };
       
       mediaRecorder.start();
@@ -231,16 +244,17 @@ export function useVoiceAssistantNLP(
   /**
    * 📤 Envoyer l'audio au backend
    */
-  const sendAudioToBackend = async (audioBlob: Blob) => {
+  const sendAudioToBackend = async (audioBlob: Blob, filename: string = 'audio.webm') => {
     try {
       console.log('📤 [START] Envoi audio au backend...');
       console.log(`   URL: ${nlpApiUrl}/api/voice-command`);
       console.log(`   Size: ${audioBlob.size} bytes`);
       console.log(`   Type: ${audioBlob.type}`);
+      console.log(`   File: ${filename}`);
       
       // FormData pour uploader le fichier
       const formData = new FormData();
-      formData.append('audio_file', audioBlob, 'audio.wav');
+      formData.append('audio_file', audioBlob, filename);
       
       // Headers avec JWT
       const headers: any = {};

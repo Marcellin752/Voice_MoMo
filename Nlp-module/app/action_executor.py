@@ -4,9 +4,10 @@ Gère: balance, transfer, recharge, bill_payment, etc.
 """
 
 import logging
+import re
 from typing import Dict, Any, Optional
-from enum import Enum
-from app.transaction_cache import get_transaction_cache, PendingTransaction
+from app.transaction_cache import get_transaction_cache
+from app.entity_normalizer import format_amount_for_tts, format_recipient_for_tts
 from app.models import Intent
 
 logger = logging.getLogger(__name__)
@@ -56,6 +57,30 @@ class ActionExecutor:
                 "name": "User",
             }
         }
+
+    @staticmethod
+    def _normalized_amount(amount: Optional[float]) -> Optional[int]:
+        if amount is None:
+            return None
+
+        try:
+            value = int(float(amount))
+        except (TypeError, ValueError):
+            return None
+
+        return value if value > 0 else None
+
+    @staticmethod
+    def _normalized_recipient(recipient: Optional[str]) -> Optional[str]:
+        if not recipient:
+            return None
+
+        cleaned = recipient.strip()
+        digits = re.sub(r"\D", "", cleaned)
+        if 8 <= len(digits) <= 15:
+            return digits
+
+        return cleaned
     
     def execute(
         self,
@@ -83,6 +108,12 @@ class ActionExecutor:
             logger.info(f"   → Handler: TRANSFER")
             return self._handle_transfer(
                 user_id, amount, recipient, needs_confirmation
+            )
+            
+        elif intent == Intent.WITHDRAW:
+            logger.info(f"   → Handler: WITHDRAW")
+            return self._handle_withdraw(
+                user_id, amount, needs_confirmation
             )
         
         elif intent == Intent.RECHARGE:
@@ -137,6 +168,11 @@ class ActionExecutor:
         if tx.intent == "transfer":
             return self._execute_transfer(
                 user_id, tx.amount, tx.recipient, transaction_id
+            )
+            
+        elif tx.intent == "withdraw":
+            return self._execute_withdraw(
+                user_id, tx.amount, transaction_id
             )
         
         elif tx.intent == "recharge":
@@ -196,9 +232,9 @@ class ActionExecutor:
             user = self.users_db["default"]
         
         balance = user.get("balance", 0)
-        logger.info(f"   ✅ Balance: {balance:,.0f} XOF")
+        logger.info(f"   ✅ Balance: {format_amount_for_tts(balance)} XOF")
         
-        message = f"Votre solde actuel est de {balance:,.0f} francs CFA."
+        message = f"Votre solde actuel est de {format_amount_for_tts(balance)} francs CFA."
         
         return ActionResult(
             success=True,
@@ -215,17 +251,20 @@ class ActionExecutor:
         needs_confirmation: bool
     ) -> ActionResult:
         """Initier un transfert d'argent"""
-        logger.info(f"💸 Transfert: {amount} XOF → {recipient}")
+        amount_value = self._normalized_amount(amount)
+        recipient_value = self._normalized_recipient(recipient)
+
+        logger.info(f"💸 Transfert: {amount_value} XOF → {recipient_value}")
         
         # Validation
-        if not amount or amount <= 0:
+        if amount_value is None:
             return ActionResult(
                 success=False,
                 intent=Intent.TRANSFER.value,
                 message="Montant invalide"
             )
         
-        if not recipient:
+        if not recipient_value:
             return ActionResult(
                 success=False,
                 intent=Intent.TRANSFER.value,
@@ -236,11 +275,11 @@ class ActionExecutor:
         balance = user.get("balance", 0)
         
         # Vérifier les fonds
-        if balance < amount:
+        if balance < amount_value:
             return ActionResult(
                 success=False,
                 intent=Intent.TRANSFER.value,
-                message=f"Solde insuffisant. Solde actuel: {balance:,.0f} XOF"
+                message=f"Solde insuffisant. Solde actuel: {format_amount_for_tts(balance)} XOF"
             )
         
         if needs_confirmation:
@@ -248,12 +287,15 @@ class ActionExecutor:
             tx_id = self.cache.add(
                 user_id=user_id,
                 intent="transfer",
-                amount=amount,
-                recipient=recipient,
+                amount=amount_value,
+                recipient=recipient_value,
                 ttl=300  # 5 min
             )
             
-            message = f"Voulez-vous envoyer {amount:,.0f} francs CFA à {recipient}?"
+            message = (
+                f"Voulez-vous envoyer {format_amount_for_tts(amount_value)} francs CFA "
+                f"vers {format_recipient_for_tts(recipient_value)} ?"
+            )
             
             return ActionResult(
                 success=True,
@@ -264,7 +306,7 @@ class ActionExecutor:
             )
         else:
             # Exécuter directement
-            return self._execute_transfer(user_id, amount, recipient)
+            return self._execute_transfer(user_id, amount_value, recipient_value)
     
     def _execute_transfer(
         self,
@@ -285,7 +327,10 @@ class ActionExecutor:
         if transaction_id:
             self.cache.confirm(transaction_id)
         
-        message = f"Transfert de {amount:,.0f} francs CFA à {recipient} réussi."
+        message = (
+            f"Transfert de {format_amount_for_tts(amount)} francs CFA "
+            f"vers {format_recipient_for_tts(recipient)} réussi."
+        )
         
         return ActionResult(
             success=True,
@@ -302,10 +347,11 @@ class ActionExecutor:
         needs_confirmation: bool
     ) -> ActionResult:
         """Initier une recharge crédit téléphonique"""
-        logger.info(f"📱 Recharge crédit: {amount} XOF")
+        amount_value = self._normalized_amount(amount)
+        logger.info(f"📱 Recharge crédit: {amount_value} XOF")
         
         # Validation
-        if not amount or amount <= 0:
+        if amount_value is None:
             return ActionResult(
                 success=False,
                 intent=Intent.RECHARGE.value,
@@ -316,11 +362,11 @@ class ActionExecutor:
             tx_id = self.cache.add(
                 user_id=user_id,
                 intent="recharge",
-                amount=amount,
+                amount=amount_value,
                 ttl=300
             )
             
-            message = f"Voulez-vous acheter {amount:,.0f} francs CFA de crédit?"
+            message = f"Voulez-vous acheter {format_amount_for_tts(amount_value)} francs CFA de crédit ?"
             
             return ActionResult(
                 success=True,
@@ -330,7 +376,7 @@ class ActionExecutor:
                 transaction_id=tx_id
             )
         else:
-            return self._execute_recharge(user_id, amount)
+            return self._execute_recharge(user_id, amount_value)
     
     def _execute_recharge(
         self,
@@ -347,7 +393,7 @@ class ActionExecutor:
         if transaction_id:
             self.cache.confirm(transaction_id)
         
-        message = f"Recharge de {amount:,.0f} francs CFA effectuée sur votre téléphone."
+        message = f"Recharge de {format_amount_for_tts(amount)} francs CFA effectuée sur votre téléphone."
         
         return ActionResult(
             success=True,
@@ -365,10 +411,11 @@ class ActionExecutor:
         needs_confirmation: bool
     ) -> ActionResult:
         """Initier le paiement d'une facture"""
-        logger.info(f"💡 Paiement facture: {service_type} - {amount} XOF")
+        amount_value = self._normalized_amount(amount)
+        logger.info(f"💡 Paiement facture: {service_type} - {amount_value} XOF")
         
         # Validation
-        if not amount or amount <= 0:
+        if amount_value is None:
             return ActionResult(
                 success=False,
                 intent=Intent.BILL_PAYMENT.value,
@@ -386,12 +433,15 @@ class ActionExecutor:
             tx_id = self.cache.add(
                 user_id=user_id,
                 intent="bill_payment",
-                amount=amount,
+                amount=amount_value,
                 service_type=service_type,
                 ttl=300
             )
             
-            message = f"Voulez-vous payer votre {service_type} pour {amount:,.0f} francs CFA?"
+            message = (
+                f"Voulez-vous payer votre {service_type} "
+                f"pour {format_amount_for_tts(amount_value)} francs CFA ?"
+            )
             
             return ActionResult(
                 success=True,
@@ -401,7 +451,7 @@ class ActionExecutor:
                 transaction_id=tx_id
             )
         else:
-            return self._execute_bill_payment(user_id, amount, service_type)
+            return self._execute_bill_payment(user_id, amount_value, service_type)
     
     def _execute_bill_payment(
         self,
@@ -419,7 +469,10 @@ class ActionExecutor:
         if transaction_id:
             self.cache.confirm(transaction_id)
         
-        message = f"Paiement de votre {service_type} ({amount:,.0f} XOF) accepté."
+        message = (
+            f"Paiement de votre {service_type} "
+            f"de {format_amount_for_tts(amount)} francs CFA accepté."
+        )
         
         return ActionResult(
             success=True,

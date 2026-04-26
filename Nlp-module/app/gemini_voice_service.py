@@ -77,10 +77,9 @@ class GeminiVoiceService:
         """Initialiser le service Gemini"""
         if not settings.gemini_api_key:
             raise RuntimeError("GEMINI_API_KEY is not configured")
-        push
         # 🔧 Configure Gemini with SSL bypass
         genai.configure(api_key=settings.gemini_api_key)
-        self.model = genai.GenerativeModel('gemini-1.5-flash')
+        self.model = genai.GenerativeModel(settings.gemini_model)
         
         # Set request timeout (60 seconds)
         import google.api_core.gapic_v1.client_info
@@ -110,7 +109,13 @@ Réponds toujours en JSON:
   "recipient": null or string,
   "understood_text": "Ce que vous avez dit",
   "message": "Votre réponse naturelle"
-}"""
+}
+
+Règles critiques d'extraction:
+- Si un montant et un numéro sont présents, le montant est la somme en FCFA, le numéro est le destinataire.
+- Un numéro de téléphone (8 à 15 chiffres) ne doit jamais être interprété comme un montant.
+- L'ordre peut changer dans la phrase; utilise les indices de contexte (FCFA, francs, à, au, numéro, vers) pour attribuer correctement amount vs recipient.
+"""
     
     def process_voice_command(
         self, 
@@ -255,7 +260,7 @@ Réponds toujours en JSON:
                 understood_text=data.get("understood_text", "[Audio]"),
                 metadata=ParseMetadata(
                     provider="gemini-voice",
-                    model="gemini-1.5-flash",
+                    model=settings.gemini_model,
                     confidence=data.get("confidence", 0.8),
                     raw_output=text
                 )
@@ -273,7 +278,7 @@ Réponds toujours en JSON:
                 understood_text="[Parse Error]",
                 metadata=ParseMetadata(
                     provider="gemini-voice",
-                    model="gemini-1.5-flash",
+                    model=settings.gemini_model,
                     confidence=0.0,
                     raw_output=f"Error: {str(e)}"
                 )
