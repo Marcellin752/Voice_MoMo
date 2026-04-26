@@ -2,6 +2,7 @@ PARSER_CONTRACT = {
     "intents": [
         "balance",
         "transfer",
+        "withdraw",
         "recharge",
         "bill_payment",
         "help",

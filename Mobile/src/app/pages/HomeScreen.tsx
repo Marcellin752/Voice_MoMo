@@ -1,4 +1,4 @@
-import { useState, useEffect, SetStateAction } from "react";
+import { useState, useEffect, useCallback, SetStateAction } from "react";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import { Mic, Eye, EyeOff, Send, Download, Phone, Wifi, CreditCard, Landmark, FileText, Bell, ArrowDownLeft, ArrowUpRight } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
@@ -22,7 +22,7 @@ export default function HomeScreen() {
   const [balance, setBalance] = useState<number | null>(null);
   const [transactions, setTransactions] = useState<ApiTransaction[]>([]);
 
-  useEffect(() => {
+  const fetchDashboardData = useCallback(() => {
     usersService.getProfile()
       .then((p: { fullName: any; }) => setProfile({ fullName: p.fullName }))
       .catch(() => {});
@@ -35,6 +35,25 @@ export default function HomeScreen() {
       .then((res: { transactions: any[]; }) => setTransactions(res.transactions.slice(0, 5)))
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    fetchDashboardData();
+  }, [fetchDashboardData]);
+
+  // Met à jour les infos après une opération vocale réussie
+  useEffect(() => {
+    if (status === 'success') {
+      fetchDashboardData();
+    }
+  }, [status, fetchDashboardData]);
+
+  // Assure la mise à jour constante du solde en "run time" (polling toutes les 5 secondes)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchDashboardData();
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [fetchDashboardData]);
 
   const formattedBalance = balance !== null
     ? balance.toLocaleString("fr-FR")

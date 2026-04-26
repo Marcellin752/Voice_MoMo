@@ -34,7 +34,7 @@ class GeminiRESTService:
             raise RuntimeError("GEMINI_API_KEY is not configured")
         
         self.api_key = settings.gemini_api_key
-        self.base_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent"
+        self.base_url = f"https://generativelanguage.googleapis.com/v1beta/models/{settings.gemini_model}:generateContent"
         
         logger.info("✅ Gemini REST Service initialized (SSL bypass enabled)")
         
@@ -48,18 +48,27 @@ Ton rôle :
 Intents possibles:
 - balance: Consulter le solde
 - transfer: Envoyer de l'argent
+- withdraw: Retirer de l'argent de son compte (ex: "retrait", "retirer", "décaisser")
 - recharge: Recharger crédit
 - bill_payment: Payer une facture
 - help: Demander de l'aide
+- confirm: Confirmer une action (ex: "oui", "je confirme", "ok")
+- cancel: Annuler une action (ex: "non", "annuler", "j'annule")
 
 Réponds toujours en JSON:
 {
-  "intent": "balance|transfer|recharge|bill_payment|help|unknown",
+  "intent": "balance|transfer|withdraw|recharge|bill_payment|help|confirm|cancel|unknown",
   "amount": null or number,
   "recipient": null or string,
   "understood_text": "Ce que vous avez dit",
   "message": "Votre réponse naturelle"
-}"""
+}
+
+Règles critiques d'extraction:
+- Si un montant et un numéro sont présents, le montant est la somme en FCFA, le numéro est le destinataire.
+- Un numéro de téléphone (8 à 15 chiffres) ne doit jamais être interprété comme un montant.
+- L'ordre peut changer dans la phrase; utilise les indices de contexte (FCFA, francs, à, au, numéro, vers) pour attribuer correctement amount vs recipient.
+"""
     
     def process_voice_command(
         self, 
@@ -197,8 +206,8 @@ Réponds toujours en JSON:
                 confirmation_message=data.get("confirmation_message"),
                 understood_text=data.get("understood_text", "[Audio]"),
                 metadata=ParseMetadata(
-                    provider="gemini-rest-2.0",
-                    model="gemini-2.0-flash-exp",
+                    provider="gemini-rest",
+                    model=settings.gemini_model,
                     confidence=data.get("confidence", 0.8),
                     raw_output=text[:200]
                 )
@@ -216,7 +225,7 @@ Réponds toujours en JSON:
                 understood_text="[Parse Error]",
                 metadata=ParseMetadata(
                     provider="gemini-rest-fallback",
-                    model="gemini-2.0-flash-exp",
+                    model=settings.gemini_model,
                     confidence=0.0,
                     raw_output=f"Error: {str(e)}"
                 )

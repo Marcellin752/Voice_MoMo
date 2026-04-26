@@ -28,6 +28,7 @@ class Settings:
     xai_model: str
     xai_voice: str
     gemini_api_key: str
+    gemini_model: str
     livekit_url: str
     livekit_api_key: str
     livekit_api_secret: str
@@ -43,6 +44,7 @@ settings = Settings(
     xai_model=os.getenv("XAI_MODEL", "grok-2-latest"),
     xai_voice=os.getenv("XAI_VOICE", "Ara"),
     gemini_api_key=os.getenv("GEMINI_API_KEY", ""),
+    gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
     livekit_url=os.getenv("LIVEKIT_URL", ""),
     livekit_api_key=os.getenv("LIVEKIT_API_KEY", ""),
     livekit_api_secret=os.getenv("LIVEKIT_API_SECRET", ""),

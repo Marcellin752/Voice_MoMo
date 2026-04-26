@@ -17,7 +17,7 @@ SYSTEM_PROMPT = """
 Tu es un parseur NLP pour des commandes Mobile Money en francais.
 Retourne uniquement un JSON valide avec ce schema exact:
 {
-  "intent": "balance|transfer|recharge|bill_payment|help|confirm|cancel|unknown",
+  "intent": "balance|transfer|withdraw|recharge|bill_payment|help|confirm|cancel|unknown",
   "amount": <int|null>,
   "currency": "XOF",
   "recipient": <string|null>,
@@ -28,10 +28,14 @@ Retourne uniquement un JSON valide avec ce schema exact:
 Regles:
 - "solde" => intent balance
 - "envoie/transfert" => intent transfer
+- "retrait/retirer" => intent withdraw (ex: "retrait de 5000 francs", "je veux retirer", "décaisser")
 - "recharge/credit" => intent recharge
 - "facture/paye" => intent bill_payment
 - "oui/je confirme" => intent confirm
 - "non/annule" => intent cancel
+- Si un montant et un numéro apparaissent, amount=montant FCFA et recipient=numéro (8 à 15 chiffres)
+- Ne jamais interpréter un numéro de téléphone comme amount
+- L'ordre des informations peut changer; déduire amount/recipient par le contexte (FCFA, francs, au, vers, numéro)
 - Si incertain => unknown
 - Ne retourne aucun texte hors JSON
 """.strip()
@@ -48,7 +52,7 @@ class GeminiClient:
         
         # Configure Gemini API
         genai.configure(api_key=self.api_key)
-        self.model = genai.GenerativeModel('gemini-2.0-flash-exp')
+        self.model = genai.GenerativeModel(settings.gemini_model)
     
     async def parse_command(self, text: str) -> ParseCommandResponse:
         """
@@ -115,7 +119,7 @@ class GeminiClient:
             understood_text=text,
             metadata=ParseMetadata(
                 provider="gemini",
-                model="gemini-2.0-flash-exp",
+                model=settings.gemini_model,
                 confidence=float(data.get("confidence", 0.8)),
                 raw_output=content,
             ),
