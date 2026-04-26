@@ -1,5 +1,6 @@
 import re
 
+from app.entity_normalizer import extract_amount_and_phone
 from app.models import Intent, ParseCommandResponse, ParseMetadata
 
 
@@ -58,9 +59,12 @@ def parse_with_fallback(text: str) -> ParseCommandResponse:
         )
 
     if any(token in lowered for token in ["envoie", "envoi", "transfert", "transfer", "donne"]):
-        amount = _parse_amount(lowered)
-        recipient_match = re.search(r"a\s+([\w\-\s]+)$", lowered)
-        recipient = recipient_match.group(1).strip() if recipient_match else None
+        amount, phone = extract_amount_and_phone(lowered)
+        recipient = phone
+
+        if not recipient:
+            recipient_match = re.search(r"a\s+([\w\-\s]+)$", lowered)
+            recipient = recipient_match.group(1).strip() if recipient_match else None
 
         return ParseCommandResponse(
             intent=Intent.TRANSFER,
@@ -77,7 +81,9 @@ def parse_with_fallback(text: str) -> ParseCommandResponse:
         )
 
     if any(token in lowered for token in ["recharge", "credit", "airtime"]):
-        amount = _parse_amount(lowered)
+        amount, _ = extract_amount_and_phone(lowered)
+        if amount is None:
+            amount = _parse_amount(lowered)
         return ParseCommandResponse(
             intent=Intent.RECHARGE,
             amount=amount,
@@ -91,8 +97,10 @@ def parse_with_fallback(text: str) -> ParseCommandResponse:
             metadata=ParseMetadata(confidence=0.65),
         )
 
-    if any(token in lowered for token in ["facture", "eau", "electricite", "internet", "payer", "paye"]):
-        amount = _parse_amount(lowered)
+    if any(token in lowered for token in ["facture", "eau", "electricite", "internet", "payer", "paye", "paiement", "paiment", "payment"]):
+        amount, _ = extract_amount_and_phone(lowered)
+        if amount is None:
+            amount = _parse_amount(lowered)
         bill_type = None
         if "eau" in lowered:
             bill_type = "eau"
