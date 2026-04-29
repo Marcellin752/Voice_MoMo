@@ -35,7 +35,9 @@ class GeminiRESTService:
             raise RuntimeError("GEMINI_API_KEY is not configured")
         
         self.api_key = settings.gemini_api_key
-        self.base_url = f"https://generativelanguage.googleapis.com/v1beta/models/{settings.gemini_model}:generateContent"
+        # Use v1beta for standard Gemini API, v1 for Vertex AI
+        api_version = os.getenv("GEMINI_API_VERSION", "v1beta")
+        self.base_url = f"https://generativelanguage.googleapis.com/{api_version}/models/{settings.gemini_model}:generateContent"
         
         logger.info("✅ Gemini REST Service initialized (SSL bypass enabled)")
         
