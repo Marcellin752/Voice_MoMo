@@ -21,3 +21,13 @@ ai-service/.pytest_cache/
 ai-service/.mypy_cache/
 ai-service/.ruff_cache/
 ai-service/.cache/
+
+# NLP Module artifacts
+Nlp-module/venv/
+Nlp-module/**/__pycache__/
+Nlp-module/**/*.pyc
+Nlp-module/.pytest_cache/
+Nlp-module/.mypy_cache/
+Nlp-module/.ruff_cache/
+Nlp-module/.cache/
+Nlp-module/.env

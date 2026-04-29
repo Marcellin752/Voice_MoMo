@@ -65,7 +65,11 @@ def get_engine() -> tuple[Any, str]:
     if _engine is not None:
         return _engine, _model_name or ""
 
-    from faster_whisper import WhisperModel
+    try:
+        from faster_whisper import WhisperModel
+    except ImportError as e:
+        _log_json("error", "import_failed", module="faster_whisper", error=str(e))
+        raise
 
     name = _pick_model()
     device, ctype = _detect_device()
@@ -93,8 +97,13 @@ def _to_wav_16k_mono(src: Path) -> Path:
         "wav",
         str(dst),
     ]
-    subprocess.run(cmd, check=True, capture_output=True)
-    return dst
+    try:
+        _log_json("info", "ffmpeg_start", src=str(src), size=src.stat().st_size)
+        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        return dst
+    except subprocess.CalledProcessError as e:
+        _log_json("error", "ffmpeg_failed", stderr=e.stderr, stdout=e.stdout)
+        raise
 
 
 def transcribe(audio_path: str) -> dict[str, Any]:
