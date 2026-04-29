@@ -60,6 +60,7 @@ function handleVoice(req, res) {
 
   run()
     .catch((e) => {
+      console.error("Voice pipeline error:", e);
       if (!res.headersSent) res.status(500).json({ error: String(e?.message || e) });
     })
     .finally(() => clearTimeout(t));

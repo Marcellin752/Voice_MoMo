@@ -8,6 +8,7 @@ import base64
 import requests
 import ssl
 import urllib3
+import time
 from typing import Dict, Any, Optional
 import logging
 from app.config import settings
@@ -132,20 +133,48 @@ Règles critiques d'extraction:
             
             logger.info("🔌 Sending REST request to Gemini API...")
             
-            # Faire la requête avec SSL désactivé
-            response = session.post(
-                f"{self.base_url}?key={self.api_key}",
-                json=payload,
-                timeout=120,  # 2 minutes timeout
-                verify=False  # Désactiver SSL verification
-            )
+            # Retry logic with exponential backoff for 429 errors
+            max_retries = 3
+            base_delay = 2  # seconds
             
-            logger.info(f"📡 Response status: {response.status_code}")
-            
-            if response.status_code != 200:
-                error_text = response.text[:200]
-                logger.error(f"❌ API Error {response.status_code}: {error_text}")
-                return self._create_fallback_response(f"API Error {response.status_code}")
+            for attempt in range(max_retries):
+                try:
+                    response = session.post(
+                        f"{self.base_url}?key={self.api_key}",
+                        json=payload,
+                        timeout=120,
+                        verify=False
+                    )
+                    
+                    logger.info(f"📡 Response status: {response.status_code} (attempt {attempt + 1})")
+                    
+                    # Handle 429 rate limit with retry
+                    if response.status_code == 429:
+                        if attempt < max_retries - 1:
+                            delay = base_delay * (2 ** attempt)  # Exponential backoff: 2, 4, 8 seconds
+                            logger.warning(f"⚠️ Rate limit hit (429), retrying in {delay}s...")
+                            time.sleep(delay)
+                            continue
+                        else:
+                            logger.error("❌ Rate limit persist after all retries")
+                            return self._create_fallback_response("Quota Gemini dépassé. Réessayez dans quelques secondes.")
+                    
+                    # Handle other errors
+                    if response.status_code != 200:
+                        error_text = response.text[:200]
+                        logger.error(f"❌ API Error {response.status_code}: {error_text}")
+                        return self._create_fallback_response(f"API Error {response.status_code}")
+                    
+                    # Success - break out of retry loop
+                    break
+                    
+                except requests.exceptions.RequestException as e:
+                    if attempt < max_retries - 1:
+                        delay = base_delay * (2 ** attempt)
+                        logger.warning(f"⚠️ Request failed, retrying in {delay}s: {e}")
+                        time.sleep(delay)
+                    else:
+                        raise
             
             # Parser la réponse
             data = response.json()

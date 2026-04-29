@@ -25,23 +25,6 @@ async function getTextToSpeech() {
   return TextToSpeech;
 }
 
-function feedbackForOrchestratorStatus(status: string): string {
-  switch (status) {
-    case 'awaiting_confirmation':
-      return 'Répondez oui ou non, puis touchez le micro pour enregistrer.';
-    case 'awaiting_pin':
-      return 'Dites votre PIN (4 à 6 chiffres), puis touchez à nouveau le micro.';
-    case 'awaiting_phone':
-      return 'Dictez le numéro, puis touchez à nouveau le micro.';
-    case 'done':
-      return '';
-    case 'error':
-      return 'Service vocal indisponible.';
-    default:
-      return '';
-  }
-}
-
 export function useVoiceAssistant() {
   const { user } = useAuth();
   const [status, setStatus] = useState<AssistantStatus>('idle');
@@ -251,23 +234,36 @@ export function useVoiceAssistant() {
           voiceSessionRef.current,
           token
         );
-        if (res.status === 'done' || res.status === 'error') {
-          voiceSessionRef.current = '';
+
+        // NLP Module response handling (intent-based)
+        if (res.transaction_id) {
+          voiceSessionRef.current = res.transaction_id;
+        }
+
+        // Display understood text
+        if (res.understood_text) {
+          setTranscript(res.understood_text);
+        }
+
+        // Handle confirmation requirement
+        const needsConfirm = res.requires_confirmation ?? res.needs_confirmation ?? false;
+        const message = res.message || res.confirmation_message || 'Action traitée';
+
+        if (needsConfirm && res.transaction_id) {
+          setFeedback(`${message}. Dites \"oui\" et touchez le micro pour confirmer, ou \"non\" pour annuler.`);
         } else {
-          voiceSessionRef.current = res.sessionId || voiceSessionRef.current;
+          setFeedback(message);
         }
-        if (res.transcript && res.transcript !== '[redacted]') {
-          setTranscript(res.transcript);
+
+        // Play audio response if available
+        if (res.audio_base64) {
+          await playAudioResponse(res.audio_base64);
         }
-        const extra = feedbackForOrchestratorStatus(res.status);
-        setFeedback(extra || (res.status === 'done' ? 'OK.' : res.error || ''));
-        if (res.audioBase64) {
-          await playAudioResponse(res.audioBase64);
-        }
-        setStatus(res.status === 'error' ? 'error' : 'success');
+
+        setStatus(res.error ? 'error' : 'success');
       } catch (e) {
         console.error(e);
-        setFeedback("Serveur vocal injoignable. Vérifiez VITE_VOICE_AI_URL et l'orchestrateur.");
+        setFeedback("Serveur vocal injoignable. Vérifiez VITE_VOICE_AI_URL et le NLP Module (port 8000).");
         setStatus('error');
         voiceSessionRef.current = '';
       }

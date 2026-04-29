@@ -1,6 +1,7 @@
 /**
- * Local voice AI client — POST audio to orchestrator (STT → NLU → backend → TTS).
- * Set VITE_VOICE_AI_URL (e.g. http://192.168.1.10:5004) to enable on the mic button.
+ * Local voice AI client — POST audio to NLP Module (STT → NLU → TTS).
+ * Set VITE_VOICE_AI_URL (e.g. http://192.168.1.10:8000) to enable on the mic button.
+ * The NLP Module uses Gemini 2.0 Flash for voice processing.
  */
 
 const raw = (import.meta.env.VITE_VOICE_AI_URL as string | undefined)?.trim();
@@ -16,12 +17,22 @@ export function isVoiceAiEnabled(): boolean {
 }
 
 export type VoiceAiResponse = {
-  status: string;
-  audioBase64: string;
-  sessionId: string;
-  transcript?: string;
-  intent?: unknown;
+  intent: string;
+  message?: string;
+  confirmation_message?: string;
+  requires_confirmation?: boolean;
+  needs_confirmation?: boolean;
+  transaction_id?: string;
+  understood_text?: string;
+  audio_base64?: string;
+  success?: boolean;
   error?: string;
+  data?: any;
+  metadata?: {
+    confidence?: number;
+    provider?: string;
+    model?: string;
+  };
 };
 
 let mediaRecorder: MediaRecorder | null = null;
@@ -77,17 +88,17 @@ export async function stopVoiceRecording(): Promise<Blob> {
 export async function sendVoiceToOrchestrator(
   blob: Blob,
   userId: string,
-  sessionId: string,
+  transactionId: string,
   token: string | null,
-  path: "/voice/command" | "/voice/confirm" = "/voice/command"
+  path: "/api/voice-command" | "/api/confirm" | "/api/cancel" = "/api/voice-command"
 ): Promise<VoiceAiResponse> {
   const base = getVoiceAiBaseUrl();
   if (!base) throw new Error("VITE_VOICE_AI_URL is not set");
 
   const fd = new FormData();
-  fd.append("audio", blob, "voice.webm");
+  fd.append("audio_file", blob, "voice.webm");
   fd.append("userId", userId);
-  if (sessionId) fd.append("sessionId", sessionId);
+  if (transactionId) fd.append("transaction_id", transactionId);
 
   const headers: Record<string, string> = {};
   if (token) headers.Authorization = `Bearer ${token}`;
@@ -102,7 +113,19 @@ export async function sendVoiceToOrchestrator(
     const t = await res.text();
     throw new Error(t || `HTTP ${res.status}`);
   }
-  return res.json() as Promise<VoiceAiResponse>;
+
+  const data = await res.json();
+
+  // Normalize response from NLP Module
+  const normalized: VoiceAiResponse = {
+    ...data,
+    // Support both requires_confirmation (new) and needs_confirmation (legacy)
+    requires_confirmation: data.requires_confirmation ?? data.needs_confirmation ?? false,
+    // Support both message (new) and confirmation_message (legacy)
+    message: data.message ?? data.confirmation_message ?? "Action traitée",
+  };
+
+  return normalized;
 }
 
 export async function playAudioResponse(base64Audio: string): Promise<void> {
