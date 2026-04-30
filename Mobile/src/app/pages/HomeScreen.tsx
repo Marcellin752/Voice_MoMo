@@ -2,7 +2,7 @@ import { useState, useEffect, SetStateAction } from "react";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import { Mic, Eye, EyeOff, Bell, ArrowDownLeft, ArrowUpRight } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { useVoiceAssistant } from "../hooks/useVoiceAssistant";
+import { useVoiceAssistantNLP } from "../hooks/useVoiceAssistantNLP";
 import { useNavigate } from "react-router";
 import * as usersService from "../services/users.service";
 import * as transactionsService from "../services/transactions.service";
@@ -12,7 +12,7 @@ import { useLanguage } from "../contexts/LanguageContext";
 const PROFILE_UPDATED_EVENT = "momo:profile-updated";
 
 export default function HomeScreen() {
-  const { status, transcript, feedback, startListening, stopListening } = useVoiceAssistant();
+  const { status, transcript, feedback, startListening, stopListening, confirmAction, cancelAction, parsedIntent } = useVoiceAssistantNLP();
   const { t } = useLanguage();
   const [showBalance, setShowBalance] = useState(false);
   const navigate = useNavigate();
@@ -158,6 +158,28 @@ export default function HomeScreen() {
           ) : null}
           <Mic size={32} className={status === 'listening' ? 'animate-pulse' : ''} />
         </motion.button>
+
+        {/* Boutons Confirmer/Annuler - affichés quand confirmation nécessaire */}
+        {parsedIntent?.requires_confirmation && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="flex gap-3 mt-4"
+          >
+            <button
+              onClick={confirmAction}
+              className="bg-green-500 hover:bg-green-600 text-white px-5 py-2.5 rounded-xl font-semibold shadow-lg transition-colors"
+            >
+              Confirmer
+            </button>
+            <button
+              onClick={cancelAction}
+              className="bg-red-500 hover:bg-red-600 text-white px-5 py-2.5 rounded-xl font-semibold shadow-lg transition-colors"
+            >
+              Annuler
+            </button>
+          </motion.div>
+        )}
       </div>
 
       {/* Recent Transactions */}
