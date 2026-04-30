@@ -97,12 +97,54 @@ export function useVoiceAssistantNLP(
     statusRef.current = status;
   }, [status]);
 
+  // Charger les voix TTS au démarrage + workaround bug Chrome
+  useEffect(() => {
+    if ('speechSynthesis' in window) {
+      const loadVoices = () => {
+        const voices = window.speechSynthesis.getVoices();
+        console.log('🎙️ [TTS] Voix chargées:', voices.length);
+        const frenchVoices = voices.filter(v => v.lang.startsWith('fr'));
+        console.log('🇫🇷 [TTS] Voix françaises:', frenchVoices.map(v => v.name));
+      };
+      
+      // Charger immédiatement si déjà disponibles
+      loadVoices();
+      
+      // Écouter le chargement asynchrone des voix (Chrome)
+      window.speechSynthesis.onvoiceschanged = loadVoices;
+      
+      // 🔧 Workaround bug Chrome: empêcher TTS de s'arrêter après inactivité
+      const keepAliveInterval = setInterval(() => {
+        if (window.speechSynthesis.paused) {
+          console.log('🔧 [TTS] Resume after pause');
+          window.speechSynthesis.resume();
+        }
+      }, 5000);
+      
+      return () => {
+        window.speechSynthesis.onvoiceschanged = null;
+        clearInterval(keepAliveInterval);
+      };
+    }
+  }, []);
+
   /**
    * 🎤 Démarrer l'enregistrement audio brut
    */
   const startListening = useCallback(async () => {
     try {
       console.log('🎤 [START] Demande d\'accès microphone...');
+      
+      // 🔔 Réveiller l'audio context (nécessaire pour l'autoplay sur mobile)
+      if (window.speechSynthesis) {
+        window.speechSynthesis.cancel(); // Réinitialise l'état
+        // Petit "blip" silencieux pour débloquer l'audio
+        const unlockUtterance = new SpeechSynthesisUtterance('');
+        unlockUtterance.volume = 0;
+        window.speechSynthesis.speak(unlockUtterance);
+        console.log('🔓 [AUDIO] Contexte audio débloqué');
+      }
+      
       // Demander l'accès au microphone
       const stream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
@@ -393,20 +435,53 @@ export function useVoiceAssistantNLP(
   };
 
   /**
-   * 🔊 TTS Fallback
+   * 🔊 TTS Fallback avec gestion des voix
    */
   const speakFeedback = (text: string) => {
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-      
+    if (!('speechSynthesis' in window)) {
+      console.warn('❌ [TTS] speechSynthesis non supporté');
+      return;
+    }
+    
+    window.speechSynthesis.cancel();
+    
+    const doSpeak = () => {
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = 'fr-FR';
       utterance.rate = 1;
       utterance.pitch = 1;
       utterance.volume = 0.8;
       
+      // Essayer de trouver une voix française
+      const voices = window.speechSynthesis.getVoices();
+      const frenchVoice = voices.find(v => v.lang.startsWith('fr'));
+      if (frenchVoice) {
+        utterance.voice = frenchVoice;
+        console.log('✅ [TTS] Voix française:', frenchVoice.name);
+      } else {
+        console.warn('⚠️ [TTS] Aucune voix française trouvée, utilisation voix par défaut');
+        console.log('📝 [TTS] Voix disponibles:', voices.map(v => `${v.name} (${v.lang})`));
+      }
+      
+      // Gestion des événements
+      utterance.onstart = () => console.log('🔊 [TTS] Lecture démarrée');
+      utterance.onend = () => console.log('✅ [TTS] Lecture terminée');
+      utterance.onerror = (e) => console.error('❌ [TTS] Erreur:', e);
+      
       window.speechSynthesis.speak(utterance);
-      console.log('💬 TTS:', text);
+      console.log('💬 [TTS] Texte:', text);
+    };
+    
+    // Si les voix ne sont pas chargées, attendre
+    const voices = window.speechSynthesis.getVoices();
+    if (voices.length === 0) {
+      console.log('⏳ [TTS] Attente chargement des voix...');
+      window.speechSynthesis.onvoiceschanged = () => {
+        console.log('✅ [TTS] Voix chargées, lecture...');
+        doSpeak();
+      };
+    } else {
+      doSpeak();
     }
   };
 
