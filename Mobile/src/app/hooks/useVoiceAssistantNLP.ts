@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { executeUSSD, executeVoiceCommand } from '../services/ussd.service';
 
 type AssistantStatus = 'idle' | 'listening' | 'processing' | 'success' | 'error' | 'awaiting_confirmation';
 
@@ -486,108 +487,65 @@ export function useVoiceAssistantNLP(
   };
 
   /**
-   * ✅ Confirmer une action
+   * ✅ Confirmer une action et exécuter le code USSD
    */
   const confirmAction = useCallback(async () => {
-    if (!transactionIdRef.current) {
-      console.warn('❌ [ERROR] Pas de transaction_id pour confirmer');
-      setFeedback('Erreur: pas de transaction à confirmer');
+    if (!transactionIdRef.current && !parsedIntent) {
+      console.warn('❌ [ERROR] Pas de transaction ou d\'intent à confirmer');
+      setFeedback('Erreur: pas d\'action à confirmer');
       return;
     }
 
     try {
-      console.log(`✅ [START] Confirmation de transaction: ${transactionIdRef.current}`);
-      
-      const headers: any = {
-        'Content-Type': 'application/json',
-      };
-      if (tokenRef.current) {
-        headers['Authorization'] = `Bearer ${tokenRef.current}`;
+      console.log(`✅ [START] Exécution USSD pour intent: ${parsedIntent?.intent}`);
+      setFeedback('Ouverture du code USSD...');
+
+      // Exécuter le code USSD correspondant à l'intent
+      const ussdResult = await executeVoiceCommand(
+        parsedIntent?.intent || '',
+        {
+          amount: parsedIntent?.amount,
+          recipient: parsedIntent?.recipient,
+        }
+      );
+
+      console.log('📱 [USSD] Résultat:', ussdResult);
+
+      if (ussdResult.success) {
+        setFeedback(ussdResult.message);
+        speakFeedback(`Action ${ussdResult.action} lancée. Confirmez sur votre téléphone.`);
+        setStatus('success');
+      } else {
+        setFeedback(ussdResult.message);
+        speakFeedback(`Erreur: ${ussdResult.message}`);
+        setStatus('error');
       }
 
-      console.log('📡 [NETWORK] Envoi confirmation...');
-      const response = await fetch(`${nlpApiUrl}/api/confirm`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          transaction_id: transactionIdRef.current,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`❌ [ERROR] Status ${response.status}: ${errorText}`);
-        throw new Error(`Confirmation error: ${response.status}`);
-      }
-
-      const result = await response.json();
-      console.log('✅ [SUCCESS] Action confirmée:', result);
-      
-      setFeedback(result.message || 'Action confirmée');
-      speakFeedback(result.message || 'Action confirmée');
-      
-      setStatus('success');
+      // Réinitialiser
       transactionIdRef.current = null;
-      
-      setTimeout(() => setStatus('idle'), 3000);
-      
+      setTimeout(() => setStatus('idle'), 5000);
+
     } catch (error) {
-      console.error('❌ [ERROR] Erreur confirmation:', error);
-      setFeedback('Erreur lors de la confirmation.');
-      speakFeedback('Erreur lors de la confirmation.');
+      console.error('❌ [ERROR] Erreur USSD:', error);
+      setFeedback('Erreur lors de l\'exécution USSD.');
+      speakFeedback('Erreur lors de l\'exécution.');
       setStatus('error');
     }
-  }, [nlpApiUrl]);
+  }, [parsedIntent]);
 
   /**
    * ❌ Annuler une action
    */
   const cancelAction = useCallback(async () => {
-    if (!transactionIdRef.current) {
-      console.warn('❌ [ERROR] Pas de transaction_id pour annuler');
-      setFeedback('Erreur: pas de transaction à annuler');
-      return;
-    }
-
-    try {
-      console.log(`❌ [START] Annulation de transaction: ${transactionIdRef.current}`);
-      
-      const headers: any = {
-        'Content-Type': 'application/json',
-      };
-      if (tokenRef.current) {
-        headers['Authorization'] = `Bearer ${tokenRef.current}`;
-      }
-
-      console.log('📡 [NETWORK] Envoi annulation...');
-      const response = await fetch(`${nlpApiUrl}/api/cancel`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          transaction_id: transactionIdRef.current,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Cancel error: ${response.status}`);
-      }
-
-      const result = await response.json();
-      console.log('❌ Action annulée:', result);
-      
-      setFeedback(result.message || 'Action annulée');
-      speakFeedback(result.message || 'Action annulée');
-      
-      setStatus('idle');
-      transactionIdRef.current = null;
-      
-    } catch (error) {
-      console.error('❌ Erreur annulation:', error);
-      setFeedback('Erreur lors de l\'annulation.');
-      speakFeedback('Erreur lors de l\'annulation.');
-      setStatus('error');
-    }
-  }, [nlpApiUrl]);
+    console.log('❌ [CANCEL] Action annulée par l\'utilisateur');
+    
+    setFeedback('Action annulée');
+    speakFeedback('Action annulée');
+    
+    setStatus('idle');
+    transactionIdRef.current = null;
+    setParsedIntent(null);
+  }, []);
 
   return {
     status,
