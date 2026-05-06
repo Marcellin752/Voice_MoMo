@@ -160,7 +160,7 @@ export default function HomeScreen() {
         </motion.button>
 
         {/* Boutons Confirmer/Annuler - affichés quand confirmation nécessaire */}
-        {parsedIntent?.requires_confirmation && (
+        {parsedIntent?.needs_confirmation && (
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}

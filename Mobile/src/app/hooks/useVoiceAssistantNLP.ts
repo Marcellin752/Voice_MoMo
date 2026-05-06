@@ -16,7 +16,6 @@ interface ParsedResponse {
   transaction_id?: string;
   message?: string;
   audio_base64?: string;
-  requires_confirmation?: boolean;
   data?: any;
 }
 
@@ -33,7 +32,7 @@ interface VoiceHookReturn {
 }
 
 export function useVoiceAssistantNLP(
-  nlpApiUrl: string = 'http://localhost:8000',
+  nlpApiUrl: string = (import.meta.env.VITE_VOICE_AI_URL as string) || 'http://localhost:8000',
   jwtToken?: string
 ): VoiceHookReturn {
   const [status, setStatus] = useState<AssistantStatus>('idle');
@@ -135,6 +134,15 @@ export function useVoiceAssistantNLP(
   const startListening = useCallback(async () => {
     try {
       console.log('🎤 [START] Demande d\'accès microphone...');
+      
+      // Request native Android permissions via Capacitor before web access
+      try {
+        const { SpeechRecognition } = await import('@capacitor-community/speech-recognition');
+        await SpeechRecognition.requestPermissions();
+        console.log('✅ [NATIVE] Capacitor permissions demandées');
+      } catch (e) {
+        console.warn('⚠️ [NATIVE] Impossible de demander les permissions Capacitor (peut-être sur web)', e);
+      }
       
       // 🔔 Réveiller l'audio context (nécessaire pour l'autoplay sur mobile)
       if (window.speechSynthesis) {
@@ -329,7 +337,7 @@ export function useVoiceAssistantNLP(
       console.log(`   Intent: ${result.intent}`);
       console.log(`   Confidence: ${result.metadata?.confidence}`);
       console.log(`   Understood: "${result.understood_text}"`);
-      console.log(`   Needs confirmation: ${result.requires_confirmation}`);
+      console.log(`   Needs confirmation: ${result.needs_confirmation}`);
       
       // Sauvegarder l'intent parsé
       setParsedIntent(result);
@@ -356,7 +364,7 @@ export function useVoiceAssistantNLP(
       }
       
       // Gérer l'état selon si confirmation nécessaire
-      if (result.requires_confirmation) {
+      if (result.needs_confirmation) {
         console.log(`⏳ [STATE] Attente de confirmation pour: ${result.intent}`);
         setStatus('awaiting_confirmation');
       } else {
@@ -438,51 +446,33 @@ export function useVoiceAssistantNLP(
   /**
    * 🔊 TTS Fallback avec gestion des voix
    */
-  const speakFeedback = (text: string) => {
-    if (!('speechSynthesis' in window)) {
-      console.warn('❌ [TTS] speechSynthesis non supporté');
-      return;
-    }
-    
-    window.speechSynthesis.cancel();
-    
-    const doSpeak = () => {
+  const speakFeedback = async (text: string) => {
+    try {
+      const { TextToSpeech } = await import('@capacitor-community/text-to-speech');
+      await TextToSpeech.speak({
+        text: text,
+        lang: 'fr-FR',
+        rate: 1.0,
+        pitch: 1.0,
+        volume: 1.0,
+        category: 'ambient',
+      });
+      console.log('✅ [TTS] Texte lu via Capacitor:', text);
+    } catch (e) {
+      console.warn('⚠️ [TTS] Erreur plugin Capacitor, fallback Web Speech API', e);
+      if (!('speechSynthesis' in window)) return;
+      
+      window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = 'fr-FR';
       utterance.rate = 1;
-      utterance.pitch = 1;
       utterance.volume = 0.8;
       
-      // Essayer de trouver une voix française
       const voices = window.speechSynthesis.getVoices();
       const frenchVoice = voices.find(v => v.lang.startsWith('fr'));
-      if (frenchVoice) {
-        utterance.voice = frenchVoice;
-        console.log('✅ [TTS] Voix française:', frenchVoice.name);
-      } else {
-        console.warn('⚠️ [TTS] Aucune voix française trouvée, utilisation voix par défaut');
-        console.log('📝 [TTS] Voix disponibles:', voices.map(v => `${v.name} (${v.lang})`));
-      }
-      
-      // Gestion des événements
-      utterance.onstart = () => console.log('🔊 [TTS] Lecture démarrée');
-      utterance.onend = () => console.log('✅ [TTS] Lecture terminée');
-      utterance.onerror = (e) => console.error('❌ [TTS] Erreur:', e);
+      if (frenchVoice) utterance.voice = frenchVoice;
       
       window.speechSynthesis.speak(utterance);
-      console.log('💬 [TTS] Texte:', text);
-    };
-    
-    // Si les voix ne sont pas chargées, attendre
-    const voices = window.speechSynthesis.getVoices();
-    if (voices.length === 0) {
-      console.log('⏳ [TTS] Attente chargement des voix...');
-      window.speechSynthesis.onvoiceschanged = () => {
-        console.log('✅ [TTS] Voix chargées, lecture...');
-        doSpeak();
-      };
-    } else {
-      doSpeak();
     }
   };
 
