@@ -11,11 +11,11 @@
   "dependencies": {
     "@capacitor-community/contacts": "^7.1.0",
     "@capacitor-community/speech-recognition": "^7.0.1",
-    "@capacitor-community/text-to-speech": "^8.0.0",
-    "@capacitor/android": "^8.2.0",
-    "@capacitor/app-launcher": "^8.0.1",
-    "@capacitor/cli": "^8.2.0",
-    "@capacitor/core": "^8.2.0",
+    "@capacitor-community/text-to-speech": "^6.1.0",
+    "@capacitor/android": "^7.0.0",
+    "@capacitor/app-launcher": "^7.0.0",
+    "@capacitor/cli": "^7.0.0",
+    "@capacitor/core": "^7.0.0",
     "@emotion/react": "11.14.0",
     "@emotion/styled": "11.14.1",
     "@mui/icons-material": "7.3.5",
@@ -74,6 +74,7 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "4.1.12",
+    "@vitejs/plugin-basic-ssl": "^2.3.0",
     "@vitejs/plugin-react": "4.7.0",
     "tailwindcss": "4.1.12",
     "vite": "6.3.5"
