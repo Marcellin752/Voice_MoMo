@@ -57,7 +57,7 @@ cache = get_transaction_cache()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Allow all origins (localhost:5173, 5174, etc.)
-    allow_credentials=True,
+    allow_credentials=False, # Changed to False to be compatible with wildcard origin
     allow_methods=["*"],
     allow_headers=["*", "Authorization"],  # Inclure Authorization header
 )

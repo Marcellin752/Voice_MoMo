@@ -4,7 +4,8 @@ Replaces Grok with Google's free Gemini 2.0 Flash API
 """
 
 import json
-import google.generativeai as genai
+import requests
+import os
 
 from app.config import settings
 from app.models import (
@@ -50,9 +51,8 @@ class GeminiClient:
         if not self.api_key:
             raise RuntimeError("GEMINI_API_KEY is not configured in environment")
         
-        # Configure Gemini API
-        genai.configure(api_key=self.api_key)
-        self.model = genai.GenerativeModel(settings.gemini_model)
+        api_version = os.getenv("GEMINI_API_VERSION", "v1beta")
+        self.url = f"https://generativelanguage.googleapis.com/{api_version}/models/{settings.gemini_model}:generateContent?key={self.api_key}"
     
     async def parse_command(self, text: str) -> ParseCommandResponse:
         """
@@ -70,17 +70,19 @@ class GeminiClient:
         # Build prompt
         full_prompt = f"{SYSTEM_PROMPT}\n\nUser command: {text}"
         
+        payload = {
+            "contents": [{"parts": [{"text": full_prompt}]}],
+            "generationConfig": {
+                "temperature": 0.1,
+                "maxOutputTokens": 500,
+            }
+        }
+        
         try:
-            # Call Gemini API synchronously (gemini-2.0-flash-exp doesn't support async yet in free tier)
-            response = self.model.generate_content(
-                full_prompt,
-                generation_config=genai.GenerationConfig(
-                    temperature=0.1,
-                    max_output_tokens=500,
-                ),
-            )
-            
-            content = response.text.strip() if response.text else "{}"
+            response = requests.post(self.url, json=payload, timeout=30)
+            response.raise_for_status()
+            data_resp = response.json()
+            content = data_resp['candidates'][0]['content']['parts'][0]['text'].strip()
         except Exception as e:
             # If Gemini fails, return error response (will be caught by fallback)
             raise RuntimeError(f"Gemini API error: {str(e)}")

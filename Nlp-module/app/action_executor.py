@@ -109,6 +109,12 @@ class ActionExecutor:
             return self._handle_transfer(
                 user_id, amount, recipient, needs_confirmation
             )
+        
+        elif intent == Intent.DEPOSIT:
+            logger.info(f"   → Handler: DEPOSIT")
+            return self._handle_deposit(
+                user_id, amount, recipient, needs_confirmation
+            )
             
         elif intent == Intent.WITHDRAW:
             logger.info(f"   → Handler: WITHDRAW")
@@ -167,6 +173,11 @@ class ActionExecutor:
         # Exécuter l'action confirmée
         if tx.intent == "transfer":
             return self._execute_transfer(
+                user_id, tx.amount, tx.recipient, transaction_id
+            )
+        
+        elif tx.intent == "deposit":
+            return self._execute_deposit(
                 user_id, tx.amount, tx.recipient, transaction_id
             )
             
@@ -340,6 +351,83 @@ class ActionExecutor:
             data={"amount": amount, "recipient": recipient}
         )
     
+    def _handle_deposit(
+        self,
+        user_id: str,
+        amount: Optional[float],
+        recipient: Optional[str],
+        needs_confirmation: bool
+    ) -> ActionResult:
+        """Initier un dépôt d'argent"""
+        amount_value = self._normalized_amount(amount)
+        recipient_value = self._normalized_recipient(recipient)
+
+        logger.info(f"💰 Dépôt: {amount_value} XOF → {recipient_value}")
+        
+        # Validation
+        if amount_value is None:
+            return ActionResult(
+                success=False,
+                intent=Intent.DEPOSIT.value,
+                message="Montant invalide pour le dépôt"
+            )
+        
+        if needs_confirmation:
+            tx_id = self.cache.add(
+                user_id=user_id,
+                intent="deposit",
+                amount=amount_value,
+                recipient=recipient_value,
+                ttl=300
+            )
+            
+            if recipient_value:
+                message = (
+                    f"Voulez-vous déposer {format_amount_for_tts(amount_value)} francs CFA "
+                    f"sur le compte de {format_recipient_for_tts(recipient_value)} ?"
+                )
+            else:
+                message = f"Voulez-vous déposer {format_amount_for_tts(amount_value)} francs CFA ?"
+            
+            return ActionResult(
+                success=True,
+                intent=Intent.DEPOSIT.value,
+                message=message,
+                requires_confirmation=True,
+                transaction_id=tx_id
+            )
+        else:
+            return self._execute_deposit(user_id, amount_value, recipient_value)
+    
+    def _execute_deposit(
+        self,
+        user_id: str,
+        amount: float,
+        recipient: Optional[str] = None,
+        transaction_id: Optional[str] = None
+    ) -> ActionResult:
+        """Exécuter le dépôt"""
+        logger.info(f"✅ Exécution dépôt: {amount} XOF → {recipient}")
+        
+        if transaction_id:
+            self.cache.confirm(transaction_id)
+        
+        if recipient:
+            message = (
+                f"Dépôt de {format_amount_for_tts(amount)} francs CFA "
+                f"sur le compte de {format_recipient_for_tts(recipient)} effectué."
+            )
+        else:
+            message = f"Dépôt de {format_amount_for_tts(amount)} francs CFA effectué."
+        
+        return ActionResult(
+            success=True,
+            intent=Intent.DEPOSIT.value,
+            message=message,
+            transaction_id=transaction_id,
+            data={"amount": amount, "recipient": recipient}
+        )
+    
     def _handle_recharge(
         self,
         user_id: str,
@@ -488,10 +576,13 @@ class ActionExecutor:
         
 💰 Solde: "Quel est mon solde?"
 💸 Transfert: "Envoie 5000 à Jean"
+💳 Dépôt: "Fait un dépôt de 2000 à Aurel"
+💵 Retrait: "Je veux retirer 10000"
 📱 Recharge: "Recharge 1000"
 💡 Factures: "Paye ma facture d'électricité pour 25000"
 
-Dites toujours les montants en francs CFA."""
+Dites toujours les montants en francs CFA.
+Je peux résoudre les noms de vos contacts automatiquement."""
         
         return ActionResult(
             success=True,
