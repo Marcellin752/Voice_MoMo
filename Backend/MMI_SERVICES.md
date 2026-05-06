@@ -99,35 +99,31 @@ GET    /api/mmi/executions/stats              - Stats des exécutions
 ### MTN Bénin
 | Type | Description | Code USSD |
 |------|-------------|-----------|
-| balance | Consulter solde | *123# |
-| data_balance | Consulter solde données | *144# |
-| credit_recharge | Recharger crédit | *507# |
-| ussd_menu | Menu USSD | *156# |
-| transfer | Transfert d'argent MTN Money | *123*1* |
-| momo_balance | Solde MTN Money | *105# |
-| momo_send | Envoyer argent MTN Money | *105*1* |
+| balance | Consulter solde crédit | *123# |
+| data_balance | Consulter solde données | *123*4# |
+| momo_menu | Menu principal MoMo | *880# |
+| momo_balance | Solde MTN MoMo | *880# (option Solde) |
+| momo_send | Envoyer argent MoMo | *880# (option Envoi) |
+| momo_deposit | Dépôt argent MoMo | *880# (option Dépôt) |
+| momo_withdraw | Retrait argent MoMo | *880# (option Retrait) |
+| momo_history | Historique MoMo | *880# (option Historique) |
+| credit_recharge | Recharger crédit via MoMo | *880# (option Recharge) |
+
+> **Note**: Pour MTN Bénin, toutes les opérations MoMo passent par le menu principal `*880#`.
+> L'utilisateur sélectionne ensuite l'option souhaitée dans le menu interactif USSD.
 
 ### MOOV Bénin
 | Type | Description | Code USSD |
 |------|-------------|-----------|
-| balance | Consulter solde | *124# |
-| data_balance | Consulter solde données | *145# |
-| credit_recharge | Recharger crédit | *508# |
-| ussd_menu | Menu USSD | *100# |
-| transfer | Transfert d'argent MOOV Money | *124*1* |
-| momo_balance | Solde MOOV Money | *106# |
-| momo_send | Envoyer argent MOOV Money | *106*1* |
+| balance | Consulter solde | *155# |
+| momo_menu | Menu Moov Money | *155# |
+| momo_send | Envoyer argent | *155# (option Envoi) |
 
 ### CELTIIS Bénin
 | Type | Description | Code USSD |
 |------|-------------|-----------|
-| balance | Consulter solde | *125# |
-| data_balance | Consulter solde données | *146# |
-| credit_recharge | Recharger crédit | *509# |
-| ussd_menu | Menu USSD | *101# |
-| transfer | Transfert d'argent CELTIIS | *125*1* |
-| momo_balance | Solde CELTIIS Money | *107# |
-| momo_send | Envoyer argent CELTIIS Money | *107*1* |
+| balance | Consulter solde | *100# |
+| momo_menu | Menu Celtiis Money | *100# |
 
 ---
 

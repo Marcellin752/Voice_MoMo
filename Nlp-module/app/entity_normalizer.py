@@ -138,7 +138,10 @@ def normalize_parsed_entities(parsed: ParseCommandResponse) -> ParseCommandRespo
 
     # Récupération d'intent quand le modèle renvoie unknown
     if parsed.intent == Intent.UNKNOWN:
-        if any(token in lowered for token in ("recharge", "crédit", "credit", "airtime", "forfait", "pass")) and amount_from_text:
+        if any(token in lowered for token in ("dépôt", "depot", "déposer", "deposer", "dépose", "depose", "mettre de l'argent", "mettre sur le compte")) and amount_from_text:
+            parsed.intent = Intent.DEPOSIT
+            parsed.needs_confirmation = True
+        elif any(token in lowered for token in ("recharge", "crédit", "credit", "airtime", "forfait", "pass")) and amount_from_text:
             parsed.intent = Intent.RECHARGE
             parsed.needs_confirmation = True
         elif phone_from_text and amount_from_text:
@@ -158,6 +161,11 @@ def normalize_parsed_entities(parsed: ParseCommandResponse) -> ParseCommandRespo
     if parsed.intent == Intent.TRANSFER and not phone_from_text:
         if any(token in lowered for token in ("forfait", "recharge", "crédit", "credit", "pour moi", "moi même", "moi meme", "mon numéro", "mon numero")):
             parsed.intent = Intent.RECHARGE
+    
+    # Forcer deposit si les mots-clés de dépôt sont présents même si l'IA a détecté transfer
+    if parsed.intent == Intent.TRANSFER:
+        if any(token in lowered for token in ("dépôt", "depot", "déposer", "deposer", "dépose", "depose")):
+            parsed.intent = Intent.DEPOSIT
 
     amount = parsed.amount
     recipient = parsed.recipient.strip() if parsed.recipient else None
@@ -174,6 +182,13 @@ def normalize_parsed_entities(parsed: ParseCommandResponse) -> ParseCommandRespo
         if phone_from_text:
             recipient = phone_from_text
 
+    # For deposit, also extract recipient (name or phone)
+    if parsed.intent == Intent.DEPOSIT:
+        if phone_from_text:
+            recipient = phone_from_text
+        # For deposit, keep the name-based recipient from the model if no phone found
+        # (e.g. "Fait un dépôt de 2000 à Aurel" → recipient stays "Aurel")
+
     # Si le modèle classifie "paiement" comme facture mais qu'un numéro est donné,
     # reclassifier en transfert (paiement vers numéro)
     if parsed.intent == Intent.BILL_PAYMENT and phone_from_text and not parsed.bill_type:
@@ -181,7 +196,7 @@ def normalize_parsed_entities(parsed: ParseCommandResponse) -> ParseCommandRespo
         recipient = phone_from_text
         
     # Toujours forcer la confirmation pour les actions sensibles
-    if parsed.intent in {Intent.TRANSFER, Intent.RECHARGE, Intent.BILL_PAYMENT}:
+    if parsed.intent in {Intent.TRANSFER, Intent.DEPOSIT, Intent.RECHARGE, Intent.BILL_PAYMENT, Intent.WITHDRAW}:
         parsed.needs_confirmation = True
 
     parsed.amount = amount
