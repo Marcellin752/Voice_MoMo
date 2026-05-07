@@ -1,18 +1,54 @@
 services:
+  # Backend Node.js
   - type: web
     name: voice-momo-backend
     runtime: node
     rootDir: Backend
-    buildCommand: npm install
+    buildCommand: npm install && npx prisma generate
     startCommand: npm start
     envVars:
       - key: PORT
         value: 3001
-      - key: JWT_SECRET
-        generateValue: true
-      - key: JWT_EXPIRES_IN
-        value: 7d
-      - key: BCRYPT_ROUNDS
-        value: 10
+      - key: DATABASE_URL
+        fromDatabase:
+          name: voice-momo-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: voice-momo-redis
+          property: connectionString
       - key: NLP_MODULE_URL
-        value: http://localhost:8000
+        fromService:
+          type: web
+          name: voice-momo-nlp
+          property: host
+
+  # NLP Module (FastAPI)
+  - type: web
+    name: voice-momo-nlp
+    runtime: python
+    rootDir: Nlp-module
+    buildCommand: pip install -r requirements.txt
+    startCommand: python run_server.py
+    envVars:
+      - key: PORT
+        value: 8000
+
+  # Redis Instance
+  - type: keyvalue
+    name: voice-momo-redis
+    plan: free
+    ipAllowList:
+      - source: 0.0.0.0/0
+        description: "Allow all"
+
+databases:
+  - name: voice-momo-db
+    databaseName: mtn_ussd
+    user: mtn
+    plan: free
+    ipAllowList:
+      - source: 0.0.0.0/0
+        description: "Allow all"
+

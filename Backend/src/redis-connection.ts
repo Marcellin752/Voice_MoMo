@@ -16,6 +16,19 @@ function logRedisHelpOnce(host: string, port: number): void {
  * Options Redis partagées (BullMQ exige maxRetriesPerRequest: null sur le client dupliqué).
  */
 export function getRedisOptions(): RedisOptions {
+  if (process.env.REDIS_URL) {
+    return {
+      maxRetriesPerRequest: null,
+      lazyConnect: true,
+      enableOfflineQueue: false,
+      retryStrategy(times: number) {
+        const max = Number(process.env.REDIS_CONNECT_RETRIES) || 10;
+        if (times > max) return null;
+        return Math.min(times * 400, 3000);
+      },
+    };
+  }
+
   const host = process.env.REDIS_HOST || "localhost";
   const port = Number(process.env.REDIS_PORT) || 6379;
   return {
@@ -47,9 +60,12 @@ function attachRedisErrorHandler(client: IORedis, host: string, port: number): v
 
 export function createRedisConnection(): IORedis {
   const opts = getRedisOptions();
-  const host = String(opts.host ?? "localhost");
-  const port = typeof opts.port === "number" ? opts.port : Number(opts.port) || 6379;
-  const client = new IORedis(opts);
+  const redisUrl = process.env.REDIS_URL;
+  const client = redisUrl ? new IORedis(redisUrl, opts) : new IORedis(opts);
+  
+  const host = redisUrl ? "URL" : String(opts.host ?? "localhost");
+  const port = redisUrl ? 0 : (typeof opts.port === "number" ? opts.port : Number(opts.port) || 6379);
+  
   attachRedisErrorHandler(client, host, port);
   return client;
 }
@@ -59,6 +75,16 @@ export function createRedisConnection(): IORedis {
  * (`enableOfflineQueue: false` + `lazyConnect` fait échouer subscribe avant connexion).
  */
 export function createRedisSubscriberConnection(): IORedis {
+  const redisUrl = process.env.REDIS_URL;
+  if (redisUrl) {
+    const client = new IORedis(redisUrl, {
+      maxRetriesPerRequest: 20,
+      lazyConnect: false,
+    });
+    attachRedisErrorHandler(client, "URL", 0);
+    return client;
+  }
+
   const host = process.env.REDIS_HOST || "localhost";
   const port = Number(process.env.REDIS_PORT) || 6379;
   const client = new IORedis({
