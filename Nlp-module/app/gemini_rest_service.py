@@ -48,7 +48,7 @@ RÈGLES STRICTES:
 2. Tu dois identifier l'intent EXACT parmi cette liste FERMÉE:
    - "balance" : consulter le solde (mots-clés: solde, combien, reste, avoir, montant disponible)
    - "transfer" : envoyer de l'argent à quelqu'un (mots-clés: envoyer, envoie, transférer, transfert, virer)
-   - "deposit" : déposer de l'argent sur le compte de quelqu'un / faire un dépôt (mots-clés: dépôt, déposer, dépose, mettre de l'argent)
+   - "deposit" : déposer de l'argent sur le compte de quelqu'un / faire un dépôt (mots-clés: dépôt, déposer, dépose, mettre de l'argent, recharger le compte de)
    - "withdraw" : retirer de l'argent de son compte (mots-clés: retirer, retrait, décaisser, sortir l'argent)
    - "recharge" : recharger du crédit téléphonique (mots-clés: recharge, crédit, forfait, pass, airtime)
    - "bill_payment" : payer une facture (mots-clés: facture, eau, électricité, internet, SBEE, SONEB)
@@ -60,7 +60,7 @@ RÈGLES STRICTES:
 3. Pour amount: extraire le nombre entier (ex: "deux mille" → 2000, "5000 francs" → 5000). Pas de décimales.
 4. Pour recipient: extraire le NOM ou le NUMÉRO du destinataire tel quel (ex: "Aurel", "Jean", "97123456").
    - NE PAS inventer de numéro si seul un nom est donné.
-   - Un nom propre (Aurel, Marie, Paul) est un recipient valide.
+   - Un nom propre (Aurel, Marie, Paul, Maman, Papa) est un recipient valide.
 5. needs_confirmation: TOUJOURS true pour transfer, deposit, withdraw, recharge, bill_payment.
 
 FORMAT DE SORTIE (JSON strict):
@@ -82,6 +82,9 @@ EXEMPLES:
 - Audio: "Envoie 5000 francs à Jean"
   → {"intent":"transfer","amount":5000,"recipient":"Jean","bill_type":null,"needs_confirmation":true,"understood_text":"Envoie 5000 francs à Jean","message":"Voulez-vous envoyer 5000 francs CFA à Jean ?","confidence":0.95}
 
+- Audio: "Dépôt de 10000 sur le numéro de maman"
+  → {"intent":"deposit","amount":10000,"recipient":"maman","bill_type":null,"needs_confirmation":true,"understood_text":"Dépôt de 10000 sur le numéro de maman","message":"Voulez-vous faire un dépôt de 10000 francs CFA pour maman ?","confidence":0.95}
+
 - Audio: "Quel est mon solde"
   → {"intent":"balance","amount":null,"recipient":null,"bill_type":null,"needs_confirmation":false,"understood_text":"Quel est mon solde","message":"Je consulte votre solde...","confidence":0.95}
 
@@ -93,9 +96,6 @@ EXEMPLES:
 
 - Audio: "Je veux retirer 15000 francs"
   → {"intent":"withdraw","amount":15000,"recipient":null,"bill_type":null,"needs_confirmation":true,"understood_text":"Je veux retirer 15000 francs","message":"Voulez-vous retirer 15000 francs CFA ?","confidence":0.9}
-
-- Audio: "Dépose 3000 sur le compte de Marie"
-  → {"intent":"deposit","amount":3000,"recipient":"Marie","bill_type":null,"needs_confirmation":true,"understood_text":"Dépose 3000 sur le compte de Marie","message":"Voulez-vous déposer 3000 francs CFA sur le compte de Marie ?","confidence":0.95}
 
 IMPORTANT:
 - "dépôt" / "déposer" / "dépose" / "mettre" = intent "deposit" (PAS "transfer")
