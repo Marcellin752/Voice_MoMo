@@ -31,7 +31,20 @@ export const MOCK_RESPONSES: Record<
         "Transaction réussie. {amount} FCFA envoyés à {to}. Nouveau solde: {balance} FCFA.",
       insufficient: "Fonds insuffisants. Solde actuel: {balance} FCFA.",
     },
+    withdraw: {
+      success: "Retrait autorisé. Veuillez vous présenter au GAB le plus proche.",
+      insufficient: "Montant demandé dépasse votre limite.",
+    },
     balance: { success: "Votre solde MoMo est de {balance} FCFA.", balance: "Votre solde MoMo est de {balance} FCFA." },
+    billPayment: {
+      success: "Paiement de {amount} FCFA effectué au marchand. Nouveau solde: {balance} FCFA.",
+      insufficient: "Fonds insuffisants pour ce paiement.",
+    },
+    airtime: {
+      success: "Forfait acheté avec succès. {amount} FCFA débité. Nouveau solde: {balance} FCFA.",
+      insufficient: "Solde insuffisant pour ce forfait.",
+    },
+    miniStatement: { success: "Relevé: 3 dernières transactions affichées." },
     default: { success: "Opération effectuée avec succès." },
   },
   NG: {
@@ -39,7 +52,19 @@ export const MOCK_RESPONSES: Record<
       success: "Successful. {amount} NGN sent to {to}. New balance: {balance} NGN.",
       insufficient: "Insufficient funds. Balance: {balance} NGN.",
     },
+    withdraw: {
+      success: "Withdrawal approved. Visit nearest ATM.",
+      insufficient: "Amount exceeds your limit.",
+    },
     balance: { success: "Your balance is {balance} NGN." },
+    billPayment: {
+      success: "Payment of {amount} NGN completed. New balance: {balance} NGN.",
+      insufficient: "Insufficient balance for payment.",
+    },
+    airtime: {
+      success: "Plan purchased successfully. {amount} NGN charged. Balance: {balance} NGN.",
+      insufficient: "Insufficient balance for this plan.",
+    },
     default: { success: "Operation completed." },
   },
 };
