@@ -2,13 +2,18 @@ const { Pool } = require('pg');
 require('dotenv').config();
 
 // Configuration du pool de connexion
-const pool = new Pool({
-  user: process.env.DB_USER,
-  host: process.env.DB_HOST,
-  database: process.env.DB_NAME,
-  password: String(process.env.DB_PASSWORD || ""), // Force la conversion en String
-  port: process.env.DB_PORT,
-});
+const pool = process.env.DATABASE_URL 
+  ? new Pool({ 
+      connectionString: process.env.DATABASE_URL,
+      ssl: { rejectUnauthorized: false } // Requis pour Neon/Render
+    })
+  : new Pool({
+      user: process.env.DB_USER,
+      host: process.env.DB_HOST,
+      database: process.env.DB_NAME,
+      password: String(process.env.DB_PASSWORD || ""),
+      port: process.env.DB_PORT,
+    });
 // Log pour confirmer la connexion
 pool.on('connect', () => {
   console.log('Connecté à la base de données db_voice_momo');
