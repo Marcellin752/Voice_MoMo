@@ -18,25 +18,32 @@ SYSTEM_PROMPT = """
 Tu es un parseur NLP pour des commandes Mobile Money en francais.
 Retourne uniquement un JSON valide avec ce schema exact:
 {
-  "intent": "balance|transfer|withdraw|recharge|bill_payment|help|confirm|cancel|unknown",
+  "intent": "balance|transfer|withdraw|withdraw_gab|recharge|internet_day|internet_week|internet_month|internet_unlimited|gopack_day|gopack_week|gopack_month|bill_payment|help|confirm|cancel|unknown",
   "amount": <int|null>,
   "currency": "XOF",
   "recipient": <string|null>,
   "bill_type": <"electricite"|"eau"|"internet"|null>,
+  "airtime_type": <"gopack-jour"|"gopack-semaine"|"gopack-mois"|"internet-jour"|"internet-semaine"|"internet-mois"|"internet-illimite"|null>,
   "needs_confirmation": <bool>,
   "confidence": <float entre 0 et 1>
 }
-Regles:
+Regles principales:
 - "solde" => intent balance
 - "envoie/transfert" => intent transfer
-- "retrait/retirer" => intent withdraw (ex: "retrait de 5000 francs", "je veux retirer", "décaisser")
-- "recharge/credit" => intent recharge
+- "retrait/retirer" => intent withdraw (retrait standard)
+- "retrait gab" ou "gab" ou "code gab" => intent withdraw_gab
+- "recharge/credit/airtime" => intent recharge
+- "internet jour" => intent internet_day; "internet semaine" => internet_week; "internet mois" => internet_month; "internet illimite" => internet_unlimited
+- "go pack jour" => intent gopack_day; "go pack semaine" => gopack_week; "go pack mois" => gopack_month
+- "forfait" suivi d'un type => map aux internet_* ou gopack_* intents
 - "facture/paye" => intent bill_payment
 - "oui/je confirme" => intent confirm
 - "non/annule" => intent cancel
-- Si un montant et un numéro apparaissent, amount=montant FCFA et recipient=numéro (8 à 15 chiffres)
+Regles d'extraction:
+- Si montant et numéro apparaissent, amount=montant FCFA et recipient=numéro (8 à 15 chiffres)
 - Ne jamais interpréter un numéro de téléphone comme amount
-- L'ordre des informations peut changer; déduire amount/recipient par le contexte (FCFA, francs, au, vers, numéro)
+- L'ordre peut changer; déduire amount/recipient/airtime_type par le contexte
+- Si montant absent pour recharge/internet/gopack => demander montant
 - Si incertain => unknown
 - Ne retourne aucun texte hors JSON
 """.strip()
@@ -106,9 +113,18 @@ class GeminiClient:
         bill_type = data.get("bill_type")
         bill_type = str(bill_type).strip() if bill_type else None
         
+        # Normalize airtime type
+        airtime_type = data.get("airtime_type")
+        airtime_type = str(airtime_type).strip() if airtime_type else None
+        
         # Determine if confirmation needed
         needs_confirmation = bool(data.get("needs_confirmation", False))
-        if intent_value in {Intent.TRANSFER.value, Intent.RECHARGE.value, Intent.BILL_PAYMENT.value}:
+        if intent_value in {
+            Intent.TRANSFER.value, Intent.RECHARGE.value, Intent.BILL_PAYMENT.value,
+            Intent.WITHDRAW_GAB.value, Intent.INTERNET_DAY.value, Intent.INTERNET_WEEK.value,
+            Intent.INTERNET_MONTH.value, Intent.INTERNET_UNLIMITED.value,
+            Intent.GOPACK_DAY.value, Intent.GOPACK_WEEK.value, Intent.GOPACK_MONTH.value
+        }:
             needs_confirmation = True
         
         return ParseCommandResponse(
@@ -116,8 +132,9 @@ class GeminiClient:
             amount=amount,
             recipient=recipient,
             bill_type=bill_type,
+            airtime_type=airtime_type,
             needs_confirmation=needs_confirmation,
-            confirmation_message=self._build_confirmation(intent_value, amount, recipient, bill_type),
+            confirmation_message=self._build_confirmation(intent_value, amount, recipient, bill_type, airtime_type),
             understood_text=text,
             metadata=ParseMetadata(
                 provider="gemini",
@@ -180,6 +197,7 @@ class GeminiClient:
         amount: int | None,
         recipient: str | None,
         bill_type: str | None,
+        airtime_type: str | None = None,
     ) -> str | None:
         """Build localized French confirmation message for user"""
         if intent == Intent.BALANCE.value:
@@ -191,10 +209,26 @@ class GeminiClient:
                 return f"Voulez-vous envoyer {amount} francs a {recipient} ?"
             return "Voulez-vous confirmer ce transfert ?"
         
+        if intent == Intent.WITHDRAW_GAB.value:
+            if amount:
+                return f"Voulez-vous retirer {amount} francs via GAB UBA ?"
+            return "Voulez-vous retirer des fonds via GAB UBA ?"
+        
         if intent == Intent.RECHARGE.value:
             if amount:
                 return f"Voulez-vous acheter {amount} francs de credit ?"
             return "Voulez-vous confirmer cette recharge ?"
+        
+        if intent in {
+            Intent.INTERNET_DAY.value, Intent.INTERNET_WEEK.value,
+            Intent.INTERNET_MONTH.value, Intent.INTERNET_UNLIMITED.value,
+            Intent.GOPACK_DAY.value, Intent.GOPACK_WEEK.value, Intent.GOPACK_MONTH.value
+        }:
+            forfait_name = "forfait internet" if "internet" in intent else "Go Pack"
+            period = intent.split("_")[-1].replace("_", " ")
+            if amount:
+                return f"Voulez-vous acheter le {forfait_name} {period} pour {amount} francs ?"
+            return f"Voulez-vous confirmer l'achat du {forfait_name} {period} ?"
         
         if intent == Intent.BILL_PAYMENT.value:
             if amount and bill_type:

@@ -118,15 +118,27 @@ class ActionExecutor:
             
         elif intent == Intent.WITHDRAW:
             logger.info(f"   → Handler: WITHDRAW")
-            return self._handle_withdraw(
-                user_id, amount, needs_confirmation
-            )
+            return self._handle_recharge(user_id, amount, needs_confirmation)  # Use recharge handler for standard withdraw
+        
+        elif intent == Intent.WITHDRAW_GAB:
+            logger.info(f"   → Handler: WITHDRAW_GAB")
+            return self._handle_airtime(user_id, amount, "gab", needs_confirmation)
         
         elif intent == Intent.RECHARGE:
             logger.info(f"   → Handler: RECHARGE")
             return self._handle_recharge(
                 user_id, amount, needs_confirmation
             )
+        
+        elif intent in {Intent.INTERNET_DAY, Intent.INTERNET_WEEK, Intent.INTERNET_MONTH, Intent.INTERNET_UNLIMITED}:
+            logger.info(f"   → Handler: {intent.value}")
+            airtime_type = f"internet-{intent.value.split('_')[1]}"
+            return self._handle_airtime(user_id, amount, airtime_type, needs_confirmation)
+        
+        elif intent in {Intent.GOPACK_DAY, Intent.GOPACK_WEEK, Intent.GOPACK_MONTH}:
+            logger.info(f"   → Handler: {intent.value}")
+            airtime_type = f"gopack-{intent.value.split('_')[1]}"
+            return self._handle_airtime(user_id, amount, airtime_type, needs_confirmation)
         
         elif intent == Intent.BILL_PAYMENT:
             logger.info(f"   → Handler: BILL_PAYMENT")
@@ -182,9 +194,12 @@ class ActionExecutor:
             )
             
         elif tx.intent == "withdraw":
-            return self._execute_withdraw(
+            return self._execute_recharge(
                 user_id, tx.amount, transaction_id
             )
+        
+        elif tx.intent in {"withdraw_gab", "internet_day", "internet_week", "internet_month", "internet_unlimited", "gopack_day", "gopack_week", "gopack_month"}:
+            return self._execute_airtime(user_id, tx.amount, tx.service_type, transaction_id)
         
         elif tx.intent == "recharge":
             return self._execute_recharge(
@@ -489,6 +504,88 @@ class ActionExecutor:
             message=message,
             transaction_id=transaction_id,
             data={"amount": amount}
+        )
+    
+    def _handle_airtime(
+        self,
+        user_id: str,
+        amount: Optional[float],
+        airtime_type: str,
+        needs_confirmation: bool
+    ) -> ActionResult:
+        """Initier un achat d'airtime spécialisé (forfaits internet, Go Pack, GAB)"""
+        amount_value = self._normalized_amount(amount)
+        logger.info(f"📱 Achat forfait: {airtime_type} - {amount_value} XOF")
+        
+        # Validation
+        if amount_value is None:
+            return ActionResult(
+                success=False,
+                intent=airtime_type,
+                message="Montant invalide pour ce forfait"
+            )
+        
+        if needs_confirmation:
+            tx_id = self.cache.add(
+                user_id=user_id,
+                intent=airtime_type,
+                amount=amount_value,
+                service_type=airtime_type,
+                ttl=300
+            )
+            
+            # Build localized confirmation message
+            if "gab" in airtime_type:
+                forfait_name = "retrait GAB UBA"
+            elif "gopack" in airtime_type:
+                forfait_name = f"Go Pack {airtime_type.split('-')[1]}"
+            else:  # internet
+                forfait_name = f"Forfait internet {airtime_type.split('-')[1]}"
+            
+            message = f"Voulez-vous acheter le {forfait_name} pour {format_amount_for_tts(amount_value)} francs CFA ?"
+            
+            return ActionResult(
+                success=True,
+                intent=airtime_type,
+                message=message,
+                requires_confirmation=True,
+                transaction_id=tx_id
+            )
+        else:
+            return self._execute_airtime(user_id, amount_value, airtime_type)
+    
+    def _execute_airtime(
+        self,
+        user_id: str,
+        amount: float,
+        airtime_type: str,
+        transaction_id: Optional[str] = None
+    ) -> ActionResult:
+        """Exécuter l'achat d'airtime spécialisé"""
+        logger.info(f"✅ Exécution achat forfait: {airtime_type}")
+        
+        user = self.users_db.get(user_id) or self.users_db["default"]
+        user["balance"] = user.get("balance", 0) - amount
+        
+        if transaction_id:
+            self.cache.confirm(transaction_id)
+        
+        # Build localized success message
+        if "gab" in airtime_type:
+            forfait_name = "retrait GAB UBA"
+        elif "gopack" in airtime_type:
+            forfait_name = f"Go Pack {airtime_type.split('-')[1]}"
+        else:  # internet
+            forfait_name = f"Forfait internet {airtime_type.split('-')[1]}"
+        
+        message = f"Achat du {forfait_name} de {format_amount_for_tts(amount)} francs CFA accepté."
+        
+        return ActionResult(
+            success=True,
+            intent=airtime_type,
+            message=message,
+            transaction_id=transaction_id,
+            data={"amount": amount, "airtime_type": airtime_type}
         )
     
     def _handle_bill_payment(
