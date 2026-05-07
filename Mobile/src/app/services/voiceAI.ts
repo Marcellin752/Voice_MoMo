@@ -38,6 +38,16 @@ export type VoiceAiResponse = {
 let mediaRecorder: MediaRecorder | null = null;
 let mediaChunks: BlobPart[] = [];
 let mediaStream: MediaStream | null = null;
+let audioContext: AudioContext | null = null;
+let analyser: AnalyserNode | null = null;
+let silenceTimeoutId: ReturnType<typeof setTimeout> | null = null;
+let maxRecordingTimeoutId: ReturnType<typeof setTimeout> | null = null;
+let onSilenceDetectedCallback: (() => void) | null = null;
+
+// Configuration pour la détection du silence (configurable)
+const SILENCE_THRESHOLD = Number(import.meta.env.VITE_SILENCE_THRESHOLD || 0.02); // RMS threshold
+const SILENCE_DURATION_MS = Number(import.meta.env.VITE_SILENCE_DURATION_MS || 2000); // 2 secondes de silence
+const MAX_RECORDING_TIME_MS = Number(import.meta.env.VITE_MAX_RECORDING_TIME_MS || 30000); // 30 secondes max
 
 function pickMimeType(): string {
   const c = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
@@ -47,38 +57,133 @@ function pickMimeType(): string {
   return "audio/webm";
 }
 
+function calculateRMS(data: Uint8Array): number {
+  let sum = 0;
+  for (let i = 0; i < data.length; i++) {
+    const normalized = (data[i] - 128) / 128;
+    sum += normalized * normalized;
+  }
+  return Math.sqrt(sum / data.length);
+}
+
+function detectSilence() {
+  if (!analyser) return;
+  
+  const dataArray = new Uint8Array(analyser.frequencyBinCount);
+  analyser.getByteFrequencyData(dataArray);
+  
+  const rms = calculateRMS(dataArray);
+  
+  if (rms < SILENCE_THRESHOLD) {
+    if (silenceTimeoutId === null) {
+      silenceTimeoutId = setTimeout(() => {
+        console.log(`🔇 [AUDIO] Silence détecté après ${SILENCE_DURATION_MS}ms`);
+        onSilenceDetectedCallback?.();
+        silenceTimeoutId = null;
+      }, SILENCE_DURATION_MS);
+    }
+  } else {
+    // Son détecté, réinitialiser le timeout du silence
+    if (silenceTimeoutId !== null) {
+      clearTimeout(silenceTimeoutId);
+      silenceTimeoutId = null;
+    }
+  }
+  
+  if (mediaRecorder && mediaRecorder.state === 'recording') {
+    requestAnimationFrame(detectSilence);
+  }
+}
+
 export async function startVoiceRecording(): Promise<void> {
   if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
     throw new Error("Microphone not available in this environment.");
   }
+  
   mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
   mediaChunks = [];
   const mime = pickMimeType();
   mediaRecorder = new MediaRecorder(mediaStream, { mimeType: mime });
+  
   mediaRecorder.ondataavailable = (e) => {
     if (e.data.size > 0) mediaChunks.push(e.data);
   };
-  mediaRecorder.start(120);
+  
+  // Configuration audio context pour la détection du silence
+  if (!audioContext && typeof window !== "undefined" && 'AudioContext' in window) {
+    audioContext = new (window.AudioContext as any)();
+    analyser = audioContext.createAnalyser();
+    analyser.fftSize = 1024;
+    const source = audioContext.createMediaStreamAudioProcessor?.
+      ? audioContext.createMediaStreamSource(mediaStream) 
+      : audioContext.createMediaStreamAudioSource(mediaStream);
+    source.connect(analyser);
+  }
+  
+  mediaRecorder.start(100); // Réduit de 120ms à 100ms pour une meilleure détection
+  
+  // Démarrer la détection du silence
+  if (analyser) {
+    requestAnimationFrame(detectSilence);
+  }
+  
+  // Timeout maximal pour éviter les enregistrements infinis
+  maxRecordingTimeoutId = setTimeout(() => {
+    console.log(`⏱️ [AUDIO] Durée maximale d'enregistrement atteinte (${MAX_RECORDING_TIME_MS}ms)`);
+    stopVoiceRecordingInternal();
+  }, MAX_RECORDING_TIME_MS);
+  
+  // Exposer le callback pour auto-stop
+  onSilenceDetectedCallback = stopVoiceRecordingInternal;
+}
+
+async function stopVoiceRecordingInternal(): Promise<void> {
+  if (silenceTimeoutId) clearTimeout(silenceTimeoutId);
+  if (maxRecordingTimeoutId) clearTimeout(maxRecordingTimeoutId);
+  if (mediaRecorder && mediaRecorder.state === 'recording') {
+    mediaRecorder.stop();
+  }
 }
 
 export async function stopVoiceRecording(): Promise<Blob> {
   return new Promise((resolve, reject) => {
+    // Arrêter les timeouts
+    if (silenceTimeoutId) clearTimeout(silenceTimeoutId);
+    if (maxRecordingTimeoutId) clearTimeout(maxRecordingTimeoutId);
+    
     if (!mediaRecorder) {
       reject(new Error("Recorder not started"));
       return;
     }
+    
     const mr = mediaRecorder;
     mr.onstop = () => {
       const blob = new Blob(mediaChunks, { type: mr.mimeType || "audio/webm" });
       mediaStream?.getTracks().forEach((t) => t.stop());
+      
+      // Nettoyer les ressources audio
+      if (audioContext) {
+        audioContext.close();
+        audioContext = null;
+        analyser = null;
+      }
+      
       mediaRecorder = null;
       mediaStream = null;
       mediaChunks = [];
+      onSilenceDetectedCallback = null;
+      
       resolve(blob);
     };
+    
     mr.onerror = () => reject(new Error("Recording failed"));
+    
     try {
-      mr.stop();
+      if (mr.state === 'recording') {
+        mr.stop();
+      } else {
+        resolve(new Blob(mediaChunks, { type: mr.mimeType || "audio/webm" }));
+      }
     } catch (e) {
       reject(e);
     }

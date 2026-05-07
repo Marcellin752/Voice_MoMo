@@ -119,8 +119,8 @@ async function bootstrap(): Promise<void> {
 
   startModemHealthcheck(modemPool);
 
-  httpServer.listen(PORT, () => {
-    logger.info(`Voice MoMo + MTN USSD API sur http://localhost:${PORT}`);
+  httpServer.listen(PORT, "0.0.0.0", () => {
+    logger.info(`Voice MoMo + MTN USSD API sur http://0.0.0.0:${PORT}`);
   });
 }
 
