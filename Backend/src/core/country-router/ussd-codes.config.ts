@@ -13,6 +13,14 @@ export interface CountryUssdConfig {
   language: "fr" | "en";
   successKeywords: string[];
   failureKeywords: string[];
+  // Additional codes for specialized operations
+  withdrawGAB?: string; // Retrait GAB UBA
+  airtimeGoPackJour?: string;
+  airtimeGoPackSemaine?: string;
+  airtimeGoPackMois?: string;
+  airtimeInternetJour?: string;
+  airtimeInternetSemaine?: string;
+  airtimeInternetMois?: string;
 }
 
 /**
@@ -26,6 +34,13 @@ export const USSD_CODES: Record<SupportedCountry, CountryUssdConfig> = {
     balance: "*880*9#",
     billPayment: "*880*5#",
     airtime: "*880*4*{amount}#",
+    withdrawGAB: "*880*724#", // Retrait GAB UBA
+    airtimeGoPackJour: "*840*172*1*{number}#",
+    airtimeGoPackSemaine: "*840*172*2*{number}#",
+    airtimeGoPackMois: "*840*172*3*{number}#",
+    airtimeInternetJour: "*840*123*1*{number}#",
+    airtimeInternetSemaine: "*840*123*2*{number}#",
+    airtimeInternetMois: "*840*123*3*{number}#",
     menuFlow: ["ENTER_PIN", "CONFIRM"],
     currency: "FCFA",
     language: "fr",
