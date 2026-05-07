@@ -137,7 +137,84 @@ function buildUSSDCode(codeType: USSDCodeType, params?: USSDParams): string {
 }
 
 /**
- * Exécute un code USSD en ouvrant l'application téléphone
+ * Exécute une commande via le backend V1 API (route correcte)
+ * Le backend gère toute la session USSD et ne demande que le PIN
+ */
+export async function executeUSSDViaBackend(
+  action: string,
+  params?: {
+    amount?: number;
+    recipient?: string;
+    destinationNumber?: string;
+    country?: string;
+  }
+): Promise<{ success: boolean; message: string; action: string }> {
+  try {
+    // Récupérer le token d'authentification
+    const tokenResponse = await fetch('/api/auth/token', {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!tokenResponse.ok) {
+      throw new Error('Non authentifié. Veuillez vous reconnecter.');
+    }
+
+    const { token, userId } = await tokenResponse.json();
+
+    // Chiffrer le PIN (le backend demandera le PIN via USSD)
+    // Pour cette première étape, on utilise un placeholder
+    const encryptedPin = 'placeholder'; // TODO: demander le PIN à l'utilisateur
+
+    // Construire la payload pour le backend
+    const payload = {
+      userId,
+      country: params?.country || 'BJ', // Défaut: Bénin
+      action: action, // 'transfer', 'withdraw', 'balance', etc.
+      params: {
+        amount: params?.amount,
+        to: params?.destinationNumber || params?.recipient,
+      },
+      encryptedPin, // Le backend demandera le PIN via la session USSD
+    };
+
+    // Appeler le backend pour exécuter la transaction
+    const response = await fetch('/api/v1/transaction', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Erreur backend: ${errorText}`);
+    }
+
+    const result = await response.json();
+
+    return {
+      success: true,
+      message: result.message || `${action} via backend lancé. Suivez les instructions.`,
+      action,
+    };
+  } catch (error) {
+    console.error('❌ [USSD] Erreur backend:', error);
+    return {
+      success: false,
+      message: `Erreur: ${(error as Error).message}`,
+      action: 'error',
+    };
+  }
+}
+
+/**
+ * Exécute un code USSD en ouvrant l'application téléphone (ancienne méthode - DÉPRÉCIÉE)
+ * À remplacer par executeUSSDViaBackend()
  */
 export async function executeUSSD(
   codeType: USSDCodeType,

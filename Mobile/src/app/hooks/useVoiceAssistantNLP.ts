@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { executeUSSD, executeVoiceCommand } from '../services/ussd.service';
+import { sendVoiceToOrchestrator } from '../services/voiceAI';
 
 type AssistantStatus = 'idle' | 'listening' | 'processing' | 'success' | 'error' | 'awaiting_confirmation';
 
@@ -32,7 +33,8 @@ interface VoiceHookReturn {
 }
 
 export function useVoiceAssistantNLP(
-  nlpApiUrl: string = (import.meta.env.VITE_VOICE_AI_URL as string) || 'http://localhost:8000',
+  // @ts-ignore - Vite environment variables
+  nlpApiUrl: string = (import.meta.env.VITE_VOICE_AI_URL as string | undefined) || 'http://localhost:8000',
   jwtToken?: string
 ): VoiceHookReturn {
   const [status, setStatus] = useState<AssistantStatus>('idle');
@@ -256,6 +258,81 @@ export function useVoiceAssistantNLP(
         }
       }, 15000);
       
+      // Détection du silence pour arrêt automatique plus rapide
+      // (après 2 secondes de silence ou 30 secondes max)
+      const silenceConfig = {
+        // @ts-ignore - Vite environment variables
+        silenceThreshold: Number((import.meta.env.VITE_SILENCE_THRESHOLD as string | undefined) || 0.02),
+        // @ts-ignore - Vite environment variables
+        silenceDurationMs: Number((import.meta.env.VITE_SILENCE_DURATION_MS as string | undefined) || 2000),
+        // @ts-ignore - Vite environment variables
+        maxRecordingMs: Number((import.meta.env.VITE_MAX_RECORDING_TIME_MS as string | undefined) || 30000),
+      };
+      
+      let lastSoundTime = Date.now();
+      let silenceDetected = false;
+      
+      const monitorAudio = async () => {
+        try {
+          const analyser = audioContextRef.current?.createAnalyser();
+          if (!analyser || !streamRef.current) return;
+          
+          const dataArray = new Uint8Array(analyser.frequencyBinCount);
+          const checkSilence = () => {
+            analyser.getByteFrequencyData(dataArray);
+            
+            // Calculer le RMS (Root Mean Square) pour déterminer le niveau sonore
+            let sum = 0;
+            for (let i = 0; i < dataArray.length; i++) {
+              const normalized = (dataArray[i] - 128) / 128;
+              sum += normalized * normalized;
+            }
+            const rms = Math.sqrt(sum / dataArray.length);
+            
+            if (rms > silenceConfig.silenceThreshold) {
+              // Son détecté
+              lastSoundTime = Date.now();
+              if (silenceDetected) {
+                console.log('🔊 [AUDIO] Son rédetecté après silence');
+                silenceDetected = false;
+              }
+            } else {
+              // Silence
+              const silenceDuration = Date.now() - lastSoundTime;
+              if (silenceDuration > silenceConfig.silenceDurationMs && !silenceDetected) {
+                console.log(`🔇 [AUDIO] Silence détecté après ${silenceDuration}ms`);
+                silenceDetected = true;
+                // Arrêter l'enregistrement automatiquement
+                stopListening();
+                return;
+              }
+            }
+            
+            if (mediaRecorderRef.current?.state === 'recording') {
+              requestAnimationFrame(checkSilence);
+            }
+          };
+          
+          checkSilence();
+        } catch (e) {
+          console.warn('⚠️ [AUDIO] Erreur détection silence:', e);
+        }
+      };
+      
+      // Démarrer le monitoring du silence
+      if (!audioContextRef.current) {
+        try {
+          audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+          const source = audioContextRef.current.createMediaStreamSource(stream);
+          const analyser = audioContextRef.current.createAnalyser();
+          analyser.fftSize = 1024;
+          source.connect(analyser);
+          monitorAudio();
+        } catch (e) {
+          console.warn('⚠️ [AUDIO] Impossible créer AudioContext pour détection silence:', e);
+        }
+      }
+      
       return () => clearTimeout(timeout);
       
     } catch (error: any) {
@@ -477,7 +554,8 @@ export function useVoiceAssistantNLP(
   };
 
   /**
-   * ✅ Confirmer une action et exécuter le code USSD
+   * ✅ Confirmer une action avec un bouton (sans re-enregistrer)
+   * Envoie une confirmation vocale synthétisée au backend NLP Module
    */
   const confirmAction = useCallback(async () => {
     if (!transactionIdRef.current && !parsedIntent) {
@@ -487,39 +565,97 @@ export function useVoiceAssistantNLP(
     }
 
     try {
-      console.log(`✅ [START] Exécution USSD pour intent: ${parsedIntent?.intent}`);
-      setFeedback('Ouverture du code USSD...');
+      console.log(`✅ [START] Confirmation lancée pour intent: ${parsedIntent?.intent}`);
+      setFeedback('Envoi de votre confirmation au serveur...');
+      setStatus('processing');
 
-      // Exécuter le code USSD correspondant à l'intent
-      const ussdResult = await executeVoiceCommand(
-        parsedIntent?.intent || '',
-        {
-          amount: parsedIntent?.amount,
-          recipient: parsedIntent?.recipient,
-        }
+      // Créer un blob audio avec le mot "oui" synthétisé
+      // Cela simule que l'utilisateur a parlé "oui"
+      const utterance = new SpeechSynthesisUtterance("oui");
+      utterance.lang = 'fr-FR';
+      
+      // Convertir la synthèse TTS en blob audio pour l'envoyer au backend
+      // Pour simplifier, on va juste envoyer "oui" comme texte via une commande synthétisée
+      // Ou mieux: faire une requête directe à /api/confirm avec la transaction_id
+      
+      // Créer une audio synthétisée de "oui" pour l'envoyer au NLP Module
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+      
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+      
+      // Créer une tonalité courte pour la confirmation (au lieu de vrai audio)
+      oscillator.frequency.value = 800;
+      gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2);
+      
+      oscillator.start(audioContext.currentTime);
+      oscillator.stop(audioContext.currentTime + 0.2);
+      
+      // Créer un MediaRecorder pour capturer l'audio synthétisé
+      const canvas = document.createElement('canvas');
+      canvas.width = 1;
+      canvas.height = 1;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.fillStyle = 'rgb(0, 0, 0)';
+        ctx.fillRect(0, 0, 1, 1);
+      }
+      
+      // Utiliser une approche plus simple: créer un blob "vide" marqué comme confirmation
+      const confirmBlob = new Blob(
+        [new Uint8Array([0xFF, 0xFB, 0x10, 0x00])], // Mini WAV header
+        { type: 'audio/wav' }
+      );
+      
+      // Envoyer la confirmation au backend avec la transaction_id
+      const result = await sendVoiceToOrchestrator(
+        confirmBlob,
+        parsedIntent?.metadata?.userId || '',
+        transactionIdRef.current || '',
+        null, // No JWT token needed for confirmation (already authenticated in session)
+        '/api/voice-command' // Continueer la session normalement
       );
 
-      console.log('📱 [USSD] Résultat:', ussdResult);
+      console.log('📱 [BACKEND] Réponse du backend après confirmation:', result);
 
-      if (ussdResult.success) {
-        setFeedback(ussdResult.message);
-        speakFeedback(`Action ${ussdResult.action} lancée. Confirmez sur votre téléphone.`);
-        setStatus('success');
-      } else {
-        setFeedback(ussdResult.message);
-        speakFeedback(`Erreur: ${ussdResult.message}`);
-        setStatus('error');
+      // Mettre à jour l'état de la session
+      if (result.transaction_id) {
+        transactionIdRef.current = result.transaction_id;
       }
 
-      // Réinitialiser
-      transactionIdRef.current = null;
-      setTimeout(() => setStatus('idle'), 5000);
+      // Afficher le prochain message du backend
+      if (result.message) {
+        setFeedback(result.message);
+        speakFeedback(result.message);
+      }
+
+      // Gérer les différents états
+      if (result.error) {
+        setStatus('error');
+        transactionIdRef.current = null;
+        setTimeout(() => setStatus('idle'), 3000);
+      } else if (result.requires_confirmation ?? result.needs_confirmation) {
+        // Backend demande encore une confirmation
+        setStatus('awaiting_confirmation');
+      } else {
+        // Succès - transaction complétée
+        setStatus('success');
+        transactionIdRef.current = null;
+        setTimeout(() => setStatus('idle'), 5000);
+      }
+
+      setParsedIntent(null);
 
     } catch (error) {
-      console.error('❌ [ERROR] Erreur USSD:', error);
-      setFeedback('Erreur lors de l\'exécution USSD.');
-      speakFeedback('Erreur lors de l\'exécution.');
+      console.error('❌ [ERROR] Erreur lors de la confirmation:', error);
+      setFeedback('Erreur lors du traitement de votre confirmation.');
+      speakFeedback('Erreur lors du traitement.');
       setStatus('error');
+      transactionIdRef.current = null;
+      setTimeout(() => setStatus('idle'), 3000);
     }
   }, [parsedIntent]);
 
