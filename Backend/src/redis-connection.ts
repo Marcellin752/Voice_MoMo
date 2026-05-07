@@ -16,11 +16,15 @@ function logRedisHelpOnce(host: string, port: number): void {
  * Options Redis partagées (BullMQ exige maxRetriesPerRequest: null sur le client dupliqué).
  */
 export function getRedisOptions(): RedisOptions {
-  if (process.env.REDIS_URL) {
+  const redisUrl = process.env.REDIS_URL;
+  
+  if (redisUrl) {
+    const isTls = redisUrl.startsWith("rediss://") || !redisUrl.includes("localhost");
     return {
       maxRetriesPerRequest: null,
       lazyConnect: true,
       enableOfflineQueue: false,
+      tls: isTls ? { rejectUnauthorized: false } : undefined,
       retryStrategy(times: number) {
         const max = Number(process.env.REDIS_CONNECT_RETRIES) || 10;
         if (times > max) return null;
@@ -77,9 +81,11 @@ export function createRedisConnection(): IORedis {
 export function createRedisSubscriberConnection(): IORedis {
   const redisUrl = process.env.REDIS_URL;
   if (redisUrl) {
+    const isTls = redisUrl.startsWith("rediss://") || !redisUrl.includes("localhost");
     const client = new IORedis(redisUrl, {
       maxRetriesPerRequest: 20,
       lazyConnect: false,
+      tls: isTls ? { rejectUnauthorized: false } : undefined,
     });
     attachRedisErrorHandler(client, "URL", 0);
     return client;
