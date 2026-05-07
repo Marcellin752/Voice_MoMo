@@ -80,6 +80,42 @@ def parse_with_fallback(text: str) -> ParseCommandResponse:
             metadata=ParseMetadata(confidence=0.65),
         )
 
+    # Withdraw (standard or GAB)
+    if any(token in lowered for token in ["retrait", "retirer", "decaisser"]):
+        amount, _ = extract_amount_and_phone(lowered)
+        if amount is None:
+            amount = _parse_amount(lowered)
+        
+        # Check if it's GAB withdrawal
+        is_gab = any(token in lowered for token in ["gab", "uba"])
+        
+        if is_gab:
+            return ParseCommandResponse(
+                intent=Intent.WITHDRAW_GAB,
+                amount=amount,
+                needs_confirmation=True,
+                confirmation_message=(
+                    f"Voulez-vous retirer {amount} francs via GAB UBA ?"
+                    if amount
+                    else "Voulez-vous retirer des fonds via GAB UBA ?"
+                ),
+                understood_text=text,
+                metadata=ParseMetadata(confidence=0.7),
+            )
+        else:
+            return ParseCommandResponse(
+                intent=Intent.WITHDRAW,
+                amount=amount,
+                needs_confirmation=True,
+                confirmation_message=(
+                    f"Voulez-vous retirer {amount} francs ?"
+                    if amount
+                    else "Voulez-vous confirmer ce retrait ?"
+                ),
+                understood_text=text,
+                metadata=ParseMetadata(confidence=0.7),
+            )
+
     if any(token in lowered for token in ["recharge", "credit", "airtime"]):
         amount, _ = extract_amount_and_phone(lowered)
         if amount is None:
@@ -95,6 +131,60 @@ def parse_with_fallback(text: str) -> ParseCommandResponse:
             ),
             understood_text=text,
             metadata=ParseMetadata(confidence=0.65),
+        )
+
+    # Internet forfaits
+    if "internet" in lowered:
+        amount, _ = extract_amount_and_phone(lowered)
+        if amount is None:
+            amount = _parse_amount(lowered)
+        
+        intent = Intent.INTERNET_MONTH  # default
+        if "jour" in lowered:
+            intent = Intent.INTERNET_DAY
+        elif "semaine" in lowered:
+            intent = Intent.INTERNET_WEEK
+        elif "illimite" in lowered:
+            intent = Intent.INTERNET_UNLIMITED
+        
+        return ParseCommandResponse(
+            intent=intent,
+            amount=amount,
+            airtime_type=f"internet-{intent.value.split('_')[1]}",
+            needs_confirmation=True,
+            confirmation_message=(
+                f"Voulez-vous acheter le forfait internet {intent.value.split('_')[1]} pour {amount} francs ?"
+                if amount
+                else f"Voulez-vous confirmer l'achat du forfait internet ?"
+            ),
+            understood_text=text,
+            metadata=ParseMetadata(confidence=0.7),
+        )
+
+    # Go Pack forfaits
+    if "go pack" in lowered or "gopack" in lowered:
+        amount, _ = extract_amount_and_phone(lowered)
+        if amount is None:
+            amount = _parse_amount(lowered)
+        
+        intent = Intent.GOPACK_MONTH  # default
+        if "jour" in lowered:
+            intent = Intent.GOPACK_DAY
+        elif "semaine" in lowered:
+            intent = Intent.GOPACK_WEEK
+        
+        return ParseCommandResponse(
+            intent=intent,
+            amount=amount,
+            airtime_type=f"gopack-{intent.value.split('_')[1]}",
+            needs_confirmation=True,
+            confirmation_message=(
+                f"Voulez-vous acheter le Go Pack {intent.value.split('_')[1]} pour {amount} francs ?"
+                if amount
+                else f"Voulez-vous confirmer l'achat du Go Pack ?"
+            ),
+            understood_text=text,
+            metadata=ParseMetadata(confidence=0.7),
         )
 
     if any(token in lowered for token in ["facture", "eau", "electricite", "internet", "payer", "paye", "paiement", "paiment", "payment"]):

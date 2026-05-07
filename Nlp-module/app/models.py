@@ -9,7 +9,15 @@ class Intent(str, Enum):
     TRANSFER = "transfer"
     DEPOSIT = "deposit"
     WITHDRAW = "withdraw"
+    WITHDRAW_GAB = "withdraw_gab"
     RECHARGE = "recharge"
+    INTERNET_DAY = "internet_day"
+    INTERNET_WEEK = "internet_week"
+    INTERNET_MONTH = "internet_month"
+    INTERNET_UNLIMITED = "internet_unlimited"
+    GOPACK_DAY = "gopack_day"
+    GOPACK_WEEK = "gopack_week"
+    GOPACK_MONTH = "gopack_month"
     BILL_PAYMENT = "bill_payment"
     HELP = "help"
     CONFIRM = "confirm"
@@ -35,6 +43,7 @@ class ParseCommandResponse(BaseModel):
     currency: str = "XOF"
     recipient: str | None = None
     bill_type: str | None = None
+    airtime_type: str | None = None  # "gopack-jour", "internet-mois", etc.
     needs_confirmation: bool = False
     confirmation_message: str | None = None
     understood_text: str
