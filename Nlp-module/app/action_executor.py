@@ -9,6 +9,7 @@ from typing import Dict, Any, Optional
 from app.transaction_cache import get_transaction_cache
 from app.entity_normalizer import format_amount_for_tts, format_recipient_for_tts
 from app.models import Intent
+from app.backend_actions import get_backend_client
 
 logger = logging.getLogger(__name__)
 
@@ -44,17 +45,40 @@ class ActionResult:
         }
 
 
+import os as _os
+
+# Mapping intent NLP → action TypeScript backend + params fixes
+_INTENT_TO_TS: dict = {
+    Intent.BALANCE:           ("balance",     {}),
+    Intent.TRANSFER:          ("transfer",    None),
+    Intent.DEPOSIT:           ("transfer",    None),
+    Intent.WITHDRAW:          ("withdraw",    {}),
+    Intent.WITHDRAW_GAB:      ("withdraw",    {"gab": True}),
+    Intent.RECHARGE:          ("airtime",     {}),
+    Intent.INTERNET_DAY:      ("airtime",     {"airtimeType": "internet-jour"}),
+    Intent.INTERNET_WEEK:     ("airtime",     {"airtimeType": "internet-semaine"}),
+    Intent.INTERNET_MONTH:    ("airtime",     {"airtimeType": "internet-mois"}),
+    Intent.INTERNET_UNLIMITED:("airtime",     {"airtimeType": "internet-illimite"}),
+    Intent.GOPACK_DAY:        ("airtime",     {"airtimeType": "gopack-jour"}),
+    Intent.GOPACK_WEEK:       ("airtime",     {"airtimeType": "gopack-semaine"}),
+    Intent.GOPACK_MONTH:      ("airtime",     {"airtimeType": "gopack-mois"}),
+    Intent.BILL_PAYMENT:      ("billPayment", None),
+}
+
+
 class ActionExecutor:
     """Exécuteur d'actions Mobile Money"""
-    
+
     def __init__(self):
         self.cache = get_transaction_cache()
-        # Simuler une base de données utilisateur
+        self.backend = get_backend_client()
+        self.default_country = _os.getenv("DEFAULT_COUNTRY", "BJ")
+        # Balance simulée (utilisée uniquement si BACKEND_ACTION_URL non configuré)
         self.users_db = {
             "default": {
                 "balance": 50000,
-                "phone": "+221771234567",
-                "name": "User",
+                "phone": "+22997000000",
+                "name": "Utilisateur",
             }
         }
 
@@ -74,14 +98,75 @@ class ActionExecutor:
     def _normalized_recipient(recipient: Optional[str]) -> Optional[str]:
         if not recipient:
             return None
-
         cleaned = recipient.strip()
         digits = re.sub(r"\D", "", cleaned)
         if 8 <= len(digits) <= 15:
             return digits
-
         return cleaned
-    
+
+    def _execute_via_backend(
+        self,
+        intent: Intent,
+        amount: Optional[float],
+        recipient: Optional[str],
+        service_type: Optional[str],
+        transaction_id: Optional[str] = None,
+    ) -> Optional["ActionResult"]:
+        """
+        Appelle le TypeScript backend pour exécuter l'action via USSD (mock ou réel).
+        Retourne None si le backend n'est pas disponible ou échoue.
+        """
+        if not self.backend.available:
+            return None
+
+        mapping = _INTENT_TO_TS.get(intent)
+        if mapping is None:
+            return None
+
+        ts_action, fixed_params = mapping
+        params: Dict[str, Any] = dict(fixed_params or {})
+
+        if amount is not None:
+            params["amount"] = int(amount)
+        if recipient:
+            params["to"] = recipient
+        if service_type:
+            params["ref"] = service_type
+
+        try:
+            result = self.backend.run(
+                action=ts_action,
+                country=self.default_country,
+                params=params,
+            )
+
+            # Mode simulation renvoyé si BACKEND_ACTION_URL absent (double sécurité)
+            if result.get("status") == "simulated":
+                return None
+
+            if transaction_id:
+                self.cache.confirm(transaction_id)
+
+            success = result.get("success", False)
+            message = result.get("voiceResponse") or result.get("mtnMessage") or (
+                "Transaction réussie." if success else "Transaction échouée."
+            )
+            return ActionResult(
+                success=success,
+                intent=intent.value,
+                message=message,
+                transaction_id=transaction_id,
+                data={
+                    "mtnMessage": result.get("mtnMessage"),
+                    "newBalance": result.get("newBalance"),
+                    "amount": amount,
+                    "recipient": recipient,
+                },
+            )
+        except Exception as exc:
+            logger.warning(f"Backend call failed ({exc}), falling back to simulation")
+            return None
+
     def execute(
         self,
         user_id: str,
@@ -90,7 +175,7 @@ class ActionExecutor:
         recipient: Optional[str] = None,
         service_type: Optional[str] = None,
         needs_confirmation: bool = False,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None  # noqa: ARG002
     ) -> ActionResult:
         """
         Exécuter une action selon l'intent
@@ -118,7 +203,7 @@ class ActionExecutor:
             
         elif intent == Intent.WITHDRAW:
             logger.info(f"   → Handler: WITHDRAW")
-            return self._handle_recharge(user_id, amount, needs_confirmation)  # Use recharge handler for standard withdraw
+            return self._handle_withdraw(user_id, amount, needs_confirmation)
         
         elif intent == Intent.WITHDRAW_GAB:
             logger.info(f"   → Handler: WITHDRAW_GAB")
@@ -184,32 +269,18 @@ class ActionExecutor:
         
         # Exécuter l'action confirmée
         if tx.intent == "transfer":
-            return self._execute_transfer(
-                user_id, tx.amount, tx.recipient, transaction_id
-            )
-        
+            return self._execute_transfer(user_id, tx.amount, tx.recipient, transaction_id)
         elif tx.intent == "deposit":
-            return self._execute_deposit(
-                user_id, tx.amount, tx.recipient, transaction_id
-            )
-            
+            return self._execute_deposit(user_id, tx.amount, tx.recipient, transaction_id)
         elif tx.intent == "withdraw":
-            return self._execute_recharge(
-                user_id, tx.amount, transaction_id
-            )
-        
-        elif tx.intent in {"withdraw_gab", "internet_day", "internet_week", "internet_month", "internet_unlimited", "gopack_day", "gopack_week", "gopack_month"}:
+            return self._execute_withdraw(user_id, tx.amount, transaction_id)
+        elif tx.intent in {"withdraw_gab", "internet_day", "internet_week", "internet_month",
+                           "internet_unlimited", "gopack_day", "gopack_week", "gopack_month"}:
             return self._execute_airtime(user_id, tx.amount, tx.service_type, transaction_id)
-        
         elif tx.intent == "recharge":
-            return self._execute_recharge(
-                user_id, tx.amount, transaction_id
-            )
-        
+            return self._execute_recharge(user_id, tx.amount, transaction_id)
         elif tx.intent == "bill_payment":
-            return self._execute_bill_payment(
-                user_id, tx.amount, tx.service_type, transaction_id
-            )
+            return self._execute_bill_payment(user_id, tx.amount, tx.service_type, transaction_id)
         
         else:
             return ActionResult(
@@ -341,29 +412,22 @@ class ActionExecutor:
         recipient: str,
         transaction_id: Optional[str] = None
     ) -> ActionResult:
-        """Exécuter le transfert"""
         logger.info(f"✅ Exécution transfert: {amount} XOF → {recipient}")
-        
+        backend_result = self._execute_via_backend(Intent.TRANSFER, amount, recipient, None, transaction_id)
+        if backend_result:
+            return backend_result
+
+        # Simulation locale
         user = self.users_db.get(user_id) or self.users_db["default"]
-        
-        # Débiter le compte
         user["balance"] = user.get("balance", 0) - amount
-        
-        # Retirer du cache si confirmé
         if transaction_id:
             self.cache.confirm(transaction_id)
-        
-        message = (
-            f"Transfert de {format_amount_for_tts(amount)} francs CFA "
-            f"vers {format_recipient_for_tts(recipient)} réussi."
-        )
-        
         return ActionResult(
             success=True,
             intent=Intent.TRANSFER.value,
-            message=message,
+            message=f"Transfert de {format_amount_for_tts(amount)} francs CFA vers {format_recipient_for_tts(recipient)} réussi.",
             transaction_id=transaction_id,
-            data={"amount": amount, "recipient": recipient}
+            data={"amount": amount, "recipient": recipient},
         )
     
     def _handle_deposit(
@@ -416,31 +480,26 @@ class ActionExecutor:
     
     def _execute_deposit(
         self,
-        user_id: str,
+        _user_id: str,
         amount: float,
         recipient: Optional[str] = None,
         transaction_id: Optional[str] = None
     ) -> ActionResult:
-        """Exécuter le dépôt"""
         logger.info(f"✅ Exécution dépôt: {amount} XOF → {recipient}")
-        
+        backend_result = self._execute_via_backend(Intent.DEPOSIT, amount, recipient, None, transaction_id)
+        if backend_result:
+            return backend_result
+
         if transaction_id:
             self.cache.confirm(transaction_id)
-        
-        if recipient:
-            message = (
-                f"Dépôt de {format_amount_for_tts(amount)} francs CFA "
-                f"sur le compte de {format_recipient_for_tts(recipient)} effectué."
-            )
-        else:
-            message = f"Dépôt de {format_amount_for_tts(amount)} francs CFA effectué."
-        
+        msg = (
+            f"Dépôt de {format_amount_for_tts(amount)} francs CFA sur le compte de {format_recipient_for_tts(recipient)} effectué."
+            if recipient else
+            f"Dépôt de {format_amount_for_tts(amount)} francs CFA effectué."
+        )
         return ActionResult(
-            success=True,
-            intent=Intent.DEPOSIT.value,
-            message=message,
-            transaction_id=transaction_id,
-            data={"amount": amount, "recipient": recipient}
+            success=True, intent=Intent.DEPOSIT.value, message=msg,
+            transaction_id=transaction_id, data={"amount": amount, "recipient": recipient},
         )
     
     def _handle_recharge(
@@ -481,29 +540,50 @@ class ActionExecutor:
         else:
             return self._execute_recharge(user_id, amount_value)
     
-    def _execute_recharge(
-        self,
-        user_id: str,
-        amount: float,
-        transaction_id: Optional[str] = None
-    ) -> ActionResult:
-        """Exécuter la recharge"""
-        logger.info(f"✅ Exécution recharge: {amount} XOF")
-        
+    def _handle_withdraw(self, user_id: str, amount: Optional[float], needs_confirmation: bool) -> ActionResult:
+        amount_value = self._normalized_amount(amount)
+        logger.info(f"💵 Retrait: {amount_value} XOF")
+        if amount_value is None:
+            return ActionResult(success=False, intent=Intent.WITHDRAW.value, message="Montant invalide pour le retrait")
+        if needs_confirmation:
+            tx_id = self.cache.add(user_id=user_id, intent="withdraw", amount=amount_value, ttl=300)
+            return ActionResult(
+                success=True, intent=Intent.WITHDRAW.value,
+                message=f"Voulez-vous retirer {format_amount_for_tts(amount_value)} francs CFA ?",
+                requires_confirmation=True, transaction_id=tx_id,
+            )
+        return self._execute_withdraw(user_id, amount_value)
+
+    def _execute_withdraw(self, user_id: str, amount: float, transaction_id: Optional[str] = None) -> ActionResult:
+        logger.info(f"✅ Exécution retrait: {amount} XOF")
+        backend_result = self._execute_via_backend(Intent.WITHDRAW, amount, None, None, transaction_id)
+        if backend_result:
+            return backend_result
+
         user = self.users_db.get(user_id) or self.users_db["default"]
         user["balance"] = user.get("balance", 0) - amount
-        
         if transaction_id:
             self.cache.confirm(transaction_id)
-        
-        message = f"Recharge de {format_amount_for_tts(amount)} francs CFA effectuée sur votre téléphone."
-        
         return ActionResult(
-            success=True,
-            intent=Intent.RECHARGE.value,
-            message=message,
-            transaction_id=transaction_id,
-            data={"amount": amount}
+            success=True, intent=Intent.WITHDRAW.value,
+            message=f"Retrait de {format_amount_for_tts(amount)} francs CFA autorisé. Présentez-vous au guichet le plus proche.",
+            transaction_id=transaction_id, data={"amount": amount},
+        )
+
+    def _execute_recharge(self, user_id: str, amount: float, transaction_id: Optional[str] = None) -> ActionResult:
+        logger.info(f"✅ Exécution recharge: {amount} XOF")
+        backend_result = self._execute_via_backend(Intent.RECHARGE, amount, None, None, transaction_id)
+        if backend_result:
+            return backend_result
+
+        user = self.users_db.get(user_id) or self.users_db["default"]
+        user["balance"] = user.get("balance", 0) - amount
+        if transaction_id:
+            self.cache.confirm(transaction_id)
+        return ActionResult(
+            success=True, intent=Intent.RECHARGE.value,
+            message=f"Recharge de {format_amount_for_tts(amount)} francs CFA effectuée sur votre téléphone.",
+            transaction_id=transaction_id, data={"amount": amount},
         )
     
     def _handle_airtime(
@@ -561,31 +641,34 @@ class ActionExecutor:
         airtime_type: str,
         transaction_id: Optional[str] = None
     ) -> ActionResult:
-        """Exécuter l'achat d'airtime spécialisé"""
         logger.info(f"✅ Exécution achat forfait: {airtime_type}")
-        
+        # Retrouver l'intent correspondant pour le mapping backend
+        _airtime_intent_map = {
+            "gab": Intent.WITHDRAW_GAB,
+            "internet-jour": Intent.INTERNET_DAY, "internet-semaine": Intent.INTERNET_WEEK,
+            "internet-mois": Intent.INTERNET_MONTH, "internet-illimite": Intent.INTERNET_UNLIMITED,
+            "gopack-jour": Intent.GOPACK_DAY, "gopack-semaine": Intent.GOPACK_WEEK,
+            "gopack-mois": Intent.GOPACK_MONTH,
+        }
+        matched_intent = _airtime_intent_map.get(airtime_type, Intent.RECHARGE)
+        backend_result = self._execute_via_backend(matched_intent, amount, None, None, transaction_id)
+        if backend_result:
+            return backend_result
+
         user = self.users_db.get(user_id) or self.users_db["default"]
         user["balance"] = user.get("balance", 0) - amount
-        
         if transaction_id:
             self.cache.confirm(transaction_id)
-        
-        # Build localized success message
         if "gab" in airtime_type:
             forfait_name = "retrait GAB UBA"
         elif "gopack" in airtime_type:
             forfait_name = f"Go Pack {airtime_type.split('-')[1]}"
-        else:  # internet
+        else:
             forfait_name = f"Forfait internet {airtime_type.split('-')[1]}"
-        
-        message = f"Achat du {forfait_name} de {format_amount_for_tts(amount)} francs CFA accepté."
-        
         return ActionResult(
-            success=True,
-            intent=airtime_type,
-            message=message,
-            transaction_id=transaction_id,
-            data={"amount": amount, "airtime_type": airtime_type}
+            success=True, intent=airtime_type,
+            message=f"Achat du {forfait_name} de {format_amount_for_tts(amount)} francs CFA accepté.",
+            transaction_id=transaction_id, data={"amount": amount, "airtime_type": airtime_type},
         )
     
     def _handle_bill_payment(
@@ -645,26 +728,19 @@ class ActionExecutor:
         service_type: str,
         transaction_id: Optional[str] = None
     ) -> ActionResult:
-        """Exécuter le paiement de facture"""
         logger.info(f"✅ Exécution paiement facture: {service_type}")
-        
+        backend_result = self._execute_via_backend(Intent.BILL_PAYMENT, amount, None, service_type, transaction_id)
+        if backend_result:
+            return backend_result
+
         user = self.users_db.get(user_id) or self.users_db["default"]
         user["balance"] = user.get("balance", 0) - amount
-        
         if transaction_id:
             self.cache.confirm(transaction_id)
-        
-        message = (
-            f"Paiement de votre {service_type} "
-            f"de {format_amount_for_tts(amount)} francs CFA accepté."
-        )
-        
         return ActionResult(
-            success=True,
-            intent=Intent.BILL_PAYMENT.value,
-            message=message,
-            transaction_id=transaction_id,
-            data={"amount": amount, "service": service_type}
+            success=True, intent=Intent.BILL_PAYMENT.value,
+            message=f"Paiement de votre {service_type} de {format_amount_for_tts(amount)} francs CFA accepté.",
+            transaction_id=transaction_id, data={"amount": amount, "service": service_type},
         )
     
     def _handle_help(self) -> ActionResult:
