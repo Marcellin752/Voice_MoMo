@@ -8,6 +8,7 @@ import { createRedisSubscriberConnection } from "./redis-connection";
 import { USSD_EVENT_CHANNEL } from "./notifications/event-bus";
 import transactionRoutes from "./api/routes/transaction.routes";
 import statusRoutes from "./api/routes/status.routes";
+import executeSyncRoutes from "./api/routes/execute-sync.routes";
 import { AppError } from "./shared/errors/app-errors";
 import { logger } from "./shared/logger/logger";
 import { getUssdQueue, isUssdQueueAvailable } from "./queue/job-queue";
@@ -31,6 +32,7 @@ async function bootstrap(): Promise<void> {
 
   app.use("/api/v1/transaction", transactionRoutes);
   app.use("/api/v1/status", statusRoutes);
+  app.use("/api/v1/execute-sync", executeSyncRoutes);
 
   registerLegacyRoutes(app);
 
