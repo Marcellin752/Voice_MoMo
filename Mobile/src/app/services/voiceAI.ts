@@ -114,9 +114,7 @@ export async function startVoiceRecording(): Promise<void> {
     audioContext = new (window.AudioContext as any)();
     analyser = audioContext.createAnalyser();
     analyser.fftSize = 1024;
-    const source = audioContext.createMediaStreamAudioProcessor?.
-      ? audioContext.createMediaStreamSource(mediaStream) 
-      : audioContext.createMediaStreamAudioSource(mediaStream);
+    const source = audioContext.createMediaStreamSource(mediaStream);
     source.connect(analyser);
   }
   
