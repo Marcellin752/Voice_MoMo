@@ -82,7 +82,8 @@ class JWTManager:
         """
         payload = JWTManager.decode_token(token)
         if payload:
-            return payload.get("user_id")
+            # Supporte userId (Node.js) et user_id (Python)
+            return payload.get("user_id") or payload.get("userId")
         return None
 
 
