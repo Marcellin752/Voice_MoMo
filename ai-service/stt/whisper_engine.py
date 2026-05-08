@@ -37,10 +37,12 @@ def _detect_ram_gb() -> float:
         return 8.0
 
 
-def _pick_model() -> str:
+def _pick_model(device: str = "cpu") -> str:
     override = os.environ.get("WHISPER_MODEL", "").strip()
     if override:
         return override
+    if device == "cpu":
+        return "base"
     ram = _detect_ram_gb()
     if ram >= 8:
         return "large-v3"
@@ -71,8 +73,8 @@ def get_engine() -> tuple[Any, str]:
         _log_json("error", "import_failed", module="faster_whisper", error=str(e))
         raise
 
-    name = _pick_model()
     device, ctype = _detect_device()
+    name = _pick_model(device)
     if device == "cpu":
         ctype = "int8"
 

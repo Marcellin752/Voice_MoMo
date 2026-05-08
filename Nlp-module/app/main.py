@@ -425,20 +425,44 @@ async def voice_command(request: Request, audio_file: UploadFile = File(...)) ->
             )
         
         nlp_result: ParseCommandResponse = normalize_parsed_entities(result["nlp_result"])
-        
-        logger.info(f"✅ Analyse complétée: intent={nlp_result.intent.value}, confidence={nlp_result.metadata.confidence}")
-        
+
+        logger.info(f"✅ Analyse complétée: intent={nlp_result.intent.value}, user_id={user_id}, confidence={nlp_result.metadata.confidence}")
+
         # 3. Exécuter l'action selon l'intent
-        user_id = "default"  # En production, obtenir du contexte utilisateur
-        
-        action_result = executor.execute(
-            user_id=user_id,
-            intent=nlp_result.intent,
-            amount=nlp_result.amount,
-            recipient=nlp_result.recipient,
-            service_type=nlp_result.bill_type,
-            needs_confirmation=nlp_result.needs_confirmation
-        )
+        from app.models import Intent as _Intent
+
+        # Confirmation/annulation vocale ("oui"/"non") → router vers les bons handlers
+        if nlp_result.intent == _Intent.CONFIRM:
+            tx_id = cache.get_by_user(user_id)
+            if tx_id:
+                action_result = executor.confirm_action(tx_id.id, user_id)
+            else:
+                from app.action_executor import ActionResult
+                action_result = ActionResult(
+                    success=False,
+                    intent="confirm",
+                    message="Aucune transaction en attente de confirmation."
+                )
+        elif nlp_result.intent == _Intent.CANCEL:
+            tx = cache.get_by_user(user_id)
+            if tx:
+                action_result = executor.cancel_action(tx.id, user_id)
+            else:
+                from app.action_executor import ActionResult
+                action_result = ActionResult(
+                    success=True,
+                    intent="cancel",
+                    message="Aucune action en cours."
+                )
+        else:
+            action_result = executor.execute(
+                user_id=user_id,
+                intent=nlp_result.intent,
+                amount=nlp_result.amount,
+                recipient=nlp_result.recipient,
+                service_type=nlp_result.bill_type,
+                needs_confirmation=nlp_result.needs_confirmation
+            )
         
         logger.info(f"🎯 Exécution action: success={action_result.success}, message={action_result.message}")
         
