@@ -1,6 +1,4 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { executeUSSD, executeVoiceCommand } from '../services/ussd.service';
-import { sendVoiceToOrchestrator } from '../services/voiceAI';
 
 type AssistantStatus = 'idle' | 'listening' | 'processing' | 'success' | 'error' | 'awaiting_confirmation';
 
@@ -554,110 +552,59 @@ export function useVoiceAssistantNLP(
   };
 
   /**
-   * ✅ Confirmer une action avec un bouton (sans re-enregistrer)
-   * Envoie une confirmation vocale synthétisée au backend NLP Module
+   * ✅ Confirmer une action — appel JSON direct à /api/confirm
    */
   const confirmAction = useCallback(async () => {
-    if (!transactionIdRef.current && !parsedIntent) {
-      console.warn('❌ [ERROR] Pas de transaction ou d\'intent à confirmer');
+    const txId = transactionIdRef.current;
+    if (!txId) {
+      console.warn('❌ [ERROR] Pas de transaction_id à confirmer');
       setFeedback('Erreur: pas d\'action à confirmer');
       return;
     }
 
     try {
-      console.log(`✅ [START] Confirmation lancée pour intent: ${parsedIntent?.intent}`);
-      setFeedback('Envoi de votre confirmation au serveur...');
+      console.log(`✅ [START] Confirmation lancée — transaction_id: ${txId}`);
+      setFeedback('Envoi de votre confirmation...');
       setStatus('processing');
 
-      // Créer un blob audio avec le mot "oui" synthétisé
-      // Cela simule que l'utilisateur a parlé "oui"
-      const utterance = new SpeechSynthesisUtterance("oui");
-      utterance.lang = 'fr-FR';
-      
-      // Convertir la synthèse TTS en blob audio pour l'envoyer au backend
-      // Pour simplifier, on va juste envoyer "oui" comme texte via une commande synthétisée
-      // Ou mieux: faire une requête directe à /api/confirm avec la transaction_id
-      
-      // Créer une audio synthétisée de "oui" pour l'envoyer au NLP Module
-      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const oscillator = audioContext.createOscillator();
-      const gainNode = audioContext.createGain();
-      
-      oscillator.connect(gainNode);
-      gainNode.connect(audioContext.destination);
-      
-      // Créer une tonalité courte pour la confirmation (au lieu de vrai audio)
-      oscillator.frequency.value = 800;
-      gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2);
-      
-      oscillator.start(audioContext.currentTime);
-      oscillator.stop(audioContext.currentTime + 0.2);
-      
-      // Créer un MediaRecorder pour capturer l'audio synthétisé
-      const canvas = document.createElement('canvas');
-      canvas.width = 1;
-      canvas.height = 1;
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.fillStyle = 'rgb(0, 0, 0)';
-        ctx.fillRect(0, 0, 1, 1);
-      }
-      
-      // Utiliser une approche plus simple: créer un blob "vide" marqué comme confirmation
-      const confirmBlob = new Blob(
-        [new Uint8Array([0xFF, 0xFB, 0x10, 0x00])], // Mini WAV header
-        { type: 'audio/wav' }
-      );
-      
-      // Envoyer la confirmation au backend avec la transaction_id
-      const result = await sendVoiceToOrchestrator(
-        confirmBlob,
-        parsedIntent?.metadata?.userId || '',
-        transactionIdRef.current || '',
-        null, // No JWT token needed for confirmation (already authenticated in session)
-        '/api/voice-command' // Continueer la session normalement
-      );
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (tokenRef.current) headers['Authorization'] = `Bearer ${tokenRef.current}`;
 
-      console.log('📱 [BACKEND] Réponse du backend après confirmation:', result);
+      const response = await fetch(`${nlpApiUrl}/api/confirm`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ transaction_id: txId }),
+      });
 
-      // Mettre à jour l'état de la session
-      if (result.transaction_id) {
-        transactionIdRef.current = result.transaction_id;
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Erreur confirmation: ${response.status} - ${errorText}`);
       }
 
-      // Afficher le prochain message du backend
-      if (result.message) {
-        setFeedback(result.message);
-        speakFeedback(result.message);
-      }
+      const result = await response.json();
+      console.log('📱 [BACKEND] Réponse confirmation:', result);
 
-      // Gérer les différents états
-      if (result.error) {
-        setStatus('error');
-        transactionIdRef.current = null;
-        setTimeout(() => setStatus('idle'), 3000);
-      } else if (result.requires_confirmation ?? result.needs_confirmation) {
-        // Backend demande encore une confirmation
-        setStatus('awaiting_confirmation');
-      } else {
-        // Succès - transaction complétée
-        setStatus('success');
-        transactionIdRef.current = null;
-        setTimeout(() => setStatus('idle'), 5000);
-      }
+      const message = result.message || 'Transaction confirmée';
+      setFeedback(message);
+      speakFeedback(message);
 
+      setStatus('success');
+      transactionIdRef.current = null;
       setParsedIntent(null);
+      setTimeout(() => {
+        if (statusRef.current === 'success') setStatus('idle');
+      }, 5000);
 
     } catch (error) {
       console.error('❌ [ERROR] Erreur lors de la confirmation:', error);
-      setFeedback('Erreur lors du traitement de votre confirmation.');
-      speakFeedback('Erreur lors du traitement.');
+      const msg = 'Erreur lors du traitement de votre confirmation.';
+      setFeedback(msg);
+      speakFeedback(msg);
       setStatus('error');
       transactionIdRef.current = null;
       setTimeout(() => setStatus('idle'), 3000);
     }
-  }, [parsedIntent]);
+  }, [nlpApiUrl]);
 
   /**
    * ❌ Annuler une action

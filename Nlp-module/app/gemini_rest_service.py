@@ -6,10 +6,9 @@ import os
 import json
 import base64
 import requests
-import ssl
 import urllib3
 import time
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 import logging
 from app.config import settings
 from app.models import ParseCommandResponse, Intent, ParseMetadata
@@ -41,30 +40,45 @@ class GeminiRESTService:
         
         logger.info("✅ Gemini REST Service initialized (SSL bypass enabled)")
         
-        self.system_prompt = """Tu es un assistant Mobile Money MTN MoMo Bénin. Analyse la commande vocale et réponds UNIQUEMENT en JSON.
+        self.system_prompt = """Tu es un assistant Mobile Money MTN MoMo pour l'Afrique de l'Ouest (Bénin, Nigeria, Ghana). Analyse la commande vocale en français et réponds UNIQUEMENT en JSON valide, sans texte autour.
 
-INTENTS:
-- "balance": consulter le solde
-- "transfer": envoyer de l'argent (mots-clés: envoyer, transfert)
-- "deposit": faire un dépôt (mots-clés: dépôt, déposer, mettre de l'argent)
-- "recharge": crédit/forfait
-- "bill_payment": facture (eau, électricité)
-- "confirm"/"cancel": oui/non
+INTENTS SUPPORTÉS:
+- "balance": consulter le solde (mots: solde, combien j'ai, vérifier)
+- "transfer": envoyer de l'argent à quelqu'un (mots: envoyer, transfert, virer, payer)
+- "deposit": déposer de l'argent (mots: dépôt, déposer, mettre de l'argent)
+- "withdraw": retirer de l'argent (mots: retirer, retrait, sortir de l'argent)
+- "withdraw_gab": retrait au GAB/ATM UBA (mots: GAB, distributeur, UBA, ATM)
+- "recharge": acheter crédit téléphonique (mots: recharger, crédit, airtime)
+- "internet_day": forfait internet journalier (mots: internet jour, journée)
+- "internet_week": forfait internet hebdomadaire (mots: internet semaine)
+- "internet_month": forfait internet mensuel (mots: internet mois, mensuel)
+- "internet_unlimited": forfait internet illimité (mots: illimité, unlimited)
+- "gopack_day": Go Pack journalier (mots: go pack jour)
+- "gopack_week": Go Pack hebdomadaire (mots: go pack semaine)
+- "gopack_month": Go Pack mensuel (mots: go pack mois)
+- "bill_payment": payer une facture (mots: facture, électricité, eau, CIE, SBEE, SONEB)
+- "help": aide, liste des actions possibles
+- "confirm": confirmation (mots: oui, confirme, d'accord, ok, vas-y)
+- "cancel": annulation (mots: non, annule, arrête, pas maintenant)
+- "unknown": commande incompréhensible ou hors sujet
 
 RÈGLES:
-- Amount: nombre entier sans texte.
-- Recipient: nom (Aurel, Jean, maman) ou numéro.
-- needs_confirmation: true pour transfer, deposit, recharge, bill_payment.
+- "amount": nombre entier uniquement, null si non mentionné.
+- "recipient": nom ou numéro de téléphone, null si non mentionné.
+- "needs_confirmation": true pour transfer, deposit, withdraw, withdraw_gab, recharge, bill_payment.
+- "bill_type": "électricité", "eau", "CIE", "SBEE", etc. si applicable, sinon null.
+- "confidence": entre 0.0 et 1.0 selon ta certitude.
 
-FORMAT:
+FORMAT DE RÉPONSE (JSON uniquement, rien d'autre):
 {
-  "intent": "...",
-  "amount": 2000,
+  "intent": "transfer",
+  "amount": 5000,
   "recipient": "Jean",
+  "bill_type": null,
   "needs_confirmation": true,
-  "understood_text": "...",
-  "message": "...",
-  "confidence": 0.9
+  "understood_text": "Envoie cinq mille francs à Jean",
+  "message": "Voulez-vous envoyer 5000 FCFA à Jean ?",
+  "confidence": 0.95
 }"""
 
     def process_voice_command(
@@ -105,13 +119,15 @@ FORMAT:
             }
             mime_type = mime_type_map.get(audio_format.lower(), 'audio/wav')
             
-            # Préparer la requête
+            # Préparer la requête — system_instruction pour que Gemini respecte le format
             payload = {
+                "system_instruction": {
+                    "parts": [{"text": self.system_prompt}]
+                },
                 "contents": [
                     {
                         "role": "user",
                         "parts": [
-                            {"text": self.system_prompt},
                             {
                                 "inlineData": {
                                     "mimeType": mime_type,
@@ -258,29 +274,12 @@ FORMAT:
             )
     
     def _create_fallback_response(self, error_msg: str) -> Dict[str, Any]:
-        """Créer une réponse fallback"""
+        """Créer une réponse d'erreur — success=False pour déclencher le bon chemin dans main.py"""
         logger.warning(f"⚠️ Fallback response: {error_msg}")
-        
-        fallback = ParseCommandResponse(
-            intent=Intent.BALANCE,
-            amount=None,
-            recipient=None,
-            bill_type=None,
-            needs_confirmation=False,
-            confirmation_message=None,
-            understood_text="Commande received",
-            metadata=ParseMetadata(
-                provider="gemini-rest-fallback",
-                model="fallback",
-                confidence=0.5,
-                raw_output=f"Fallback: {error_msg}"
-            )
-        )
-        
         return {
-            "nlp_result": fallback,
+            "nlp_result": None,
             "audio_response": None,
-            "success": True,
+            "success": False,
             "error": error_msg
         }
 
