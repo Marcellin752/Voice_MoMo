@@ -323,28 +323,66 @@ export async function executeVoiceCommand(
     recipient?: string;
   }
 ): Promise<{ success: boolean; message: string; action: string }> {
-  console.log('🎙️ [USSD] Exécution via VoiceIntentProcessor:', intent, data);
-  const processor = new VoiceIntentProcessor();
+  console.log('🎙️ [LOG] [START] executeVoiceCommand:', { intent, data });
+
+  // PRIORITÉ ABSOLUE : RESTAURATION DU FLOW FONCTIONNEL
+  // On tente le nouveau moteur, mais en cas d'échec on repasse sur le legacy immédiatement
   
   try {
-    const result = await processor.processIntent({ intent, amount: data?.amount, recipient: data?.recipient });
+    const processor = new VoiceIntentProcessor();
+    console.log('🎙️ [LOG] [DEBUG] Calling VoiceIntentProcessor...');
     
+    const result = await processor.processIntent({ 
+      intent, 
+      amount: data?.amount, 
+      recipient: data?.recipient 
+    });
+
+    console.log('🎙️ [LOG] [DEBUG] Processor result:', result);
+
     if (result && (result as any).status === 'error') {
-       return { success: false, message: (result as any).message, action: intent };
+      console.warn('🎙️ [LOG] [WARN] Processor returned error, trying fallback...');
+      return await executeLegacyFallback(intent, data);
     }
-    
+
+    // Si le processeur a réussi à lancer l'action en arrière-plan (ou via accessibilité)
     return {
       success: true,
-      message: 'Transaction en cours en arrière-plan...',
+      message: 'Transaction initiée en arrière-plan...',
       action: intent
     };
+
   } catch (error: any) {
-    return {
-      success: false,
-      message: error.message || 'Erreur inconnue',
-      action: intent
-    };
+    console.error('🎙️ [LOG] [ERROR] Critical error in new engine:', error);
+    console.log('🎙️ [LOG] [DEBUG] TRIGGERING LEGACY FALLBACK');
+    return await executeLegacyFallback(intent, data);
   }
+}
+
+/**
+ * Fallback de secours (Legacy) qui fonctionnait avant le refactor
+ */
+async function executeLegacyFallback(intent: string, data: any) {
+  console.log('📱 [LOG] [FALLBACK] Executing Legacy USSD Flow');
+  
+  // Mapper l'intent vers les codes USSD legacy
+  let codeType: USSDCodeType = 'momo_menu';
+  if (intent === 'transfer' || intent === 'momo_send') codeType = 'momo_send';
+  else if (intent === 'balance' || intent === 'momo_balance') codeType = 'momo_balance';
+  else if (intent === 'deposit' || intent === 'momo_deposit') codeType = 'momo_deposit';
+  
+  const result = await executeUSSD(codeType, {
+    destinationNumber: data?.recipient,
+    amount: data?.amount
+  });
+  
+  console.log('📱 [LOG] [FALLBACK] Legacy result:', result);
+  
+  return {
+    success: result.success,
+    message: result.message + " (Mode Fallback activé)",
+    action: intent
+  };
 }
 
 
