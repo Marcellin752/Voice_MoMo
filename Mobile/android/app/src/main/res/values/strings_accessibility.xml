@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="accessibility_service_description">Ce service permet à Voice MoMo d'exécuter silencieusement les transferts USSD en arrière-plan sans intervention manuelle.</string>
+</resources>
