@@ -546,10 +546,13 @@ async def api_health():
 # ENDPOINTS DE CONFIRMATION/ANNULATION D'ACTIONS
 # ============================================================================
 
+class ConfirmRequest(BaseModel):
+    transaction_id: str
+
 @app.post("/api/confirm", tags=["✅ Confirmation"])
 async def confirm_action(
     request: Request,
-    transaction_id: str = Body(...),
+    payload: ConfirmRequest,
 ):
     """
     ✅ **Confirmer une action en attente**
@@ -596,9 +599,9 @@ async def confirm_action(
     except HTTPException:
         user_id = "default"
     
-    logger.info(f"✅ Confirmation reçue pour: {transaction_id} (user_id={user_id})")
+    logger.info(f"✅ Confirmation reçue pour: {payload.transaction_id} (user_id={user_id})")
     
-    result = executor.confirm_action(transaction_id, user_id)
+    result = executor.confirm_action(payload.transaction_id, user_id)
     
     if not result.success:
         raise HTTPException(status_code=400, detail=result.message)
@@ -614,7 +617,7 @@ async def confirm_action(
 @app.post("/api/cancel")
 async def cancel_action(
     request: Request,
-    transaction_id: str = Body(...),
+    payload: ConfirmRequest,
 ):
     """
     ❌ Annuler une action en attente
@@ -627,9 +630,9 @@ async def cancel_action(
     except HTTPException:
         user_id = "default"
     
-    logger.info(f"❌ Annulation reçue pour: {transaction_id} (user_id={user_id})")
+    logger.info(f"❌ Annulation reçue pour: {payload.transaction_id} (user_id={user_id})")
     
-    result = executor.cancel_action(transaction_id, user_id)
+    result = executor.cancel_action(payload.transaction_id, user_id)
     
     if not result.success:
         raise HTTPException(status_code=400, detail=result.message)
