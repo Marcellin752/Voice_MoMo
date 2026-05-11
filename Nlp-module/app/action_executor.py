@@ -99,6 +99,17 @@ class ActionExecutor:
         if not recipient:
             return None
         cleaned = recipient.strip()
+        
+        # Résolution simple de contacts pour la démo / production
+        contacts_mock = {
+            "maman": "0022961000001",
+            "papa": "0022961000002",
+            "jean": "0022961000003",
+            "aurel": "0022961000004",
+        }
+        if cleaned.lower() in contacts_mock:
+            return contacts_mock[cleaned.lower()]
+            
         digits = re.sub(r"\D", "", cleaned)
         if 8 <= len(digits) <= 15:
             return digits
