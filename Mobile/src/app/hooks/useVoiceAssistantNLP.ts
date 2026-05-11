@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { executeVoiceCommand } from '../services/ussd.service';
+
 
 type AssistantStatus = 'idle' | 'listening' | 'processing' | 'success' | 'error' | 'awaiting_confirmation';
 
@@ -368,6 +370,37 @@ export function useVoiceAssistantNLP(
   }, []);
 
   /**
+   * 🚀 Déclencher l'exécution USSD locale
+   */
+  const triggerUSSD = async (intent: string, data: any) => {
+    if (!intent || intent === 'unknown' || intent === 'confirm' || intent === 'cancel') {
+      console.log(`ℹ️ [USSD] Intent ignoré: ${intent}`);
+      return;
+    }
+    
+    console.log(`📱 [USSD] Lancement local pour intent: ${intent}`);
+    // Alerte de diagnostic pour le téléphone
+    // alert(`Lancement USSD pour: ${intent}`);
+    
+    try {
+      const ussdResult = await executeVoiceCommand(intent, {
+        amount: data?.amount,
+        recipient: data?.recipient
+      });
+      console.log('✅ [USSD] Résultat:', ussdResult);
+      
+      if (ussdResult.success) {
+        setFeedback(ussdResult.message);
+      } else {
+        alert(`Échec USSD: ${ussdResult.message}`);
+      }
+    } catch (ussdError) {
+      console.error('❌ [USSD] Erreur lors du lancement USSD:', ussdError);
+      alert(`Erreur critique USSD: ${ussdError.message}`);
+    }
+  };
+
+  /**
    * 📤 Envoyer l'audio au backend
    */
   const sendAudioToBackend = async (audioBlob: Blob, filename: string = 'audio.webm') => {
@@ -445,6 +478,13 @@ export function useVoiceAssistantNLP(
       } else {
         console.log(`✅ [STATE] Action réussie: ${result.intent}`);
         setStatus('success');
+        
+        // 🚀 Déclencher USSD si c'est une action réelle (transfer, recharge, etc.)
+        // après une confirmation vocale ou exécution directe
+        if (result.success && result.intent !== 'help') {
+          await triggerUSSD(result.intent, result.data || result);
+        }
+
         // Reset à idle après 3s
         setTimeout(() => {
           if (statusRef.current === 'success') {
@@ -584,6 +624,15 @@ export function useVoiceAssistantNLP(
       const result = await response.json();
       console.log('📱 [BACKEND] Réponse confirmation:', result);
 
+      // 🚀 EXECUTION USSD LOCALE
+      if (result.success) {
+        const targetIntent = result.intent || parsedIntent?.intent;
+        console.log(`✅ Confirmation réussie, déclenchement USSD pour: ${targetIntent}`);
+        await triggerUSSD(targetIntent, result.data || result);
+      } else {
+        alert(`Le backend a retourné une erreur: ${result.message}`);
+      }
+
       const message = result.message || 'Transaction confirmée';
       setFeedback(message);
       speakFeedback(message);
@@ -604,7 +653,7 @@ export function useVoiceAssistantNLP(
       transactionIdRef.current = null;
       setTimeout(() => setStatus('idle'), 3000);
     }
-  }, [nlpApiUrl]);
+  }, [nlpApiUrl, parsedIntent]);
 
   /**
    * ❌ Annuler une action

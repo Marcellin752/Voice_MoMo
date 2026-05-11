@@ -81,25 +81,37 @@ async function resolveContactByName(name: string): Promise<string | null> {
 
       // Chercher le contact correspondant (recherche flexible)
       for (const contact of result.contacts) {
-        const displayName = (contact as any).name?.display?.toLowerCase()?.trim() || '';
-        const givenName = (contact as any).name?.given?.toLowerCase()?.trim() || '';
-        const familyName = (contact as any).name?.family?.toLowerCase()?.trim() || '';
+        // Le plugin Capacitor peut renvoyer les noms dans différents champs selon la version/plateforme
+        const displayName = (contact.displayName || (contact as any).name?.display || "").toLowerCase().trim();
+        const givenName = ((contact as any).name?.given || "").toLowerCase().trim();
+        const familyName = ((contact as any).name?.family || "").toLowerCase().trim();
+        
+        const searchName = name.toLowerCase().trim();
 
-        // Match sur le nom complet, prénom ou nom de famille
-        const isMatch =
-          displayName.includes(searchName) ||
+        // Match si le nom recherché est inclus dans l'un des noms du contact
+        const isMatch = 
+          displayName.includes(searchName) || 
           searchName.includes(displayName) ||
-          givenName === searchName ||
-          familyName === searchName ||
-          givenName.startsWith(searchName) ||
-          displayName.startsWith(searchName);
+          givenName.includes(searchName) ||
+          familyName.includes(searchName);
 
         if (isMatch) {
-          const phones = (contact as any).phones || [];
+          const phones = contact.phones || [];
           if (phones.length > 0) {
-            const phone = phones[0].number?.replace(/[\s.-]/g, '') || '';
+            // Récupérer le premier numéro et le nettoyer
+            let phone = phones[0].number || '';
+            // Enlever les espaces, tirets, parenthèses
+            phone = phone.replace(/[\s.()-]/g, '');
+            
+            // Si le numéro commence par +229 (Bénin), on peut enlever le préfixe pour l'USSD local
+            if (phone.startsWith('+229')) {
+              phone = phone.substring(4);
+            } else if (phone.startsWith('00229')) {
+              phone = phone.substring(5);
+            }
+            
             if (phone) {
-              console.log(`✅ [CONTACTS] Trouvé: "${displayName}" → ${phone}`);
+              console.log(`✅ [CONTACTS] Trouvé: "${displayName || name}" → ${phone}`);
               return phone;
             }
           }
@@ -130,9 +142,25 @@ function buildUSSDCode(codeType: USSDCodeType, params?: USSDParams): string {
     throw new Error(`Type de code USSD inconnu: ${codeType}`);
   }
 
-  // Pour MTN Bénin, *880# est le menu principal 
-  // Les paramètres sont entrés via le menu interactif USSD
-  // On peut quand même tenter de pré-remplir certains champs
+  // Pour MTN Bénin, on peut construire des codes courts pour gagner du temps
+  // Syntaxe typique: *880*Option*SousOption*Numero*Montant#
+  
+  if (params?.destinationNumber && params?.amount) {
+    const cleanNumber = params.destinationNumber.replace(/\D/g, '');
+    const cleanAmount = Math.floor(Number(params.amount));
+
+    if (cleanNumber && cleanAmount > 0) {
+      if (codeType === 'momo_send' || codeType === 'transfer') {
+        return `*880*1*1*${cleanNumber}*${cleanAmount}#`;
+      }
+      
+      if (codeType === 'momo_deposit' || codeType === 'deposit') {
+        return `*880*1*1*${cleanNumber}*${cleanAmount}#`;
+      }
+    }
+  }
+
+  // Fallback sur le menu principal si paramètres manquants
   return baseCode;
 }
 
@@ -223,30 +251,28 @@ export async function executeUSSD(
   try {
     const ussdCode = buildUSSDCode(codeType, params);
 
-    // Encoder le code USSD pour l'URL
-    // Format tel: pour les codes USSD avec # encodé comme %23
-    const encodedUSSD = ussdCode.replace(/#/g, '%23');
-    const phoneUrl = `tel:${encodedUSSD}`;
+    // Format tel: pour les codes USSD
+    // Sur Android, certains modèles préfèrent le # encodé (%23), d'autres le # brut
+    const ussdCodeEncoded = ussdCode.replace(/#/g, '%23');
+    const phoneUrlEncoded = `tel:${ussdCodeEncoded}`;
+    const phoneUrlRaw = `tel:${ussdCode}`;
 
-    console.log('📱 [USSD] Exécution du code:', ussdCode);
-    console.log('🔗 [USSD] URL:', phoneUrl);
+    console.log('📱 [USSD] Tentative d\'exécution:', ussdCode);
 
-    // Vérifier si l'URL peut être ouverte
-    const { value: canOpen } = await AppLauncher.canOpenUrl({ url: phoneUrl });
-
-    if (!canOpen) {
-      console.error('❌ [USSD] Impossible d\'ouvrir l\'application téléphone');
-      return {
-        success: false,
-        message: 'Impossible d\'ouvrir l\'application téléphone',
-        ussdCode,
-      };
+    try {
+      // On tente d'abord la version encodée qui est le standard Capacitor/Web
+      await AppLauncher.openUrl({ url: phoneUrlEncoded });
+      console.log('✅ [USSD] Code ouvert avec succès (format encodé)');
+    } catch (e) {
+      console.warn('⚠️ [USSD] Échec format encodé, tentative format brut...', e);
+      try {
+        // Fallback sur le format brut si l'encodé échoue
+        await AppLauncher.openUrl({ url: phoneUrlRaw });
+        console.log('✅ [USSD] Code ouvert avec succès (format brut)');
+      } catch (e2) {
+        throw new Error(`Impossible d'ouvrir l'application téléphone: ${e2.message}`);
+      }
     }
-
-    // Ouvrir l'application téléphone avec le code USSD
-    await AppLauncher.openUrl({ url: phoneUrl });
-
-    console.log('✅ [USSD] Code USSD ouvert dans l\'application téléphone');
 
     // Message contextuel selon le type d'opération
     let actionDesc = 'opération';
@@ -307,8 +333,9 @@ export async function executeVoiceCommand(
       console.log(`✅ [USSD] Contact résolu: "${resolvedRecipient}" → ${resolvedPhone}`);
       resolvedRecipient = resolvedPhone;
     } else {
-      console.warn(`⚠️ [USSD] Contact "${resolvedRecipient}" non trouvé dans les contacts`);
-      // On continue quand même - le menu USSD demandera le numéro
+      console.warn(`⚠️ [USSD] Contact "${resolvedRecipient}" non trouvé`);
+      // Alerte pour informer l'utilisateur sur le téléphone
+      // alert(`Contact "${resolvedRecipient}" non trouvé. Ouverture du menu général.`);
     }
   }
 
