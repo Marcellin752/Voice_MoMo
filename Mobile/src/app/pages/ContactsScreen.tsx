@@ -55,6 +55,30 @@ export default function ContactsScreen() {
       })
       .filter((entry) => entry.name.length > 0 && entry.tel.length > 0);
 
+  const syncContactsToBackend = async (uiContacts: Contact[]) => {
+    try {
+      // Dans Axios ou votre utils réseau, ici c'est en dur ou via environnement
+      const nlpApiUrl = (import.meta.env.VITE_NLP_API_URL as string) || 'http://localhost:8000';
+      const token = localStorage.getItem('token');
+      if (!token) return;
+
+      const response = await fetch(`${nlpApiUrl}/api/users/contacts`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ contacts: uiContacts }),
+      });
+      
+      if (response.ok) {
+        console.log("✅ Contacts synchronisés avec le backend NLP");
+      }
+    } catch (err) {
+      console.warn("⚠️ Impossible de synchroniser les contacts au backend", err);
+    }
+  };
+
   const loadContacts = async () => {
     setLoading(true);
     setError(null);
@@ -82,8 +106,10 @@ export default function ContactsScreen() {
           },
         });
 
-        setContacts(toUiContacts(result.contacts as NativeContactPayload[]));
+        const uiContacts = toUiContacts(result.contacts as NativeContactPayload[]);
+        setContacts(uiContacts);
         setLoaded(true);
+        syncContactsToBackend(uiContacts);
         return;
       }
 
@@ -99,6 +125,7 @@ export default function ContactsScreen() {
       );
       setContacts(selected);
       setLoaded(true);
+      syncContactsToBackend(selected);
     } catch (err: unknown) {
       if (err instanceof Error && err.name !== "AbortError") {
         setError("Impossible d'accéder aux contacts. Vérifiez les permissions de l'application.");

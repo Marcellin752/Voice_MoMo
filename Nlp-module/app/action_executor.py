@@ -94,14 +94,18 @@ class ActionExecutor:
 
         return value if value > 0 else None
 
-    @staticmethod
-    def _normalized_recipient(recipient: Optional[str]) -> Optional[str]:
+    def _normalized_recipient(self, recipient: Optional[str], user_id: str = "default") -> Optional[str]:
         if not recipient:
             return None
         cleaned = recipient.strip()
         
+        # Résolution via le carnet d'adresse synchronisé par l'utilisateur
+        user = self.users_db.get(user_id) or self.users_db["default"]
+        user_contacts = user.get("contacts", {})
+        
         # Résolution simple de contacts pour la démo / production
         contacts_mock = {
+            **user_contacts, # Priorité aux contacts synchronisés depuis l'app
             "maman": "0022961000001",
             "papa": "0022961000002",
             "jean": "0022961000003",
@@ -360,7 +364,7 @@ class ActionExecutor:
     ) -> ActionResult:
         """Initier un transfert d'argent"""
         amount_value = self._normalized_amount(amount)
-        recipient_value = self._normalized_recipient(recipient)
+        recipient_value = self._normalized_recipient(recipient, user_id=user_id)
 
         logger.info(f"💸 Transfert: {amount_value} XOF → {recipient_value}")
         
@@ -450,7 +454,7 @@ class ActionExecutor:
     ) -> ActionResult:
         """Initier un dépôt d'argent"""
         amount_value = self._normalized_amount(amount)
-        recipient_value = self._normalized_recipient(recipient)
+        recipient_value = self._normalized_recipient(recipient, user_id=user_id)
 
         logger.info(f"💰 Dépôt: {amount_value} XOF → {recipient_value}")
         
