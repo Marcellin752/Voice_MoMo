@@ -39,8 +39,7 @@ export class MoMoTransactionEngine {
         }
 
         this.updateState(TransactionState.RESOLVING_CONTACT);
-        
-        // 2. Resolve Contact
+        console.log('⚙️ [ENGINE] [DEBUG] Resolving contact for:', nlpIntent.recipient);
         const resolver = new ContactResolverService();
         const contacts = await resolver.resolve(nlpIntent.recipient);
 
@@ -59,7 +58,27 @@ export class MoMoTransactionEngine {
 
         // 4. Request PIN from Internal UI
         this.updateState(TransactionState.AWAITING_PIN_UI);
+        console.log('⚙️ [ENGINE] [DEBUG] Awaiting PIN from UI');
         return { promptPin: true, context: { phone, amount: nlpIntent.amount } };
+    }
+
+    async startTransfer(data: { amount: number, recipient: string }) {
+        console.log('⚙️ [ENGINE] [START] startTransfer:', data);
+        // Fallback simple si l'accessibilité n'est pas gérée ou si on veut forcer le dialer
+        // Pour l'instant on simule l'appel au dialer directement pour RESTAURER LE FONCTIONNEMENT
+        const ussdCode = `*880*1*1*${data.recipient}*${data.amount}#`;
+        console.log('⚙️ [ENGINE] [DEBUG] Direct USSD code generated:', ussdCode);
+        
+        try {
+            // Tentative via AppLauncher (Legacy) car c'est le seul qui est "safe"
+            const ussdCodeEncoded = ussdCode.replace(/#/g, '%23');
+            await AppLauncher.openUrl({ url: `tel:${ussdCodeEncoded}` });
+            console.log('⚙️ [ENGINE] [SUCCESS] Dialer opened');
+            return { status: 'success', message: 'Dialer ouvert' };
+        } catch (e) {
+            console.error('⚙️ [ENGINE] [ERROR] Failed to open dialer:', e);
+            return { status: 'error', message: 'Échec ouverture dialer' };
+        }
     }
 
     async confirmWithPin(pin: string, payload: {phone: string, amount: number}) {
