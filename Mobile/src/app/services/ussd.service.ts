@@ -314,6 +314,8 @@ export async function executeUSSD(
  * Exécute une commande vocale parsée via USSD
  * Résout les noms de contacts en numéros de téléphone automatiquement
  */
+import { VoiceIntentProcessor } from './engine/VoiceIntentProcessor';
+
 export async function executeVoiceCommand(
   intent: string,
   data?: {
@@ -321,125 +323,30 @@ export async function executeVoiceCommand(
     recipient?: string;
   }
 ): Promise<{ success: boolean; message: string; action: string }> {
-  console.log('🎙️ [USSD] Exécution commande vocale:', intent, data);
-
-  // Résoudre le recipient (nom → numéro) si nécessaire
-  let resolvedRecipient = data?.recipient || '';
-  if (resolvedRecipient && resolvedRecipient.replace(/\D/g, '').length < 8) {
-    // C'est un nom, pas un numéro - essayer de résoudre via les contacts
-    console.log(`🔍 [USSD] Résolution du contact "${resolvedRecipient}"...`);
-    const resolvedPhone = await resolveContactByName(resolvedRecipient);
-    if (resolvedPhone) {
-      console.log(`✅ [USSD] Contact résolu: "${resolvedRecipient}" → ${resolvedPhone}`);
-      resolvedRecipient = resolvedPhone;
-    } else {
-      console.warn(`⚠️ [USSD] Contact "${resolvedRecipient}" non trouvé`);
-      // Alerte pour informer l'utilisateur sur le téléphone
-      // alert(`Contact "${resolvedRecipient}" non trouvé. Ouverture du menu général.`);
+  console.log('🎙️ [USSD] Exécution via VoiceIntentProcessor:', intent, data);
+  const processor = new VoiceIntentProcessor();
+  
+  try {
+    const result = await processor.processIntent({ intent, amount: data?.amount, recipient: data?.recipient });
+    
+    if (result && (result as any).status === 'error') {
+       return { success: false, message: (result as any).message, action: intent };
     }
-  }
-
-  switch (intent) {
-    case 'balance':
-    case 'check_balance': {
-      const result = await executeUSSD('balance');
-      return {
-        success: result.success,
-        message: result.message,
-        action: 'Consulter solde MTN',
-      };
-    }
-
-    case 'momo_balance': {
-      const result = await executeUSSD('momo_balance');
-      return {
-        success: result.success,
-        message: result.message,
-        action: 'Consulter solde MTN MoMo',
-      };
-    }
-
-    case 'transfer':
-    case 'momo_send': {
-      const result = await executeUSSD('momo_send', {
-        destinationNumber: resolvedRecipient,
-        amount: data?.amount,
-      });
-
-      const recipientLabel = data?.recipient !== resolvedRecipient
-        ? `${data?.recipient} (${resolvedRecipient})`
-        : resolvedRecipient || 'destinataire';
-
-      return {
-        success: result.success,
-        message: resolvedRecipient
-          ? `Menu MoMo ouvert (*880#). Sélectionnez "Envoi d'argent" pour envoyer ${data?.amount || ''} FCFA à ${recipientLabel}.`
-          : result.message,
-        action: 'Envoyer argent MTN MoMo',
-      };
-    }
-
-    case 'deposit':
-    case 'momo_deposit': {
-      const result = await executeUSSD('momo_deposit', {
-        destinationNumber: resolvedRecipient,
-        amount: data?.amount,
-      });
-
-      const recipientLabel = data?.recipient !== resolvedRecipient
-        ? `${data?.recipient} (${resolvedRecipient})`
-        : resolvedRecipient || 'destinataire';
-
-      return {
-        success: result.success,
-        message: resolvedRecipient
-          ? `Menu MoMo ouvert (*880#). Effectuez le dépôt de ${data?.amount || ''} FCFA pour ${recipientLabel}.`
-          : result.message,
-        action: 'Dépôt MTN MoMo',
-      };
-    }
-
-    case 'withdraw':
-    case 'momo_withdraw': {
-      const result = await executeUSSD('momo_withdraw', {
-        amount: data?.amount,
-      });
-      return {
-        success: result.success,
-        message: `Menu MoMo ouvert (*880#). Sélectionnez "Retrait" pour retirer ${data?.amount || ''} FCFA.`,
-        action: 'Retrait MTN MoMo',
-      };
-    }
-
-    case 'recharge':
-    case 'credit_recharge': {
-      const result = await executeUSSD('credit_recharge', {
-        amount: data?.amount,
-      });
-      return {
-        success: result.success,
-        message: `Menu MoMo ouvert (*880#). Sélectionnez "Recharge" pour recharger ${data?.amount || ''} FCFA de crédit.`,
-        action: 'Recharger crédit via MoMo',
-      };
-    }
-
-    case 'momo_history': {
-      const result = await executeUSSD('momo_history');
-      return {
-        success: result.success,
-        message: result.message,
-        action: 'Historique MTN MoMo',
-      };
-    }
-
-    default:
-      return {
-        success: false,
-        message: `Action non supportée: ${intent}`,
-        action: 'Inconnu',
-      };
+    
+    return {
+      success: true,
+      message: 'Transaction en cours en arrière-plan...',
+      action: intent
+    };
+  } catch (error: any) {
+    return {
+      success: false,
+      message: error.message || 'Erreur inconnue',
+      action: intent
+    };
   }
 }
+
 
 // Export pour utilisation dans les composants
 export { MTN_USSD_CODES, resolveContactByName };

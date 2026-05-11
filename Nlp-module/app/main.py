@@ -691,3 +691,13 @@ async def get_pending_transactions(user_id: str = "default"):
         "user_id": user_id,
         "pending": tx.to_dict()
     }
+
+class BalanceUpdateRequest(BaseModel):
+    balance: int
+    user_id: str = "default"
+
+@app.post("/api/users/balance", tags=["💰 Users Solde"])
+async def update_balance(req: BalanceUpdateRequest) -> dict:
+    """Met à jour le solde (intercepté via SMS depuis le mobile)"""
+    executor.users_db[req.user_id]["balance"] = req.balance
+    return {"message": "Solde mis à jour avec succès", "balance": req.balance}
