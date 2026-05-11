@@ -233,6 +233,28 @@ FORMAT DE RÉPONSE (JSON uniquement, rien d'autre):
             
             # Extraire l'intent
             intent_str = data.get("intent", "unknown").lower()
+            
+            # Normalisation robuste : traduction des intentions françaises de l'IA vers notre Enum
+            intent_mapping = {
+                "transfert": "transfer",
+                "virement": "transfer",
+                "envoi": "transfer",
+                "solde": "balance",
+                "retrait": "withdraw",
+                "dépôt": "deposit",
+                "depot": "deposit",
+                "rechargement": "recharge",
+                "facture": "bill_payment",
+                "paiement": "bill_payment",
+                "aide": "help",
+                "annuler": "cancel",
+                "annulation": "cancel",
+                "confirmer": "confirm"
+            }
+            
+            if intent_str in intent_mapping:
+                intent_str = intent_mapping[intent_str]
+                
             try:
                 intent = Intent[intent_str.upper()]
             except KeyError:
