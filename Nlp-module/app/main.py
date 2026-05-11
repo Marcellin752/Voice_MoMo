@@ -6,7 +6,7 @@ import json
 from typing import Optional
 import io
 
-from app.models import ParseCommandRequest, ParseCommandResponse
+from app.models import ParseCommandRequest, ParseCommandResponse, ContactsSyncRequest
 from app.service import CommandParserService
 from app.entity_normalizer import normalize_parsed_entities
 from app.gemini_rest_service import get_voice_service
@@ -313,6 +313,35 @@ async def register(phone: str = Body(...), pin: str = Body(...)):
     }
 
 
+@app.post("/api/users/contacts", tags=["👤 Users"])
+async def sync_contacts(request: Request, payload: ContactsSyncRequest):
+    """
+    📱 Synchroniser les contacts JSON du mobile vers la base de l'utilisateur.
+    Utilisé par le moteur NLP pour router un nom d'usage (ex "maman") en réel numéro de transfert.
+    """
+    try:
+        user_id = await extract_user_from_request(request)
+    except HTTPException:
+        user_id = "default"
+        
+    user_data = executor.users_db.get(user_id, executor.users_db["default"])
+    
+    # Store contacts in the user profile (in a real DB, save to explicit Table)
+    saved_contacts = {}
+    for c in payload.contacts:
+        names = c.get("name", [])
+        tels = c.get("tel", [])
+        if names and tels and tels[0]:
+            clean_name = names[0].lower().strip()
+            clean_tel = tels[0].replace(" ", "")
+            saved_contacts[clean_name] = clean_tel
+            
+    user_data["contacts"] = saved_contacts
+    executor.users_db[user_id] = user_data
+    
+    logger.info(f"✅ Synchronisé {len(saved_contacts)} contacts pour user_id={user_id}")
+    return {"success": True, "synced": len(saved_contacts)}
+
 @app.post("/ai/parse", response_model=ParseCommandResponse)
 async def parse_command(payload: ParseCommandRequest) -> ParseCommandResponse:
     return await service.parse(payload.text)
@@ -545,6 +574,8 @@ async def api_health():
 # ============================================================================
 # ENDPOINTS DE CONFIRMATION/ANNULATION D'ACTIONS
 # ============================================================================
+
+from pydantic import BaseModel
 
 class ConfirmRequest(BaseModel):
     transaction_id: str

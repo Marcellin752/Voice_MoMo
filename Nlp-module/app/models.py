@@ -29,6 +29,10 @@ class ParseCommandRequest(BaseModel):
     text: str = Field(min_length=1, max_length=500)
     locale: str = Field(default="fr-FR")
 
+class ContactsSyncRequest(BaseModel):
+    contacts: list[dict]
+
+
 
 class ParseMetadata(BaseModel):
     provider: str = "fallback"
