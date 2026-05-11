@@ -32,3 +32,7 @@ export function getNotifications() {
 export function getBalance() {
   return request<{ balance: number }>('GET', '/api/users/balance');
 }
+
+export function updateBalance(balance: number) {
+  return request<{ message: string; balance: number }>('POST', '/api/users/balance', { balance });
+}

@@ -1,3 +1,4 @@
+import { SmsListenerService } from '../services/sms.service';
 import { useState, useEffect, SetStateAction } from "react";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import { Mic, Eye, EyeOff, Bell, ArrowDownLeft, ArrowUpRight } from "lucide-react";
@@ -55,7 +56,21 @@ export default function HomeScreen() {
     };
 
     window.addEventListener(PROFILE_UPDATED_EVENT, onProfileUpdated);
-    return () => window.removeEventListener(PROFILE_UPDATED_EVENT, onProfileUpdated);
+    
+    // SMS Listener implementation
+    SmsListenerService.startListening((msg) => {
+      const extractedLevel = SmsListenerService.extractBalance(msg);
+      if (extractedLevel !== null) {
+        setBalance(extractedLevel);
+        usersService.updateBalance(extractedLevel).catch(console.error);
+      }
+    });
+
+    return () => {
+      SmsListenerService.stopListening();
+      window.removeEventListener(PROFILE_UPDATED_EVENT, onProfileUpdated);
+    };
+
   }, []);
 
   const formattedBalance = balance !== null
