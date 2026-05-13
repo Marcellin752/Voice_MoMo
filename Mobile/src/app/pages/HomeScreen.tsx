@@ -1,4 +1,5 @@
 import { SmsListenerService } from '../services/sms.service';
+import { MoMoTransactionEngine } from '../services/ussd_engine/MoMoTransactionEngine';
 import { useState, useEffect, SetStateAction } from "react";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import { Mic, Eye, EyeOff, Bell, ArrowDownLeft, ArrowUpRight } from "lucide-react";
@@ -24,6 +25,7 @@ export default function HomeScreen() {
   });
   const [balance, setBalance] = useState<number | null>(null);
   const [transactions, setTransactions] = useState<ApiTransaction[]>([]);
+  const [isUpdating, setIsUpdating] = useState(false);
 
   useEffect(() => {
     const loadProfile = () => {
@@ -61,8 +63,10 @@ export default function HomeScreen() {
     SmsListenerService.startListening((msg) => {
       const extractedLevel = SmsListenerService.extractBalance(msg);
       if (extractedLevel !== null) {
+        setIsUpdating(true);
         setBalance(extractedLevel);
         usersService.updateBalance(extractedLevel).catch(console.error);
+        setTimeout(() => setIsUpdating(false), 2000);
       }
     });
 
@@ -112,17 +116,33 @@ export default function HomeScreen() {
         </header>
       </div>
 
-      {/* Balance Card - Overlapping Header */}
       <div className="px-6 -mt-10 relative z-20 mb-6">
-        <div className="bg-white dark:bg-[#1A1A1A] rounded-3xl p-6 shadow-xl shadow-slate-200/50 dark:shadow-none border border-slate-100 dark:border-white/5 transition-colors duration-300">
+        <motion.div 
+          animate={isUpdating ? { scale: [1, 1.02, 1], borderColor: ["#f1f5f9", "#FFCC00", "#f1f5f9"] } : {}}
+          className="bg-white dark:bg-[#1A1A1A] rounded-3xl p-6 shadow-xl shadow-slate-200/50 dark:shadow-none border border-slate-100 dark:border-white/5 transition-colors duration-300"
+        >
           <div className="flex justify-between items-center mb-2">
             <p className="text-sm font-bold text-slate-500 dark:text-zinc-400">{t("home_balance_title")}</p>
-            <button
-              onClick={() => setShowBalance(!showBalance)}
-              className="p-2 bg-slate-50 dark:bg-white/5 rounded-full text-[#004F71] dark:text-[#FFCC00] hover:bg-slate-100 dark:hover:bg-white/10 transition-colors"
-            >
-              {showBalance ? <EyeOff size={18} /> : <Eye size={18} />}
-            </button>
+            <div className="flex space-x-2">
+              <button
+                onClick={() => {
+                  const engine = new MoMoTransactionEngine();
+                  engine.checkBalance();
+                }}
+                className="p-2 bg-slate-50 dark:bg-white/5 rounded-full text-[#004F71] dark:text-[#FFCC00] hover:bg-slate-100 dark:hover:bg-white/10 transition-colors"
+                title="Actualiser le solde"
+              >
+                <motion.div animate={isUpdating ? { rotate: 360 } : {}} transition={{ repeat: isUpdating ? Infinity : 0, duration: 1 }}>
+                  <ArrowDownLeft size={18} className="rotate-45" />
+                </motion.div>
+              </button>
+              <button
+                onClick={() => setShowBalance(!showBalance)}
+                className="p-2 bg-slate-50 dark:bg-white/5 rounded-full text-[#004F71] dark:text-[#FFCC00] hover:bg-slate-100 dark:hover:bg-white/10 transition-colors"
+              >
+                {showBalance ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
           </div>
           <div className="flex items-baseline space-x-2">
             <h3 className="text-4xl font-black text-slate-900 dark:text-white tracking-tighter">
@@ -130,7 +150,7 @@ export default function HomeScreen() {
             </h3>
             <span className="text-lg font-bold text-slate-500 dark:text-zinc-500">FCFA</span>
           </div>
-        </div>
+        </motion.div>
       </div>
 
       {/* Voice Assistant - Centered */}

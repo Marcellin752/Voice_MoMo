@@ -5,6 +5,7 @@ import { executeVoiceCommand } from '../services/ussd.service';
 type AssistantStatus = 'idle' | 'listening' | 'processing' | 'success' | 'error' | 'awaiting_confirmation';
 
 interface ParsedResponse {
+  success: boolean;
   intent: string;
   amount?: number;
   recipient?: string;

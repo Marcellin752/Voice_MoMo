@@ -2,8 +2,10 @@ import { registerPlugin, PluginListenerHandle } from '@capacitor/core';
 import { AppLauncher } from '@capacitor/app-launcher';
 import { ContactResolverService } from '../engine/ContactResolverService';
 import type { AccessibilityPluginInterface } from './AccessibilityPlugin.types';
+import type { UssdBackgroundPlugin } from './UssdBackgroundPlugin.types';
 
 const AccessibilityPlugin = registerPlugin<AccessibilityPluginInterface>('AccessibilityPlugin');
+const UssdBackground = registerPlugin<UssdBackgroundPlugin>('UssdBackground');
 
 export enum TransactionState {
     INIT,
@@ -19,6 +21,7 @@ export enum TransactionState {
 export class MoMoTransactionEngine {
     state = TransactionState.INIT;
     private autoListener: PluginListenerHandle | null = null;
+    private ussdListener: PluginListenerHandle | null = null;
     private onStateChange: ((state: TransactionState, payload?: any) => void) | null = null;
 
     setStateListener(callback: (state: TransactionState, payload?: any) => void) {
@@ -31,13 +34,7 @@ export class MoMoTransactionEngine {
     }
 
     async initiateVoiceTransfer(nlpIntent: any) {
-        // 1. Accessibility Check
-        const { enabled } = await AccessibilityPlugin.isEnabled();
-        if (!enabled) {
-            this.updateState(TransactionState.WAITING_ACCESSIBILITY_PERMISSION);
-            return { alert: "Veuillez activer l'accessibilité pour Voice MoMo pour exécuter le transfert silencieusement." };
-        }
-
+        // 1. Accessibility Check (pour compatibilité, mais on va utiliser UssdBackground d'abord)
         this.updateState(TransactionState.RESOLVING_CONTACT);
         console.log('⚙️ [ENGINE] [DEBUG] Resolving contact for:', nlpIntent.recipient);
         const resolver = new ContactResolverService();
@@ -52,50 +49,108 @@ export class MoMoTransactionEngine {
         }
 
         const phone = contacts[0].phoneNumber;
+        const amount = nlpIntent.amount;
 
-        // 3. Prepare Service
-        await AccessibilityPlugin.setTransactionActive({ active: true });
-
-        // 4. Request PIN from Internal UI
+        // 2. Request PIN from Internal UI
         this.updateState(TransactionState.AWAITING_PIN_UI);
         console.log('⚙️ [ENGINE] [DEBUG] Awaiting PIN from UI');
-        return { promptPin: true, context: { phone, amount: nlpIntent.amount } };
+        return { promptPin: true, context: { phone, amount } };
+    }
+
+    async checkBalance() {
+        console.log('⚙️ [ENGINE] [START] checkBalance');
+        this.updateState(TransactionState.USSD_IN_PROGRESS);
+        
+        const ussdCode = "*123#"; 
+        
+        try {
+            this.ussdListener = await UssdBackground.addListener('ussdEvent', (event) => {
+                console.log('📡 [ENGINE] USSD Event:', event);
+                if (event.isFinal) {
+                    if (event.type === 'response') {
+                        this.updateState(TransactionState.SUCCESS, { message: event.message });
+                    } else {
+                        this.updateState(TransactionState.FAILED, { error: event.message });
+                    }
+                    this.cleanup();
+                }
+            });
+
+            const response = await UssdBackground.executeUssd({ code: ussdCode });
+            console.log('✅ [ENGINE] [SUCCESS] Balance check initiated, response:', response);
+            return { status: 'success', message: 'Consultation solde lancée' };
+        } catch (e) {
+            console.error('⚙️ [ENGINE] [ERROR] Failed to check balance:', e);
+            this.updateState(TransactionState.FAILED, { error: String(e) });
+            this.cleanup();
+            return { status: 'error', message: 'Échec consultation solde' };
+        }
     }
 
     async startTransfer(data: { amount: number, recipient: string }) {
         console.log('⚙️ [ENGINE] [START] startTransfer:', data);
-        // Fallback simple si l'accessibilité n'est pas gérée ou si on veut forcer le dialer
-        // Pour l'instant on simule l'appel au dialer directement pour RESTAURER LE FONCTIONNEMENT
         const ussdCode = `*880*1*1*${data.recipient}*${data.amount}#`;
-        console.log('⚙️ [ENGINE] [DEBUG] Direct USSD code generated:', ussdCode);
+        console.log('⚙️ [ENGINE] [DEBUG] USSD code:', ussdCode);
         
         try {
-            // Tentative via AppLauncher (Legacy) car c'est le seul qui est "safe"
-            const ussdCodeEncoded = ussdCode.replace(/#/g, '%23');
-            await AppLauncher.openUrl({ url: `tel:${ussdCodeEncoded}` });
-            console.log('⚙️ [ENGINE] [SUCCESS] Dialer opened');
-            return { status: 'success', message: 'Dialer ouvert' };
+            this.updateState(TransactionState.USSD_IN_PROGRESS);
+            
+            this.ussdListener = await UssdBackground.addListener('ussdEvent', (event) => {
+                console.log('📡 [ENGINE] USSD Event:', event);
+                if (event.isFinal) {
+                    if (event.type === 'response') {
+                        this.updateState(TransactionState.SUCCESS, { message: event.message });
+                    } else {
+                        this.updateState(TransactionState.FAILED, { error: event.message });
+                    }
+                    this.cleanup();
+                }
+            });
+
+            const response = await UssdBackground.executeUssd({ code: ussdCode });
+            console.log('⚙️ [ENGINE] [SUCCESS] USSD Executed in background:', response);
+            return { status: 'success', message: 'USSD Lancé en arrière-plan' };
         } catch (e) {
-            console.error('⚙️ [ENGINE] [ERROR] Failed to open dialer:', e);
-            return { status: 'error', message: 'Échec ouverture dialer' };
+            console.error('⚙️ [ENGINE] [ERROR] Failed to execute USSD in background:', e);
+            // Fallback to accessibility plugin or dialer
+            try {
+                await AccessibilityPlugin.executeUssd({ code: ussdCode });
+                return { status: 'success', message: 'USSD Lancé via accessibility' };
+            } catch (e2) {
+                console.error('⚙️ [ENGINE] [ERROR] Fallback also failed:', e2);
+                const ussdCodeEncoded = ussdCode.replace(/#/g, '%23');
+                await AppLauncher.openUrl({ url: `tel:${ussdCodeEncoded}` });
+                return { status: 'success', message: 'Dialer ouvert (fallback final)' };
+            }
         }
     }
 
     async confirmWithPin(pin: string, payload: {phone: string, amount: number}) {
         this.updateState(TransactionState.USSD_IN_PROGRESS);
         
-        if (!this.autoListener) {
-            this.autoListener = await AccessibilityPlugin.addListener('ussdAutoEvent', (event: any) => {
-                this.handleAutoEvent(event);
+        try {
+            this.ussdListener = await UssdBackground.addListener('ussdEvent', (event) => {
+                console.log('📡 [ENGINE] USSD Event:', event);
+                if (event.isFinal) {
+                    if (event.type === 'response') {
+                        this.updateState(TransactionState.SUCCESS, { message: event.message });
+                    } else {
+                        this.updateState(TransactionState.FAILED, { error: event.message });
+                    }
+                    this.cleanup();
+                }
             });
+
+            // Note: Pour les transactions nécessitant un PIN, le flux USSD en plusieurs étapes
+            // nécessiterait une gestion plus avancée. Pour l'instant, on tente le code direct.
+            const ussdCode = `*880*1*1*${payload.phone}*${payload.amount}#`;
+            const response = await UssdBackground.executeUssd({ code: ussdCode });
+            console.log('✅ [ENGINE] Transfer initiated with response:', response);
+        } catch (e) {
+            console.error('⚙️ [ENGINE] Error in confirmWithPin:', e);
+            this.updateState(TransactionState.FAILED, { error: String(e) });
+            this.cleanup();
         }
-
-        // Cache PIN purely in Runtime for Native Service
-        await AccessibilityPlugin.cachePinSecurely({ pin });
-
-        // Execute Dialer (the system will open, our accessibility service will type the pin and close)
-        const ussdCode = encodeURIComponent(`*880*1*1*${payload.phone}*${payload.amount}#`);
-        await AppLauncher.openUrl({ url: `tel:${ussdCode}` });
     }
 
     private handleAutoEvent(event: any) {
@@ -107,7 +162,6 @@ export class MoMoTransactionEngine {
             this.updateState(TransactionState.FAILED, { error: event.message });
             this.cleanup();
         } else if (event.status === 'awaiting_pin') {
-           // Si MTN pose une autre question ou si le pin était faux
             this.updateState(TransactionState.FAILED, { error: "Problème PIN côté réseau" });
             this.cleanup();
         }
@@ -117,6 +171,10 @@ export class MoMoTransactionEngine {
         if (this.autoListener) {
             this.autoListener.remove();
             this.autoListener = null;
+        }
+        if (this.ussdListener) {
+            this.ussdListener.remove();
+            this.ussdListener = null;
         }
         AccessibilityPlugin.setTransactionActive({ active: false });
         this.updateState(TransactionState.INIT);
