@@ -1,17 +1,37 @@
 package com.voicemomo.app;
 
 import android.content.Context;
+import android.telephony.SubscriptionInfo;
+import android.telephony.SubscriptionManager;
+import java.util.List;
 import android.provider.Settings;
 import android.text.TextUtils;
 import android.util.Log;
+
+import android.telephony.TelephonyManager;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.Build;
+import android.content.Intent;
+import android.net.Uri;
 
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.getcapacitor.annotation.Permission;
+import android.Manifest;
 
-@CapacitorPlugin(name = "AccessibilityPlugin")
+@CapacitorPlugin(
+    name = "AccessibilityPlugin",
+    permissions = {
+        @Permission(
+            alias = "phone",
+            strings = {Manifest.permission.CALL_PHONE}
+        )
+    }
+)
 public class UssdAccessibilityPlugin extends Plugin {
 
     private static UssdAccessibilityPlugin instance;
@@ -82,5 +102,75 @@ public class UssdAccessibilityPlugin extends Plugin {
         String pin = call.getString("pin");
         UssdAccessibilityService.pendingPIN = pin;
         call.resolve();
+    }
+
+    @PluginMethod
+    public void executeUssd(PluginCall call) {
+        String code = call.getString("code");
+        Integer simIndex = call.getInt("simIndex"); // 0 for SIM1, 1 for SIM2
+        
+        if (code == null) {
+            call.reject("Code USSD manquant");
+            return;
+        }
+
+        Context context = getContext();
+        UssdAccessibilityService.transactionActive = true;
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            try {
+                TelephonyManager telephonyManager = (TelephonyManager) context.getSystemService(Context.TELEPHONY_SERVICE);
+                
+                if (simIndex != null) {
+                    SubscriptionManager subManager = (SubscriptionManager) context.getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE);
+                    List<SubscriptionInfo> subInfoList = subManager.getActiveSubscriptionInfoList();
+                    if (subInfoList != null && simIndex < subInfoList.size()) {
+                        int subId = subInfoList.get(simIndex).getSubscriptionId();
+                        telephonyManager = telephonyManager.createForSubscriptionId(subId);
+                    }
+                }
+
+                Handler handler = new Handler(Looper.getMainLooper());
+                telephonyManager.sendUssdRequest(code, new TelephonyManager.UssdResponseCallback() {
+                    @Override
+                    public void onReceiveUssdResponse(TelephonyManager telephonyManager, String request, CharSequence response) {
+                        super.onReceiveUssdResponse(telephonyManager, request, response);
+                        String ussdResponse = response.toString();
+                        Log.d("UssdPlugin", "USSD Response: " + ussdResponse);
+                        emitEvent("info", ussdResponse);
+                        
+                        // Si le message contient "succès", on peut considérer que c'est fini
+                        if (ussdResponse.toLowerCase().contains("succès") || ussdResponse.toLowerCase().contains("effectué")) {
+                            emitEvent("success", ussdResponse);
+                        }
+                    }
+
+                    @Override
+                    public void onReceiveUssdResponseFailed(TelephonyManager telephonyManager, String request, int failureCode) {
+                        super.onReceiveUssdResponseFailed(telephonyManager, request, failureCode);
+                        Log.e("UssdPlugin", "USSD Failed with code: " + failureCode);
+                        emitEvent("error", "Échec USSD (Code: " + failureCode + ")");
+                    }
+                }, handler);
+                
+                call.resolve();
+            } catch (SecurityException e) {
+                call.reject("Permission CALL_PHONE manquante");
+            } catch (Exception e) {
+                // Fallback to dialer if sendUssdRequest fails
+                launchDialer(code);
+                call.resolve();
+            }
+        } else {
+            launchDialer(code);
+            call.resolve();
+        }
+    }
+
+    private void launchDialer(String code) {
+        String encodedCode = Uri.encode(code);
+        Intent intent = new Intent(Intent.ACTION_CALL, Uri.parse("tel:" + encodedCode));
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        getContext().startActivity(intent);
     }
 }

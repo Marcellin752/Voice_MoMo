@@ -25,6 +25,10 @@ export class VoiceIntentProcessor {
       });
     }
 
+    if (nlpResponse.intent === 'balance') {
+      return await this.transactionEngine.checkBalance();
+    }
+
     return { status: 'unsupported', message: "Intention non supportée." };
   }
 }

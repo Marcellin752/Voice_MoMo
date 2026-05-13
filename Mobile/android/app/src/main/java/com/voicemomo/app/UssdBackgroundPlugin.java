@@ -9,7 +9,6 @@ import android.os.Looper;
 import android.telephony.TelephonyManager;
 import android.util.Log;
 
-import androidx.annotation.NonNull;
 import androidx.annotation.RequiresApi;
 import androidx.core.app.ActivityCompat;
 
@@ -25,8 +24,11 @@ import com.getcapacitor.annotation.PermissionCallback;
     name = "UssdBackground",
     permissions = {
         @Permission(
-            alias = "call",
-            strings = { Manifest.permission.CALL_PHONE }
+            alias = "phone",
+            strings = { 
+                Manifest.permission.CALL_PHONE,
+                Manifest.permission.READ_PHONE_STATE 
+            }
         )
     }
 )
@@ -50,8 +52,9 @@ public class UssdBackgroundPlugin extends Plugin {
             return;
         }
 
-        if (ActivityCompat.checkSelfPermission(getContext(), Manifest.permission.CALL_PHONE) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissionForAlias("call", call, "usdPermissionCallback");
+        if (ActivityCompat.checkSelfPermission(getContext(), Manifest.permission.CALL_PHONE) != PackageManager.PERMISSION_GRANTED ||
+            ActivityCompat.checkSelfPermission(getContext(), Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissionForAlias("phone", call, "ussdPermissionCallback");
             return;
         }
 
@@ -59,8 +62,8 @@ public class UssdBackgroundPlugin extends Plugin {
     }
 
     @PermissionCallback
-    private void usdPermissionCallback(PluginCall call) {
-        if (getPermissionState("call") == com.getcapacitor.PermissionState.GRANTED) {
+    private void ussdPermissionCallback(PluginCall call) {
+        if (getPermissionState("phone") == com.getcapacitor.PermissionState.GRANTED) {
             String ussdCode = call.getString("code");
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 executeSilentUssd(call, ussdCode);
@@ -68,7 +71,7 @@ public class UssdBackgroundPlugin extends Plugin {
                 call.reject("API level too low for silent USSD");
             }
         } else {
-            call.reject("Call permission denied");
+            call.reject("Phone permissions denied");
         }
     }
 
@@ -82,12 +85,12 @@ public class UssdBackgroundPlugin extends Plugin {
                     Log.i("USSD", "✅ [SUCCESS] USSD Response: " + response);
                     JSObject ret = new JSObject();
                     ret.put("status", "success");
+                    ret.put("type", "response");
                     ret.put("message", response != null ? response.toString() : "");
+                    ret.put("isFinal", true);
                     
-                    // On utilise notifyListeners pour les mises à jour asynchrones
-                    notifyListeners("ussdUpdate", ret);
+                    notifyListeners("ussdEvent", ret);
                     
-                    // Si on n'a pas encore résolu le call, on le fait ici
                     if (!call.isReleased()) {
                         call.resolve(ret);
                     }
@@ -98,20 +101,18 @@ public class UssdBackgroundPlugin extends Plugin {
                     Log.e("USSD", "❌ [FAILURE] USSD Failed with code: " + failureCode);
                     JSObject ret = new JSObject();
                     ret.put("status", "error");
+                    ret.put("type", "error");
                     ret.put("failureCode", failureCode);
                     ret.put("message", "USSD Failed with code: " + failureCode);
+                    ret.put("isFinal", true);
                     
-                    notifyListeners("ussdUpdate", ret);
+                    notifyListeners("ussdEvent", ret);
                     
                     if (!call.isReleased()) {
                         call.reject("USSD Failed: " + failureCode);
                     }
                 }
             };
-            
-            // On ne résout pas le call immédiatement ici si on veut attendre la réponse
-            // OU on le résout pour dire que c'est lancé, et on utilise les listeners pour la suite.
-            // Vu le flow actuel, on va le garder ouvert (ne pas appeler resolve ici).
             
             telephonyManager.sendUssdRequest(ussdCode, responseCallback, handler);
             Log.d("USSD", "📡 [PENDING] USSD request sent to TelephonyManager");
