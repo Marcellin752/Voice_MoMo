@@ -1,9 +1,9 @@
-import { AppLauncher } from '@capacitor/app-launcher';
 import { Capacitor } from '@capacitor/core';
+import { executeUssdCodeInApp } from './ussd_engine/ussdInApp';
 
 /**
  * Service USSD pour exécuter les codes MTN Mobile Money Bénin
- * Utilise Capacitor AppLauncher pour ouvrir l'application téléphone avec le code USSD
+ * Sur Android, les codes sont envoyés via TelephonyManager (sans ouvrir le composeur).
  * 
  * Codes USSD réels MTN MoMo Bénin:
  * - Menu principal: *880#
@@ -241,8 +241,7 @@ export async function executeUSSDViaBackend(
 }
 
 /**
- * Exécute un code USSD en ouvrant l'application téléphone (ancienne méthode - DÉPRÉCIÉE)
- * À remplacer par executeUSSDViaBackend()
+ * Exécute un code USSD dans l'application (TelephonyManager), sans ouvrir le composeur.
  */
 export async function executeUSSD(
   codeType: USSDCodeType,
@@ -251,27 +250,19 @@ export async function executeUSSD(
   try {
     const ussdCode = buildUSSDCode(codeType, params);
 
-    // Format tel: pour les codes USSD
-    // Sur Android, certains modèles préfèrent le # encodé (%23), d'autres le # brut
-    const ussdCodeEncoded = ussdCode.replace(/#/g, '%23');
-    const phoneUrlEncoded = `tel:${ussdCodeEncoded}`;
-    const phoneUrlRaw = `tel:${ussdCode}`;
+    console.log('📱 [USSD] Exécution in-app:', ussdCode);
 
-    console.log('📱 [USSD] Tentative d\'exécution:', ussdCode);
+    if (!Capacitor.isNativePlatform()) {
+      return {
+        success: false,
+        message: 'Les codes USSD sont exécutés uniquement depuis l’application mobile Android.',
+        ussdCode,
+      };
+    }
 
-    try {
-      // On tente d'abord la version encodée qui est le standard Capacitor/Web
-      await AppLauncher.openUrl({ url: phoneUrlEncoded });
-      console.log('✅ [USSD] Code ouvert avec succès (format encodé)');
-    } catch (e) {
-      console.warn('⚠️ [USSD] Échec format encodé, tentative format brut...', e);
-      try {
-        // Fallback sur le format brut si l'encodé échoue
-        await AppLauncher.openUrl({ url: phoneUrlRaw });
-        console.log('✅ [USSD] Code ouvert avec succès (format brut)');
-      } catch (e2) {
-        throw new Error(`Impossible d'ouvrir l'application téléphone: ${e2.message}`);
-      }
+    const exec = await executeUssdCodeInApp(ussdCode);
+    if (!exec.success) {
+      return { success: false, message: exec.message, ussdCode };
     }
 
     // Message contextuel selon le type d'opération
@@ -296,7 +287,7 @@ export async function executeUSSD(
 
     return {
       success: true,
-      message: `Menu MoMo ouvert (${ussdCode}). Suivez les instructions pour: ${actionDesc}. Confirmez sur votre téléphone.`,
+      message: `${exec.message} Opération: ${actionDesc}.`,
       ussdCode,
     };
 
@@ -341,15 +332,45 @@ export async function executeVoiceCommand(
     console.log('🎙️ [LOG] [DEBUG] Processor result:', result);
 
     if (result && (result as any).status === 'error') {
-      console.warn('🎙️ [LOG] [WARN] Processor returned error, trying fallback...');
-      return await executeLegacyFallback(intent, data);
+      return {
+        success: false,
+        message: (result as any).message || 'Opération impossible',
+        action: intent,
+      };
     }
 
-    // Si le processeur a réussi à lancer l'action en arrière-plan (ou via accessibilité)
+    if (result && (result as any).error) {
+      return {
+        success: false,
+        message: (result as any).error,
+        action: intent,
+      };
+    }
+
+    if (result && (result as any).status === 'unsupported') {
+      return {
+        success: false,
+        message: (result as any).message || 'Intention non supportée',
+        action: intent,
+      };
+    }
+
+    if (result && (result as any).ambiguity) {
+      return {
+        success: false,
+        message: (result as any).message || 'Plusieurs contacts possibles',
+        action: intent,
+      };
+    }
+
+    const okMessage =
+      (result as any)?.message ||
+      ((result as any)?.status === 'success' ? 'Opération lancée depuis l’application.' : 'Transaction initiée.');
+
     return {
       success: true,
-      message: 'Transaction initiée en arrière-plan...',
-      action: intent
+      message: okMessage,
+      action: intent,
     };
 
   } catch (error: any) {
@@ -380,8 +401,8 @@ async function executeLegacyFallback(intent: string, data: any) {
   
   return {
     success: result.success,
-    message: result.message + " (Mode Fallback activé)",
-    action: intent
+    message: result.message,
+    action: intent,
   };
 }
 

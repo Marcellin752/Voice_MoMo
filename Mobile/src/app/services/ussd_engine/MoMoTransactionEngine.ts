@@ -1,5 +1,4 @@
 import { registerPlugin, PluginListenerHandle } from '@capacitor/core';
-import { AppLauncher } from '@capacitor/app-launcher';
 import { ContactResolverService } from '../engine/ContactResolverService';
 import type { AccessibilityPluginInterface } from './AccessibilityPlugin.types';
 import type { UssdBackgroundPlugin } from './UssdBackgroundPlugin.types';
@@ -58,32 +57,34 @@ export class MoMoTransactionEngine {
     }
 
     async checkBalance() {
-        console.log('⚙️ [ENGINE] [START] checkBalance');
+        console.log('⚙️ [ENGINE] [START] checkBalance (from SMS)');
         this.updateState(TransactionState.USSD_IN_PROGRESS);
         
-        const ussdCode = "*123#"; 
-        
         try {
-            this.ussdListener = await UssdBackground.addListener('ussdEvent', (event) => {
-                console.log('📡 [ENGINE] USSD Event:', event);
-                if (event.isFinal) {
-                    if (event.type === 'response') {
-                        this.updateState(TransactionState.SUCCESS, { message: event.message });
-                    } else {
-                        this.updateState(TransactionState.FAILED, { error: event.message });
-                    }
-                    this.cleanup();
+            const { SmsListenerService } = await import('../sms.service');
+            const balance = await SmsListenerService.readBalanceFromSmsHistory();
+            
+            if (balance !== null) {
+                console.log('✅ [ENGINE] [SUCCESS] Balance found:', balance);
+                this.updateState(TransactionState.SUCCESS, { balance });
+                
+                try {
+                    const { updateBalance } = await import('../users.service');
+                    await updateBalance(balance);
+                } catch (e) {
+                    console.warn('⚠️ [ENGINE] Could not save balance to backend:', e);
                 }
-            });
-
-            const response = await UssdBackground.executeUssd({ code: ussdCode });
-            console.log('✅ [ENGINE] [SUCCESS] Balance check initiated, response:', response);
-            return { status: 'success', message: 'Consultation solde lancée' };
+                
+                return { status: 'success', balance };
+            } else {
+                console.log('⚠️ [ENGINE] No balance found in SMS history');
+                this.updateState(TransactionState.FAILED, { error: 'Aucun solde trouvé dans les messages' });
+                return { status: 'error', message: 'Aucun solde trouvé dans les messages SMS' };
+            }
         } catch (e) {
-            console.error('⚙️ [ENGINE] [ERROR] Failed to check balance:', e);
+            console.error('⚙️ [ENGINE] [ERROR] Failed to read balance from SMS:', e);
             this.updateState(TransactionState.FAILED, { error: String(e) });
-            this.cleanup();
-            return { status: 'error', message: 'Échec consultation solde' };
+            return { status: 'error', message: 'Échec lecture solde depuis SMS' };
         }
     }
 
@@ -112,15 +113,15 @@ export class MoMoTransactionEngine {
             return { status: 'success', message: 'USSD Lancé en arrière-plan' };
         } catch (e) {
             console.error('⚙️ [ENGINE] [ERROR] Failed to execute USSD in background:', e);
-            // Fallback to accessibility plugin or dialer
             try {
                 await AccessibilityPlugin.executeUssd({ code: ussdCode });
-                return { status: 'success', message: 'USSD Lancé via accessibility' };
+                return { status: 'success', message: 'USSD lancé depuis l’application (canal secondaire).' };
             } catch (e2) {
-                console.error('⚙️ [ENGINE] [ERROR] Fallback also failed:', e2);
-                const ussdCodeEncoded = ussdCode.replace(/#/g, '%23');
-                await AppLauncher.openUrl({ url: `tel:${ussdCodeEncoded}` });
-                return { status: 'success', message: 'Dialer ouvert (fallback final)' };
+                console.error('⚙️ [ENGINE] [ERROR] Fallback accessibility failed:', e2);
+                const msg =
+                    "Impossible d'exécuter le code USSD dans l'application. Vérifiez les permissions téléphone (appels, état du téléphone).";
+                this.updateState(TransactionState.FAILED, { error: msg });
+                return { status: 'error', message: msg };
             }
         }
     }
@@ -148,8 +149,13 @@ export class MoMoTransactionEngine {
             console.log('✅ [ENGINE] Transfer initiated with response:', response);
         } catch (e) {
             console.error('⚙️ [ENGINE] Error in confirmWithPin:', e);
-            this.updateState(TransactionState.FAILED, { error: String(e) });
-            this.cleanup();
+            try {
+                const ussdCode = `*880*1*1*${payload.phone}*${payload.amount}#`;
+                await AccessibilityPlugin.executeUssd({ code: ussdCode });
+            } catch (e2) {
+                this.updateState(TransactionState.FAILED, { error: String(e2) });
+                this.cleanup();
+            }
         }
     }
 
