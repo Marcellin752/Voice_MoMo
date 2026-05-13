@@ -9,5 +9,6 @@ public class MainActivity extends BridgeActivity {
         super.onCreate(savedInstanceState);
         registerPlugin(UssdBackgroundPlugin.class);
         registerPlugin(UssdAccessibilityPlugin.class);
+        registerPlugin(SmsReaderPlugin.class);
     }
 }

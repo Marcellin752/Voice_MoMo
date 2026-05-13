@@ -10,6 +10,7 @@ import * as usersService from "../services/users.service";
 import * as transactionsService from "../services/transactions.service";
 import type { ApiProfile, ApiTransaction } from "../utils/api";
 import { useLanguage } from "../contexts/LanguageContext";
+import { toast } from "sonner";
 
 const PROFILE_UPDATED_EVENT = "momo:profile-updated";
 
@@ -39,9 +40,23 @@ export default function HomeScreen() {
 
     loadProfile();
 
-    usersService.getBalance()
-      .then((b: { balance: SetStateAction<number | null>; }) => setBalance(b.balance))
-      .catch(() => {});
+    // Solde affiché : priorité aux SMS MTN MoMo (patterns), puis API profil si aucun SMS exploitable
+    (async () => {
+      try {
+        const fromSms = await SmsListenerService.readBalanceFromSmsHistory(150);
+        if (fromSms !== null) {
+          setBalance(fromSms);
+          usersService.updateBalance(fromSms).catch(console.error);
+          return;
+        }
+      } catch (e) {
+        console.warn("Lecture solde SMS au chargement:", e);
+      }
+      usersService
+        .getBalance()
+        .then((b: { balance: SetStateAction<number | null> }) => setBalance(b.balance))
+        .catch(() => {});
+    })();
 
     transactionsService.getTransactions()
       .then((res: { transactions: any[]; }) => setTransactions(res.transactions.slice(0, 5)))
@@ -60,7 +75,8 @@ export default function HomeScreen() {
     window.addEventListener(PROFILE_UPDATED_EVENT, onProfileUpdated);
     
     // SMS Listener implementation
-    SmsListenerService.startListening((msg) => {
+    SmsListenerService.startListening((msg, address) => {
+      if (!SmsListenerService.isLikelyMtnMomoMessage(address, msg)) return;
       const extractedLevel = SmsListenerService.extractBalance(msg);
       if (extractedLevel !== null) {
         setIsUpdating(true);
@@ -76,6 +92,26 @@ export default function HomeScreen() {
     };
 
   }, []);
+
+  const handleRefreshBalance = async () => {
+    setIsUpdating(true);
+    try {
+      const engine = new MoMoTransactionEngine();
+      const result = await engine.checkBalance();
+      
+      if (result.status === 'success' && result.balance !== undefined) {
+        setBalance(result.balance);
+        toast.success(`Solde mis à jour: ${result.balance.toLocaleString('fr-FR')} FCFA`);
+      } else {
+        toast.error(result.message || 'Impossible de récupérer le solde');
+      }
+    } catch (error) {
+      console.error('Error refreshing balance:', error);
+      toast.error('Échec de la mise à jour du solde');
+    } finally {
+      setIsUpdating(false);
+    }
+  };
 
   const formattedBalance = balance !== null
     ? balance.toLocaleString("fr-FR")
@@ -125,11 +161,9 @@ export default function HomeScreen() {
             <p className="text-sm font-bold text-slate-500 dark:text-zinc-400">{t("home_balance_title")}</p>
             <div className="flex space-x-2">
               <button
-                onClick={() => {
-                  const engine = new MoMoTransactionEngine();
-                  engine.checkBalance();
-                }}
-                className="p-2 bg-slate-50 dark:bg-white/5 rounded-full text-[#004F71] dark:text-[#FFCC00] hover:bg-slate-100 dark:hover:bg-white/10 transition-colors"
+                onClick={handleRefreshBalance}
+                disabled={isUpdating}
+                className="p-2 bg-slate-50 dark:bg-white/5 rounded-full text-[#004F71] dark:text-[#FFCC00] hover:bg-slate-100 dark:hover:bg-white/10 transition-colors disabled:opacity-50"
                 title="Actualiser le solde"
               >
                 <motion.div animate={isUpdating ? { rotate: 360 } : {}} transition={{ repeat: isUpdating ? Infinity : 0, duration: 1 }}>

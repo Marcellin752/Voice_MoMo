@@ -12,8 +12,6 @@ import android.telephony.TelephonyManager;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Build;
-import android.content.Intent;
-import android.net.Uri;
 
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
@@ -157,20 +155,11 @@ public class UssdAccessibilityPlugin extends Plugin {
             } catch (SecurityException e) {
                 call.reject("Permission CALL_PHONE manquante");
             } catch (Exception e) {
-                // Fallback to dialer if sendUssdRequest fails
-                launchDialer(code);
-                call.resolve();
+                Log.e("UssdAccessibilityPlugin", "sendUssdRequest failed", e);
+                call.reject("Échec USSD in-app: " + e.getMessage());
             }
         } else {
-            launchDialer(code);
-            call.resolve();
+            call.reject("Android 8+ requis pour l'exécution USSD sans quitter l'application.");
         }
-    }
-
-    private void launchDialer(String code) {
-        String encodedCode = Uri.encode(code);
-        Intent intent = new Intent(Intent.ACTION_CALL, Uri.parse("tel:" + encodedCode));
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        getContext().startActivity(intent);
     }
 }
