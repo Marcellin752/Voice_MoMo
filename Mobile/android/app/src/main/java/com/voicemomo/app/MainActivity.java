@@ -7,7 +7,8 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        registerPlugin(UssdBackgroundPlugin.class);
+        // Enregistrement manuel forcé de tous les plugins locaux
+        registerPlugin(UssdBackgroundNativePlugin.class);
         registerPlugin(UssdAccessibilityPlugin.class);
         registerPlugin(SmsReaderPlugin.class);
     }
