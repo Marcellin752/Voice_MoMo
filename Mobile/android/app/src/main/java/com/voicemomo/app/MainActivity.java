@@ -6,10 +6,11 @@ import com.getcapacitor.BridgeActivity;
 public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        // Enregistrement manuel forcé de tous les plugins locaux
+        // Enregistrement manuel des plugins locaux AVANT super.onCreate()
         registerPlugin(UssdBackgroundNativePlugin.class);
         registerPlugin(UssdAccessibilityPlugin.class);
         registerPlugin(SmsReaderPlugin.class);
+        
+        super.onCreate(savedInstanceState);
     }
 }
