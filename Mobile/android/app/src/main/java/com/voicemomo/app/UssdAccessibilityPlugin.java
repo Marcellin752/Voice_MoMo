@@ -117,15 +117,19 @@ public class UssdAccessibilityPlugin extends Plugin {
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             try {
-                TelephonyManager telephonyManager = (TelephonyManager) context.getSystemService(Context.TELEPHONY_SERVICE);
-                
+                TelephonyManager telephonyManager;
                 if (simIndex != null) {
+                    telephonyManager = (TelephonyManager) context.getSystemService(Context.TELEPHONY_SERVICE);
                     SubscriptionManager subManager = (SubscriptionManager) context.getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE);
                     List<SubscriptionInfo> subInfoList = subManager.getActiveSubscriptionInfoList();
                     if (subInfoList != null && simIndex < subInfoList.size()) {
                         int subId = subInfoList.get(simIndex).getSubscriptionId();
                         telephonyManager = telephonyManager.createForSubscriptionId(subId);
                     }
+                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    telephonyManager = TelephonyUssdHelper.getTelephonyManagerForCellular(context);
+                } else {
+                    telephonyManager = (TelephonyManager) context.getSystemService(Context.TELEPHONY_SERVICE);
                 }
 
                 Handler handler = new Handler(Looper.getMainLooper());

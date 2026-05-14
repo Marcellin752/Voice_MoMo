@@ -373,31 +373,37 @@ export function useVoiceAssistantNLP(
   /**
    * 🚀 Déclencher l'exécution USSD locale
    */
-  const triggerUSSD = async (intent: string, data: any) => {
+  const triggerUSSD = async (
+    intent: string,
+    data: any
+  ): Promise<{ success: boolean; message: string; dialerFallback?: boolean }> => {
     if (!intent || intent === 'unknown' || intent === 'confirm' || intent === 'cancel') {
       console.log(`ℹ️ [USSD] Intent ignoré: ${intent}`);
-      return;
+      return { success: true, message: '' };
     }
-    
+
     console.log(`📱 [USSD] Lancement local pour intent: ${intent}`);
-    // Alerte de diagnostic pour le téléphone
-    // alert(`Lancement USSD pour: ${intent}`);
-    
+
     try {
       const ussdResult = await executeVoiceCommand(intent, {
         amount: data?.amount,
-        recipient: data?.recipient
+        recipient: data?.recipient,
       });
       console.log('✅ [USSD] Résultat:', ussdResult);
-      
+
       if (ussdResult.success) {
         setFeedback(ussdResult.message);
-      } else {
-        alert(`Échec USSD: ${ussdResult.message}`);
+        return ussdResult;
       }
-    } catch (ussdError) {
+      setFeedback(ussdResult.message);
+      alert(`Échec USSD: ${ussdResult.message}`);
+      return { ...ussdResult, success: false };
+    } catch (ussdError: any) {
       console.error('❌ [USSD] Erreur lors du lancement USSD:', ussdError);
-      alert(`Erreur critique USSD: ${ussdError.message}`);
+      const msg = ussdError?.message || 'Erreur USSD';
+      setFeedback(msg);
+      alert(`Erreur critique USSD: ${msg}`);
+      return { success: false, message: msg };
     }
   };
 
@@ -462,33 +468,53 @@ export function useVoiceAssistantNLP(
       const message = result.message || result.confirmation_message || 'Action exécutée';
       console.log(`📢 [FEEDBACK] Message: "${message}"`);
       setFeedback(message);
-      
-      // Jouer l'audio de réponse s'il existe
-      if (result.audio_base64) {
-        console.log('🔊 [AUDIO] Audio de réponse trouvé, lecture...');
-        await playAudioResponse(result.audio_base64);
-      } else {
-        console.log('💬 [TTS] Pas d\'audio de réponse, utilisation TTS');
-        speakFeedback(message);
-      }
-      
+
+      const moneyIntents = new Set(['transfer', 'deposit', 'momo_send', 'momo_deposit']);
+
       // Gérer l'état selon si confirmation nécessaire
       if (result.needs_confirmation) {
         console.log(`⏳ [STATE] Attente de confirmation pour: ${result.intent}`);
+        // TTS / audio seulement quand on attend une confirmation (pas encore d'USSD)
+        if (result.audio_base64) {
+          console.log('🔊 [AUDIO] Audio de réponse trouvé, lecture...');
+          await playAudioResponse(result.audio_base64);
+        } else {
+          console.log('💬 [TTS] Pas d\'audio de réponse, utilisation TTS');
+          speakFeedback(message);
+        }
         setStatus('awaiting_confirmation');
       } else {
         console.log(`✅ [STATE] Action réussie: ${result.intent}`);
         setStatus('success');
-        
-        // 🚀 Déclencher USSD si c'est une action réelle (transfer, recharge, etc.)
-        // après une confirmation vocale ou exécution directe
+
         if (result.success && result.intent !== 'help') {
-          await triggerUSSD(result.intent, result.data || result);
+          const ussdResult = await triggerUSSD(result.intent, result.data || result);
+          if (!ussdResult.success) {
+            setStatus('error');
+            speakFeedback(ussdResult.message);
+          } else if (moneyIntents.has(result.intent)) {
+            const spoken = ussdResult.dialerFallback
+              ? ussdResult.message
+              : ussdResult.message ||
+                'Demande envoyée à MTN. Validez avec votre code PIN si une fenêtre apparaît.';
+            setFeedback(spoken);
+            speakFeedback(spoken);
+          } else if (result.audio_base64) {
+            await playAudioResponse(result.audio_base64);
+          } else {
+            speakFeedback(message);
+          }
+        } else {
+          if (result.audio_base64) {
+            await playAudioResponse(result.audio_base64);
+          } else {
+            speakFeedback(message);
+          }
         }
 
         // Reset à idle après 3s
         setTimeout(() => {
-          if (statusRef.current === 'success') {
+          if (statusRef.current === 'success' || statusRef.current === 'error') {
             console.log('[STATE] Reset to idle');
             setStatus('idle');
           }
@@ -625,18 +651,55 @@ export function useVoiceAssistantNLP(
       const result = await response.json();
       console.log('📱 [BACKEND] Réponse confirmation:', result);
 
-      // 🚀 EXECUTION USSD LOCALE
+      const backendMsg = result.message || 'Transaction confirmée';
+      const moneyIntents = new Set(['transfer', 'deposit', 'momo_send', 'momo_deposit']);
+      const targetIntent = (result.intent || parsedIntent?.intent || '') as string;
+
+      let ussdResult: { success: boolean; message: string; dialerFallback?: boolean } = {
+        success: true,
+        message: '',
+      };
+
       if (result.success) {
-        const targetIntent = result.intent || parsedIntent?.intent;
         console.log(`✅ Confirmation réussie, déclenchement USSD pour: ${targetIntent}`);
-        await triggerUSSD(targetIntent, result.data || result);
+        ussdResult = await triggerUSSD(targetIntent, result.data || result);
       } else {
-        alert(`Le backend a retourné une erreur: ${result.message}`);
+        const err = result.message || 'Erreur serveur';
+        alert(`Le backend a retourné une erreur: ${err}`);
+        setFeedback(err);
+        speakFeedback(err);
+        setStatus('error');
+        transactionIdRef.current = null;
+        setParsedIntent(null);
+        setTimeout(() => {
+          if (statusRef.current === 'error') setStatus('idle');
+        }, 5000);
+        return;
       }
 
-      const message = result.message || 'Transaction confirmée';
-      setFeedback(message);
-      speakFeedback(message);
+      if (!ussdResult.success) {
+        setFeedback(ussdResult.message);
+        speakFeedback(ussdResult.message);
+        setStatus('error');
+        transactionIdRef.current = null;
+        setParsedIntent(null);
+        setTimeout(() => {
+          if (statusRef.current === 'error') setStatus('idle');
+        }, 5000);
+        return;
+      }
+
+      if (result.success && moneyIntents.has(targetIntent)) {
+        const spoken = ussdResult.dialerFallback
+          ? ussdResult.message
+          : ussdResult.message ||
+            'Demande envoyée à MTN. Validez avec votre code PIN si une fenêtre apparaît.';
+        setFeedback(spoken);
+        speakFeedback(spoken);
+      } else if (result.success) {
+        setFeedback(backendMsg);
+        speakFeedback(backendMsg);
+      }
 
       setStatus('success');
       transactionIdRef.current = null;

@@ -313,7 +313,7 @@ export async function executeVoiceCommand(
     amount?: number;
     recipient?: string;
   }
-): Promise<{ success: boolean; message: string; action: string }> {
+): Promise<{ success: boolean; message: string; action: string; dialerFallback?: boolean }> {
   console.log('🎙️ [LOG] [START] executeVoiceCommand:', { intent, data });
 
   // PRIORITÉ ABSOLUE : RESTAURATION DU FLOW FONCTIONNEL
@@ -366,11 +366,13 @@ export async function executeVoiceCommand(
     const okMessage =
       (result as any)?.message ||
       ((result as any)?.status === 'success' ? 'Opération lancée depuis l’application.' : 'Transaction initiée.');
+    const dialerFallback = !!(result as any).dialerFallback;
 
     return {
       success: true,
       message: okMessage,
       action: intent,
+      dialerFallback,
     };
 
   } catch (error: any) {
