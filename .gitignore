@@ -4,6 +4,7 @@ node_modules/
 .dart_tool/
 dist/
 .env
+*.apk
 
 # Android build outputs
 Mobile/android/app/build/
