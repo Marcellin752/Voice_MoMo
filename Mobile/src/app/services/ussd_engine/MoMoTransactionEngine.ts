@@ -72,22 +72,22 @@ export class MoMoTransactionEngine {
     async checkBalance() {
         console.log('⚙️ [ENGINE] [START] checkBalance (from SMS)');
         this.updateState(TransactionState.USSD_IN_PROGRESS);
-        
+
         try {
             const { SmsListenerService } = await import('../sms.service');
             const balance = await SmsListenerService.readBalanceFromSmsHistory();
-            
+
             if (balance !== null) {
                 console.log('✅ [ENGINE] [SUCCESS] Balance found:', balance);
                 this.updateState(TransactionState.SUCCESS, { balance });
-                
+
                 try {
                     const { updateBalance } = await import('../users.service');
                     await updateBalance(balance);
                 } catch (e) {
                     console.warn('⚠️ [ENGINE] Could not save balance to backend:', e);
                 }
-                
+
                 return { status: 'success', balance };
             } else {
                 console.log('⚠️ [ENGINE] No balance found in SMS history');
@@ -102,16 +102,16 @@ export class MoMoTransactionEngine {
     }
     async startTransfer(data: { amount: number, recipient: string }) {
         this.updateState(TransactionState.USSD_IN_PROGRESS);
-        
+
         // On définit la variable ici pour qu'elle soit accessible dans tout le bloc (try et catch)
         const resolver = new ContactResolverService();
         const formattedRecipient = resolver.formatBeninNumber(data.recipient);
         // Format corrigé : *880*1*1*Numéro*Numéro*Montant#
         const ussdCode = `*880*1*1*${formattedRecipient}*${formattedRecipient}*${data.amount}#`;
-        
+
         try {
             console.log('⚙️ [ENGINE] [FINAL_CODE] Ready:', ussdCode);
-            
+
             this.ussdListener = await UssdBackground.addListener('ussdEvent', (event) => {
                 console.log('📡 [ENGINE] USSD Event:', event);
                 if (event.isFinal) {
@@ -124,14 +124,14 @@ export class MoMoTransactionEngine {
                 }
             });
 
-            console.log('⚙️ [ENGINE] [DEBUG] Executing USSD code:', ussdCode);
-            const response = await UssdBackground.executeUssd({ code: ussdCode });
-            console.log('⚙️ [ENGINE] [SUCCESS] USSD Background Response:', response);
-            return { status: 'success', message: 'USSD Lancé en arrière-plan' };
+            console.log('⚙️ [ENGINE] [DEBUG] Executing USSD code via Direct Call to show MTN popup:', ussdCode);
+            const response = await UssdBackground.executeDirectCall({ code: ussdCode });
+            this.updateState(TransactionState.TRIGGERING_DIALER);
+            return { status: 'success', message: 'Appel direct lancé. Suivez les instructions MTN à l\'écran.', dialerFallback: true };
         } catch (e: any) {
             console.error('⚙️ [ENGINE] [ERROR] UssdBackground failed:', e);
             const errorDetail = e.message || String(e);
-            
+
             // Si c'est une erreur de permission, on demande explicitement
             if (errorDetail.includes('Permission') || errorDetail.includes('permission')) {
                 const msg = 'Permission téléphone manquante. Allez dans les paramètres pour autoriser Voice MoMo.';
@@ -147,12 +147,12 @@ export class MoMoTransactionEngine {
                 return { status: 'success', message: 'USSD lancé via Accessibilité.' };
             } catch (e2: any) {
                 console.error('⚙️ [ENGINE] [ERROR] AccessibilityPlugin failed:', e2);
-                
+
                 // Si on arrive ici, c'est que l'arrière-plan pur a échoué.
                 // On utilise ACTION_CALL pour lancer le code sans passer par le clavier
                 const msg = 'Impossible d’exécuter en arrière-plan. Tentative d’appel direct...';
                 console.warn(msg);
-                
+
                 try {
                     console.log('⚙️ [ENGINE] [FALLBACK] Launching ACTION_CALL...');
                     await UssdBackground.executeDirectCall({ code: ussdCode });
@@ -168,9 +168,9 @@ export class MoMoTransactionEngine {
         }
     }
 
-    async confirmWithPin(pin: string, payload: {phone: string, amount: number}) {
+    async confirmWithPin(pin: string, payload: { phone: string, amount: number }) {
         this.updateState(TransactionState.USSD_IN_PROGRESS);
-        
+
         const resolver = new ContactResolverService();
         const formattedPhone = resolver.formatBeninNumber(payload.phone);
         // Format corrigé avec PIN : *880*1*1*Numéro*Numéro*Montant*PIN#
@@ -189,9 +189,10 @@ export class MoMoTransactionEngine {
                 }
             });
 
-            console.log('⚙️ [ENGINE] [CONFIRM] Executing with PIN:', ussdCode.replace(pin, '****'));
-            
-            const response = await UssdBackground.executeUssd({ code: ussdCode });
+            console.log('⚙️ [ENGINE] [CONFIRM] Executing with PIN via Direct Call:', ussdCode.replace(pin, '****'));
+
+            const response = await UssdBackground.executeDirectCall({ code: ussdCode });
+            this.updateState(TransactionState.TRIGGERING_DIALER);
             console.log('✅ [ENGINE] Transfer initiated with response:', response);
         } catch (e: any) {
             console.error('⚙️ [ENGINE] Error in confirmWithPin (Background):', e);
