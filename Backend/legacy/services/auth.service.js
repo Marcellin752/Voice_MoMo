@@ -236,8 +236,19 @@ async function _sendSms(phone, message) {
       const auth = Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64');
       
       const formData = new URLSearchParams();
-      // Format E.164 obligatoire pour Twilio (ex: +229...)
-      const formattedPhone = phone.startsWith('+') ? phone : `+229${phone.replace(/^0+/, '')}`;
+      // On s'assure que le numéro a le format international E.164
+      // Si le numéro commence par 229, 225, 33, 1, etc., on rajoute juste un '+'
+      // Sinon on suppose que c'est un numéro local Bénin et on ajoute +229.
+      let formattedPhone = phone.replace(/\D/g, ''); // Nettoyage sécurité
+      
+      if (!formattedPhone.startsWith('229') && formattedPhone.length === 8) {
+        // Numéro local béninois classique (8 chiffres)
+        formattedPhone = `+229${formattedPhone}`;
+      } else {
+        // L'utilisateur a probablement entré son indicatif (ex: 225..., 33..., 1...)
+        formattedPhone = `+${formattedPhone}`;
+      }
+      
       formData.append("To", formattedPhone);
       formData.append("From", process.env.TWILIO_PHONE_NUMBER);
       formData.append("Body", message);
