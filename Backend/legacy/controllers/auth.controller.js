@@ -32,4 +32,33 @@ async function login(req, res, next) {
   }
 }
 
-module.exports = { register, login };
+/**
+ * POST /api/auth/send-otp
+ * Body: { phone }
+ */
+async function sendOtp(req, res, next) {
+  try {
+    const { phone } = req.body || {};
+    const result = await authService.sendOtp(phone);
+    return res.status(200).json(result);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+/**
+ * POST /api/auth/verify-otp
+ * Body: { phone, code }
+ */
+async function verifyOtp(req, res, next) {
+  try {
+    const { phone, code } = req.body || {};
+    const result = await authService.verifyOtp(phone, code);
+    return res.status(200).json(result);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+module.exports = { register, login, sendOtp, verifyOtp };
+
