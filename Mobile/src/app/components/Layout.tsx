@@ -3,6 +3,7 @@ import { Home, ArrowLeftRight, Settings, Users, Mic } from "lucide-react";
 import { useLanguage } from "../contexts/LanguageContext";
 import { motion, AnimatePresence } from "motion/react";
 import { useVoiceAssistantNLP } from "../hooks/useVoiceAssistantNLP";
+import ContactDisambiguationModal from "./ContactDisambiguationModal";
 
 export default function Layout() {
   const { t } = useLanguage();
@@ -17,7 +18,10 @@ export default function Layout() {
     stopListening,
     confirmAction,
     cancelAction,
-    parsedIntent
+    parsedIntent,
+    ambiguityContacts,
+    ambiguityQuery,
+    resolveAmbiguity,
   } = useVoiceAssistantNLP();
 
   return (
@@ -122,6 +126,19 @@ export default function Layout() {
         <NavItem to="/app/contacts" icon={<Users size={22} />} label={t("nav_contacts")} />
         <NavItem to="/app/settings" icon={<Settings size={22} />} label={t("nav_settings")} />
       </nav>
+
+      {/* Modale de désambiguïsation vocale (Globale) */}
+      <ContactDisambiguationModal
+        isOpen={status === 'awaiting_disambiguation'}
+        contacts={ambiguityContacts || []}
+        query={ambiguityQuery}
+        onSelect={(contact) => {
+          resolveAmbiguity(contact);
+        }}
+        onClose={() => {
+          cancelAction();
+        }}
+      />
     </div>
   );
 }

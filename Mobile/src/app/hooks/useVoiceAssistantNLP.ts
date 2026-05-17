@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { executeVoiceCommand } from '../services/ussd.service';
 
 
-type AssistantStatus = 'idle' | 'listening' | 'processing' | 'success' | 'error' | 'awaiting_confirmation';
+type AssistantStatus = 'idle' | 'listening' | 'processing' | 'success' | 'error' | 'awaiting_confirmation' | 'awaiting_disambiguation';
 
 interface ParsedResponse {
   success: boolean;
@@ -31,6 +31,9 @@ interface VoiceHookReturn {
   confirmAction: () => void;
   cancelAction: () => void;
   isListening: boolean;
+  ambiguityContacts: any[] | null;
+  ambiguityQuery: string;
+  resolveAmbiguity: (contact: { name: string; phone: string }) => void;
 }
 
 export function useVoiceAssistantNLP(
@@ -44,6 +47,11 @@ export function useVoiceAssistantNLP(
   const [parsedIntent, setParsedIntent] = useState<ParsedResponse | null>(null);
   const [isListening, setIsListening] = useState(false);
   const statusRef = useRef<AssistantStatus>('idle');
+  
+  // Nouveaux états pour la désambiguïsation
+  const [ambiguityContacts, setAmbiguityContacts] = useState<any[] | null>(null);
+  const [ambiguityQuery, setAmbiguityQuery] = useState('');
+  const ambiguityContextRef = useRef<{ intent: string; data: any } | null>(null);
   
   // MediaRecorder pour audio brut
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -369,7 +377,7 @@ export function useVoiceAssistantNLP(
   const triggerUSSD = async (
     intent: string,
     data: any
-  ): Promise<{ success: boolean; message: string; dialerFallback?: boolean }> => {
+  ): Promise<{ success: boolean; message: string; dialerFallback?: boolean; ambiguity?: any[] }> => {
     if (!intent || intent === 'unknown' || intent === 'confirm' || intent === 'cancel') {
       console.log(`ℹ️ [USSD] Intent ignoré: ${intent}`);
       return { success: true, message: '' };
@@ -388,6 +396,19 @@ export function useVoiceAssistantNLP(
         setFeedback(ussdResult.message);
         return ussdResult;
       }
+      
+      // Gestion spécifique de l'ambiguïté des contacts
+      if ((ussdResult as any).ambiguity) {
+        console.log('🤔 [USSD] Ambiguïté détectée pour:', data?.recipient);
+        setAmbiguityContacts((ussdResult as any).ambiguity);
+        setAmbiguityQuery(data?.recipient || 'Contact');
+        ambiguityContextRef.current = { intent, data };
+        setStatus('awaiting_disambiguation');
+        setFeedback('Plusieurs contacts correspondent. Veuillez choisir.');
+        speakFeedback('Plusieurs contacts correspondent. Veuillez en choisir un sur l\'écran.');
+        return { ...ussdResult, success: false };
+      }
+
       setFeedback(ussdResult.message);
       alert(`Échec USSD: ${ussdResult.message}`);
       return { ...ussdResult, success: false };
@@ -722,8 +743,59 @@ export function useVoiceAssistantNLP(
     speakFeedback('Action annulée');
     
     setStatus('idle');
-    transactionIdRef.current = null;
     setParsedIntent(null);
+    setAmbiguityContacts(null);
+    ambiguityContextRef.current = null;
+  }, []);
+
+  /**
+   * 🎯 Résoudre l'ambiguïté en fournissant le contact choisi
+   */
+  const resolveAmbiguity = useCallback(async (selectedContact: { name: string; phone: string }) => {
+    const ctx = ambiguityContextRef.current;
+    setAmbiguityContacts(null);
+    ambiguityContextRef.current = null;
+    
+    if (!ctx) {
+      setStatus('idle');
+      return;
+    }
+    
+    console.log(`✅ [RESOLVE] Contact sélectionné: ${selectedContact.name} (${selectedContact.phone})`);
+    setStatus('processing');
+    setFeedback(`Contact sélectionné. Je lance l'opération pour ${selectedContact.name}...`);
+    
+    // Injecter le numéro exact et forcer le passage sans ambiguïté
+    const updatedData = {
+      ...ctx.data,
+      recipient: selectedContact.phone,
+    };
+    
+    const ussdResult = await triggerUSSD(ctx.intent, updatedData);
+    
+    if (!ussdResult.success) {
+      if (ussdResult.ambiguity) {
+        // Ne devrait plus arriver car on a mis un numéro exact
+        return;
+      }
+      setStatus('error');
+      speakFeedback(ussdResult.message);
+    } else {
+      const moneyIntents = new Set(['transfer', 'deposit', 'momo_send', 'momo_deposit']);
+      if (moneyIntents.has(ctx.intent)) {
+        const spoken = ussdResult.dialerFallback
+          ? ussdResult.message
+          : ussdResult.message || 'Demande envoyée à MTN. Validez avec votre code PIN si une fenêtre apparaît.';
+        setFeedback(spoken);
+        speakFeedback(spoken);
+      } else {
+        speakFeedback(ussdResult.message);
+      }
+      setStatus('success');
+      setTimeout(() => {
+        if (statusRef.current === 'success') setStatus('idle');
+      }, 5000);
+    }
   }, []);
 
   return {
@@ -736,5 +808,8 @@ export function useVoiceAssistantNLP(
     confirmAction,
     cancelAction,
     isListening,
+    ambiguityContacts,
+    ambiguityQuery,
+    resolveAmbiguity,
   };
 }
