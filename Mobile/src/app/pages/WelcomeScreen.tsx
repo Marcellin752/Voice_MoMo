@@ -1,8 +1,18 @@
-import { Link } from "react-router";
+import { useEffect } from "react";
+import { Link, useNavigate } from "react-router";
 import { Mic, ChevronRight } from "lucide-react";
 import { motion } from "motion/react";
+import { useAuth } from "../contexts/AuthContext";
 
 export default function WelcomeScreen() {
+  const { token, loading } = useAuth();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!loading && token) {
+      navigate("/app", { replace: true });
+    }
+  }, [token, loading, navigate]);
   return (
     <div className="flex flex-col items-center justify-between h-[100dvh] w-full max-w-md mx-auto bg-[#FFCC00] text-[#004F71] px-6 py-12">
       <div className="flex-1 flex flex-col items-center justify-center space-y-10 mt-12">

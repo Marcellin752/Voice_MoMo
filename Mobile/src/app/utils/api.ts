@@ -1,9 +1,16 @@
 const BASE_URL = (import.meta.env.VITE_API_BASE_URL as string) || 'http://localhost:3001';
 const TOKEN_KEY = 'momo.auth.token';
 
-export function getToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
+let activeToken: string | null = null;
+
+export function setApiToken(token: string | null) {
+  activeToken = token;
 }
+
+export function getToken(): string | null {
+  return activeToken || localStorage.getItem(TOKEN_KEY);
+}
+
 
 export async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };

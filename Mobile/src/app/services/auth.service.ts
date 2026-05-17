@@ -15,3 +15,12 @@ export function register(phone: string, pin: string, firstName: string, lastName
 export function login(phone: string, pin: string) {
   return request<LoginResponse>('POST', '/api/auth/login', { phone, pin });
 }
+
+export function sendOtp(phone: string) {
+  return request<{ success: boolean; message: string; code?: string }>('POST', '/api/auth/send-otp', { phone });
+}
+
+export function verifyOtp(phone: string, code: string) {
+  return request<{ token: string; user: ApiUser }>('POST', '/api/auth/verify-otp', { phone, code });
+}
+
