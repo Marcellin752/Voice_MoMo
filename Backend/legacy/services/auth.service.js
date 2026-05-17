@@ -237,16 +237,21 @@ async function _sendSms(phone, message) {
       
       const formData = new URLSearchParams();
       // On s'assure que le numéro a le format international E.164
-      // Si le numéro commence par 229, 225, 33, 1, etc., on rajoute juste un '+'
-      // Sinon on suppose que c'est un numéro local Bénin et on ajoute +229.
       let formattedPhone = phone.replace(/\D/g, ''); // Nettoyage sécurité
       
-      if (!formattedPhone.startsWith('229') && formattedPhone.length === 8) {
+      if (formattedPhone.length === 10 && formattedPhone.startsWith('0')) {
+        // Ex: 0157311172 (Format 10 chiffres Ivoirien/Africain classique)
+        // On force l'indicatif +225 pour la Côte d'Ivoire (ou +229 si c'était le cas)
+        // L'utilisateur peut aussi définir process.env.DEFAULT_COUNTRY_CODE dans Render
+        const countryCode = process.env.DEFAULT_COUNTRY_CODE || "225";
+        formattedPhone = `+${countryCode}${formattedPhone}`;
+      } else if (formattedPhone.length === 8) {
         // Numéro local béninois classique (8 chiffres)
-        formattedPhone = `+229${formattedPhone}`;
+        const countryCode = process.env.DEFAULT_COUNTRY_CODE || "229";
+        formattedPhone = `+${countryCode}${formattedPhone}`;
       } else {
-        // L'utilisateur a probablement entré son indicatif (ex: 225..., 33..., 1...)
-        formattedPhone = `+${formattedPhone}`;
+        // S'il a déjà l'indicatif (ex: 2299012..., 336...)
+        formattedPhone = `+${formattedPhone.replace(/^0+/, '')}`;
       }
       
       formData.append("To", formattedPhone);
