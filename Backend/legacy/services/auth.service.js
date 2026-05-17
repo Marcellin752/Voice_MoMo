@@ -226,24 +226,86 @@ function _updateInMemoryPin(userId, pinHash) {
   return false;
 }
 
-const _otps = new Map(); // phone -> { code, expiresAt }
+// ─── Gestion SMS Provider ──────────────────────────────────────────────────────
+
+async function _sendSms(phone, message) {
+  try {
+    if (process.env.SMS_PROVIDER_URL && process.env.SMS_API_KEY) {
+      // Intégration générique Termii / Twilio / Custom
+      const response = await fetch(process.env.SMS_PROVIDER_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${process.env.SMS_API_KEY}`
+        },
+        body: JSON.stringify({
+          to: phone,
+          message: message,
+          // Configuration spécifique Termii par exemple :
+          // api_key: process.env.SMS_API_KEY, type: "plain", channel: "generic", from: "VoiceMoMo"
+        })
+      });
+      if (!response.ok) {
+        console.error("❌ [SMS] Échec de l'envoi via le provider:", await response.text());
+      } else {
+        console.log(`✅ [SMS] Message envoyé avec succès à ${phone}`);
+      }
+    } else {
+      console.log(`⚠️ [SMS] Aucun provider configuré. Simulation locale de l'envoi SMS à ${phone} : "${message}"`);
+    }
+  } catch (err) {
+    console.error("❌ [SMS] Erreur réseau lors de l'envoi du SMS :", err.message);
+  }
+}
+
+// ─── Envoi et Vérification OTP ───────────────────────────────────────────────
+
+const _otps = new Map(); // Fallback in-memory
 
 async function sendOtp(phone) {
   const cleaned = _cleanPhone(phone);
   _validatePhone(cleaned);
 
-  // Générer un code à 4 chiffres
-  const otpCode = Math.floor(1000 + Math.random() * 9000).toString();
+  const useDb = await _isDbAvailable();
+
+  if (useDb) {
+    // Vérifier la limitation des tentatives (anti-spam : pas plus de 3 codes non expirés dans les 15 dernières minutes)
+    const recent = await db.query(
+      "SELECT count(*) FROM otps WHERE phone_number = $1 AND created_at > NOW() - INTERVAL '15 minutes'",
+      [cleaned]
+    );
+    if (parseInt(recent.rows[0].count, 10) >= 3) {
+      const err = new Error("Trop de tentatives. Veuillez patienter avant de demander un nouveau code.");
+      err.status = 429;
+      throw err;
+    }
+  }
+
+  // Générer un code sécurisé à 6 chiffres
+  const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
   const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
 
-  _otps.set(cleaned, { code: otpCode, expiresAt });
+  if (useDb) {
+    // Invalider les anciens OTP non utilisés pour ce numéro
+    await db.query("UPDATE otps SET is_used = TRUE WHERE phone_number = $1 AND is_used = FALSE", [cleaned]);
+    // Insérer le nouveau
+    await db.query(
+      "INSERT INTO otps (phone_number, code, expires_at) VALUES ($1, $2, $3)",
+      [cleaned, otpCode, expiresAt]
+    );
+  } else {
+    _otps.set(cleaned, { code: otpCode, expiresAt });
+  }
+
   console.log(`🔑 [OTP] Code OTP généré pour ${cleaned} : ${otpCode}`);
+  
+  // Envoi du SMS réel via le provider
+  await _sendSms(cleaned, `Votre code de connexion Voice MoMo est : ${otpCode}. Il expire dans 5 minutes.`);
 
   return { 
     success: true, 
-    message: "Code OTP envoyé par SMS.",
-    // Pour faciliter la démo et le dev, on renvoie le code dans la réponse
-    code: otpCode
+    message: "Code OTP envoyé par SMS."
+    // Ne pas renvoyer le code au frontend en production
   };
 }
 
@@ -251,30 +313,61 @@ async function verifyOtp(phone, code) {
   const cleaned = _cleanPhone(phone);
   _validatePhone(cleaned);
 
-  const stored = _otps.get(cleaned);
-  if (!stored) {
-    const err = new Error("Code OTP expiré ou inexistant. Veuillez en demander un nouveau.");
+  if (!code || code.length !== 6) {
+    const err = new Error("Le code OTP doit contenir 6 chiffres.");
     err.status = 400;
     throw err;
   }
-
-  if (new Date() > stored.expiresAt) {
-    _otps.delete(cleaned);
-    const err = new Error("Code OTP expiré.");
-    err.status = 400;
-    throw err;
-  }
-
-  if (String(stored.code) !== String(code)) {
-    const err = new Error("Code OTP incorrect.");
-    err.status = 400;
-    throw err;
-  }
-
-  // Code valide, supprimer
-  _otps.delete(cleaned);
 
   const useDb = await _isDbAvailable();
+
+  if (useDb) {
+    const result = await db.query(
+      "SELECT * FROM otps WHERE phone_number = $1 AND code = $2 AND is_used = FALSE ORDER BY created_at DESC LIMIT 1",
+      [cleaned, String(code)]
+    );
+
+    if (result.rows.length === 0) {
+      const err = new Error("Code OTP incorrect ou déjà utilisé.");
+      err.status = 400;
+      throw err;
+    }
+
+    const storedOtp = result.rows[0];
+
+    if (new Date() > new Date(storedOtp.expires_at)) {
+      await db.query("UPDATE otps SET is_used = TRUE WHERE id = $1", [storedOtp.id]);
+      const err = new Error("Code OTP expiré. Veuillez en demander un nouveau.");
+      err.status = 400;
+      throw err;
+    }
+
+    // Marquer comme utilisé
+    await db.query("UPDATE otps SET is_used = TRUE WHERE id = $1", [storedOtp.id]);
+
+  } else {
+    // Mode in-memory
+    const stored = _otps.get(cleaned);
+    if (!stored) {
+      const err = new Error("Code OTP inexistant. Veuillez en demander un nouveau.");
+      err.status = 400;
+      throw err;
+    }
+    if (new Date() > stored.expiresAt) {
+      _otps.delete(cleaned);
+      const err = new Error("Code OTP expiré.");
+      err.status = 400;
+      throw err;
+    }
+    if (String(stored.code) !== String(code)) {
+      const err = new Error("Code OTP incorrect.");
+      err.status = 400;
+      throw err;
+    }
+    _otps.delete(cleaned);
+  }
+
+  // Vérification de l'utilisateur
   let user = null;
 
   if (useDb) {
@@ -292,16 +385,16 @@ async function verifyOtp(phone, code) {
     }
   }
 
-  // Si l'utilisateur n'existe pas, on l'inscrit automatiquement
+  // Création automatique de compte
   if (!user) {
     console.log(`👤 [OTP] Nouvel utilisateur détecté (${cleaned}), inscription automatique...`);
     const shortPhone = cleaned.slice(-4);
     const defaultName = `Utilisateur ${shortPhone}`;
-    const regResult = await register(cleaned, "0000", defaultName);
+    const regResult = await register(cleaned, "0000", defaultName); // PIN par défaut "0000" pour les comptes OTP-only
     return { token: regResult.token, user: regResult.user };
   }
 
-  // Si l'utilisateur existe déjà, on génère une session
+  // Session pour utilisateur existant
   console.log(`👤 [OTP] Utilisateur existant connecté : ${cleaned}`);
   const token = _generateToken(user.id, cleaned);
   
