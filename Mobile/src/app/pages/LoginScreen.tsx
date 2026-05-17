@@ -18,8 +18,15 @@ export default function LoginScreen() {
   const [timer, setTimer] = useState(0);
   
   const navigate = useNavigate();
-  const { setAuth } = useAuth();
+  const { setAuth, token, loading: authLoading } = useAuth();
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Auto-redirect if already authenticated
+  useEffect(() => {
+    if (!authLoading && token) {
+      navigate("/app", { replace: true });
+    }
+  }, [token, authLoading, navigate]);
 
   // Gérer le compte à rebours pour la validité de l'OTP
   useEffect(() => {

@@ -17,7 +17,7 @@ import ContactsScreen from "./pages/ContactsScreen";
 export const router = createBrowserRouter([
   {
     path: "/",
-    Component: WelcomeScreen,
+    Component: LoginScreen,
   },
   {
     path: "/login",
