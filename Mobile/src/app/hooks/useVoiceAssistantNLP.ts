@@ -47,25 +47,25 @@ export function useVoiceAssistantNLP(
   const [parsedIntent, setParsedIntent] = useState<ParsedResponse | null>(null);
   const [isListening, setIsListening] = useState(false);
   const statusRef = useRef<AssistantStatus>('idle');
-  
+
   // Nouveaux états pour la désambiguïsation
   const [ambiguityContacts, setAmbiguityContacts] = useState<any[] | null>(null);
   const [ambiguityQuery, setAmbiguityQuery] = useState('');
   const ambiguityContextRef = useRef<{ intent: string; data: any } | null>(null);
-  
+
   // MediaRecorder pour audio brut
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recorderMimeTypeRef = useRef<string>('audio/webm');
   const audioContextRef = useRef<AudioContext | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  
+
   // Web Speech Recognition fallback
   const recognitionRef = useRef<any>(null);
-  
+
   // Token JWT
   const tokenRef = useRef<string | null>(null);
-  
+
   // Transaction ID pour confirmation
   const transactionIdRef = useRef<string | null>(null);
 
@@ -80,7 +80,7 @@ export function useVoiceAssistantNLP(
   useEffect(() => {
     // @ts-ignore
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    
+
     if (SpeechRecognition) {
       const rec = new SpeechRecognition();
       rec.continuous = false;
@@ -117,13 +117,13 @@ export function useVoiceAssistantNLP(
         const frenchVoices = voices.filter(v => v.lang.startsWith('fr'));
         console.log('🇫🇷 [TTS] Voix françaises:', frenchVoices.map(v => v.name));
       };
-      
+
       // Charger immédiatement si déjà disponibles
       loadVoices();
-      
+
       // Écouter le chargement asynchrone des voix (Chrome)
       window.speechSynthesis.onvoiceschanged = loadVoices;
-      
+
       // 🔧 Workaround bug Chrome: empêcher TTS de s'arrêter après inactivité
       const keepAliveInterval = setInterval(() => {
         if (window.speechSynthesis.paused) {
@@ -131,7 +131,7 @@ export function useVoiceAssistantNLP(
           window.speechSynthesis.resume();
         }
       }, 5000);
-      
+
       return () => {
         window.speechSynthesis.onvoiceschanged = null;
         clearInterval(keepAliveInterval);
@@ -145,7 +145,7 @@ export function useVoiceAssistantNLP(
   const startListening = useCallback(async () => {
     try {
       console.log('🎤 [START] Demande d\'accès microphone...');
-      
+
       // Request native Android permissions via Capacitor before web access
       try {
         const { SpeechRecognition } = await import('@capacitor-community/speech-recognition');
@@ -154,7 +154,7 @@ export function useVoiceAssistantNLP(
       } catch (e) {
         console.warn('⚠️ [NATIVE] Impossible de demander les permissions Capacitor (peut-être sur web)', e);
       }
-      
+
       // 🔔 Réveiller l'audio context (nécessaire pour l'autoplay sur mobile)
       if (window.speechSynthesis) {
         window.speechSynthesis.cancel(); // Réinitialise l'état
@@ -164,19 +164,19 @@ export function useVoiceAssistantNLP(
         window.speechSynthesis.speak(unlockUtterance);
         console.log('🔓 [AUDIO] Contexte audio débloqué');
       }
-      
+
       // Demander l'accès au microphone
-      const stream = await navigator.mediaDevices.getUserMedia({ 
+      const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
         }
       });
-      
+
       console.log('✅ [AUDIO] Microphone accès autorisé');
       streamRef.current = stream;
-      
+
       // Détecter les MIME types supportés
       const supportedMimeTypes = [
         'audio/webm',
@@ -185,7 +185,7 @@ export function useVoiceAssistantNLP(
         'audio/mp4',
         'audio/webm;codecs=opus',
       ];
-      
+
       let selectedMimeType = '';
       for (const mimeType of supportedMimeTypes) {
         if (MediaRecorder.isTypeSupported(mimeType)) {
@@ -194,29 +194,29 @@ export function useVoiceAssistantNLP(
           break;
         }
       }
-      
+
       if (!selectedMimeType) {
         // Fallback: créer sans spécifier le MIME type
         console.warn('⚠️ [AUDIO] Aucun MIME type spécifique supporté, utilisation du défaut du navigateur');
         selectedMimeType = '';
       }
-      
+
       // Créer MediaRecorder
       const mediaRecorderOptions = selectedMimeType ? { mimeType: selectedMimeType } : {};
       const mediaRecorder = new MediaRecorder(stream, mediaRecorderOptions);
       recorderMimeTypeRef.current = selectedMimeType || mediaRecorder.mimeType || 'audio/webm';
-      
+
       console.log(`📝 [AUDIO] MediaRecorder initié (format: ${selectedMimeType || 'default'})`);
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
-      
+
       // Collecter les chunks audio
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
           audioChunksRef.current.push(event.data);
         }
       };
-      
+
       // Lorsque l'enregistrement est terminé
       mediaRecorder.onstop = async () => {
         console.log('⏹️ [AUDIO] Enregistrement terminé, construction du Blob...');
@@ -226,12 +226,12 @@ export function useVoiceAssistantNLP(
         const audioExtension = mimeType.includes('webm')
           ? 'webm'
           : mimeType.includes('wav')
-          ? 'wav'
-          : mimeType.includes('ogg') || mimeType.includes('opus')
-          ? 'ogg'
-          : mimeType.includes('mp4') || mimeType.includes('aac')
-          ? 'm4a'
-          : 'webm';
+            ? 'wav'
+            : mimeType.includes('ogg') || mimeType.includes('opus')
+              ? 'ogg'
+              : mimeType.includes('mp4') || mimeType.includes('aac')
+                ? 'm4a'
+                : 'webm';
 
         console.log(`🎵 [SUCCESS] Audio enregistré: ${audioBlob.size} bytes (${mimeType})`);
         if (audioBlob.size === 0) {
@@ -240,105 +240,45 @@ export function useVoiceAssistantNLP(
           setFeedback('Erreur: aucun audio enregistré. Réessayez.');
           return;
         }
-        
+
         // Envoyer à l'API backend
         await sendAudioToBackend(audioBlob, `audio.${audioExtension}`);
       };
-      
+
       mediaRecorder.start();
       setStatus('listening');
       setIsListening(true);
       setFeedback('Je vous écoute...');
       setTranscript('');
       setParsedIntent(null);
-      
+
       console.log('✅ [SUCCESS] Enregistrement démarré');
       setStatus('listening');
       setIsListening(true);
       setFeedback('Je vous écoute...');
       setTranscript('');
       setParsedIntent(null);
-      
-      // Auto-stop après 15 secondes max
+
+      // Auto-stop de sécurité après 60 secondes max (si l'utilisateur oublie de désactiver)
       const timeout = setTimeout(() => {
         if (mediaRecorderRef.current?.state === 'recording') {
-          console.log('⏱️ [TIMEOUT] Arrêt auto après 15s');
+          console.log('⏱️ [TIMEOUT] Arrêt auto de sécurité après 60s');
           stopListening();
         }
-      }, 15000);
-      
-      // Détection du silence pour arrêt automatique ultra-rapide (après 800ms de silence)
-      const silenceConfig = {
-        // @ts-ignore - Vite environment variables
-        silenceThreshold: Number((import.meta.env.VITE_SILENCE_THRESHOLD as string | undefined) || 0.015),
-        // @ts-ignore - Vite environment variables
-        silenceDurationMs: Number((import.meta.env.VITE_SILENCE_DURATION_MS as string | undefined) || 800),
-        // @ts-ignore - Vite environment variables
-        maxRecordingMs: Number((import.meta.env.VITE_MAX_RECORDING_TIME_MS as string | undefined) || 15000),
-      };
-      
-      let lastSoundTime = Date.now();
-      let silenceDetected = false;
-      
-      // Démarrer le monitoring du silence avec l'analyseur connecté en temps réel
-      try {
-        const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-        audioContextRef.current = audioCtx;
-        const source = audioCtx.createMediaStreamSource(stream);
-        const analyser = audioCtx.createAnalyser();
-        analyser.fftSize = 512; // Plus petit fftSize pour une réactivité optimale
-        source.connect(analyser);
-        
-        const dataArray = new Uint8Array(analyser.fftSize);
-        
-        const checkSilence = () => {
-          if (mediaRecorderRef.current?.state !== 'recording') return;
-          
-          analyser.getByteTimeDomainData(dataArray);
-          
-          // Calcul correct du RMS (Root Mean Square) sur les échantillons dans le domaine temporel
-          let sum = 0;
-          for (let i = 0; i < dataArray.length; i++) {
-            const normalized = (dataArray[i] - 128) / 128;
-            sum += normalized * normalized;
-          }
-          const rms = Math.sqrt(sum / dataArray.length);
-          
-          if (rms > silenceConfig.silenceThreshold) {
-            lastSoundTime = Date.now();
-            if (silenceDetected) {
-              silenceDetected = false;
-            }
-          } else {
-            const silenceDuration = Date.now() - lastSoundTime;
-            if (silenceDuration > silenceConfig.silenceDurationMs && !silenceDetected) {
-              console.log(`🔇 [AUDIO-END] Parole terminée. Arrêt auto après ${silenceDuration}ms (RMS: ${rms.toFixed(4)})`);
-              silenceDetected = true;
-              stopListening();
-              return;
-            }
-          }
-          
-          requestAnimationFrame(checkSilence);
-        };
-        
-        requestAnimationFrame(checkSilence);
-      } catch (e) {
-        console.warn('⚠️ [AUDIO] Impossible de configurer AudioContext pour le silence:', e);
-      }
-      
+      }, 60000);
+
       return () => clearTimeout(timeout);
-      
+
     } catch (error: any) {
       console.error('❌ [ERROR] Erreur accès microphone:', error);
       console.error('   Type:', error.name);
       console.error('   Message:', error.message);
       setStatus('error');
-      const errorMsg = error.name === 'NotAllowedError' 
+      const errorMsg = error.name === 'NotAllowedError'
         ? 'Accès microphone refusé. Vérifiez les permissions du navigateur.'
         : error.name === 'NotFoundError'
-        ? 'Aucun microphone trouvé.'
-        : 'Erreur accès microphone: ' + error.message;
+          ? 'Aucun microphone trouvé.'
+          : 'Erreur accès microphone: ' + error.message;
       setFeedback(errorMsg);
       console.error('📢 [FEEDBACK]', errorMsg);
       speakFeedback(errorMsg);
@@ -351,7 +291,7 @@ export function useVoiceAssistantNLP(
   const stopListening = useCallback(() => {
     if (mediaRecorderRef.current?.state === 'recording') {
       mediaRecorderRef.current.stop();
-      
+
       // Libérer le flux microphone
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
@@ -364,7 +304,7 @@ export function useVoiceAssistantNLP(
         }
         audioContextRef.current = null;
       }
-      
+
       setIsListening(false);
       setStatus('processing');
       console.log('⏹️ Enregistrement arrêté et AudioContext libéré.');
@@ -396,7 +336,7 @@ export function useVoiceAssistantNLP(
         setFeedback(ussdResult.message);
         return ussdResult;
       }
-      
+
       // Gestion spécifique de l'ambiguïté des contacts
       if ((ussdResult as any).ambiguity) {
         console.log('🤔 [USSD] Ambiguïté détectée pour:', data?.recipient);
@@ -431,11 +371,11 @@ export function useVoiceAssistantNLP(
       console.log(`   Size: ${audioBlob.size} bytes`);
       console.log(`   Type: ${audioBlob.type}`);
       console.log(`   File: ${filename}`);
-      
+
       // FormData pour uploader le fichier
       const formData = new FormData();
       formData.append('audio_file', audioBlob, filename);
-      
+
       // Headers avec JWT
       const headers: any = {};
       if (tokenRef.current) {
@@ -444,7 +384,7 @@ export function useVoiceAssistantNLP(
       } else {
         console.warn('⚠️ [AUTH] Pas de token JWT trouvé');
       }
-      
+
       console.log('📡 [NETWORK] Envoi de la requête...');
       const response = await fetch(`${nlpApiUrl}/api/voice-command`, {
         method: 'POST',
@@ -467,17 +407,17 @@ export function useVoiceAssistantNLP(
       console.log(`   Confidence: ${result.metadata?.confidence}`);
       console.log(`   Understood: "${result.understood_text}"`);
       console.log(`   Needs confirmation: ${result.needs_confirmation}`);
-      
+
       // Sauvegarder l'intent parsé
       setParsedIntent(result);
       setTranscript(result.understood_text || '');
-      
+
       // Sauvegarder le transaction_id si présent (pour confirmation)
       if (result.transaction_id) {
         transactionIdRef.current = result.transaction_id;
         console.log(`💾 [CACHE] Transaction ID: ${result.transaction_id}`);
       }
-      
+
       // Afficher le message de réponse
       const message = result.message || result.confirmation_message || 'Action exécutée';
       console.log(`📢 [FEEDBACK] Message: "${message}"`);
@@ -510,7 +450,7 @@ export function useVoiceAssistantNLP(
             const spoken = ussdResult.dialerFallback
               ? ussdResult.message
               : ussdResult.message ||
-                'Demande envoyée à MTN. Validez avec votre code PIN si une fenêtre apparaît.';
+              'Demande envoyée à MTN. Validez avec votre code PIN si une fenêtre apparaît.';
             setFeedback(spoken);
             speakFeedback(spoken);
           } else if (result.audio_base64) {
@@ -534,7 +474,7 @@ export function useVoiceAssistantNLP(
           }
         }, 3000);
       }
-      
+
     } catch (error) {
       console.error('❌ [ERROR] Erreur envoi audio:');
       console.error('   Type:', (error as any)?.name);
@@ -545,7 +485,7 @@ export function useVoiceAssistantNLP(
       setFeedback(errorMsg);
       console.error(`📢 [FEEDBACK] ERROR: ${errorMsg}`);
       speakFeedback(errorMsg);
-      
+
       setTimeout(() => setStatus('idle'), 5000);
     }
   };
@@ -557,41 +497,41 @@ export function useVoiceAssistantNLP(
     return new Promise((resolve) => {
       try {
         console.log('🔊 Lecture audio de réponse...');
-        
+
         // Décoder base64 vers ArrayBuffer
         const binaryString = atob(base64Audio);
         const len = binaryString.length;
         const bytes = new Uint8Array(len);
-        
+
         for (let i = 0; i < len; i++) {
           bytes[i] = binaryString.charCodeAt(i);
         }
-        
+
         // Créer Blob et jouer
         const audioBlob = new Blob([bytes.buffer], { type: 'audio/mpeg' });
         const audioUrl = URL.createObjectURL(audioBlob);
         const audio = new Audio(audioUrl);
-        
+
         audio.onended = () => {
           URL.revokeObjectURL(audioUrl);
           console.log('✅ Audio terminé');
           resolve();
         };
-        
+
         audio.onerror = (error) => {
           console.error('❌ Erreur lecture audio:', error);
           URL.revokeObjectURL(audioUrl);
           resolve(); // Continuer même si erreur
         };
-        
+
         audio.play().catch(err => {
           console.error('❌ Erreur play():', err);
           resolve(); // Continuer même si erreur
         });
-        
+
         // Timeout si audio ne termine pas
         setTimeout(resolve, 30000);
-        
+
       } catch (error) {
         console.error('❌ Erreur décodage audio:', error);
         resolve(); // Continuer même si erreur
@@ -617,17 +557,17 @@ export function useVoiceAssistantNLP(
     } catch (e) {
       console.warn('⚠️ [TTS] Erreur plugin Capacitor, fallback Web Speech API', e);
       if (!('speechSynthesis' in window)) return;
-      
+
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = 'fr-FR';
       utterance.rate = 1;
       utterance.volume = 0.8;
-      
+
       const voices = window.speechSynthesis.getVoices();
       const frenchVoice = voices.find(v => v.lang.startsWith('fr'));
       if (frenchVoice) utterance.voice = frenchVoice;
-      
+
       window.speechSynthesis.speak(utterance);
     }
   };
@@ -707,7 +647,7 @@ export function useVoiceAssistantNLP(
         const spoken = ussdResult.dialerFallback
           ? ussdResult.message
           : ussdResult.message ||
-            'Demande envoyée à MTN. Validez avec votre code PIN si une fenêtre apparaît.';
+          'Demande envoyée à MTN. Validez avec votre code PIN si une fenêtre apparaît.';
         setFeedback(spoken);
         speakFeedback(spoken);
       } else if (result.success) {
@@ -738,10 +678,10 @@ export function useVoiceAssistantNLP(
    */
   const cancelAction = useCallback(async () => {
     console.log('❌ [CANCEL] Action annulée par l\'utilisateur');
-    
+
     setFeedback('Action annulée');
     speakFeedback('Action annulée');
-    
+
     setStatus('idle');
     setParsedIntent(null);
     setAmbiguityContacts(null);
@@ -755,24 +695,24 @@ export function useVoiceAssistantNLP(
     const ctx = ambiguityContextRef.current;
     setAmbiguityContacts(null);
     ambiguityContextRef.current = null;
-    
+
     if (!ctx) {
       setStatus('idle');
       return;
     }
-    
+
     console.log(`✅ [RESOLVE] Contact sélectionné: ${selectedContact.name} (${selectedContact.phone})`);
     setStatus('processing');
     setFeedback(`Contact sélectionné. Je lance l'opération pour ${selectedContact.name}...`);
-    
+
     // Injecter le numéro exact et forcer le passage sans ambiguïté
     const updatedData = {
       ...ctx.data,
       recipient: selectedContact.phone,
     };
-    
+
     const ussdResult = await triggerUSSD(ctx.intent, updatedData);
-    
+
     if (!ussdResult.success) {
       if (ussdResult.ambiguity) {
         // Ne devrait plus arriver car on a mis un numéro exact
