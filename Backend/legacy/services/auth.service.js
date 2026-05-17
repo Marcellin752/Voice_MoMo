@@ -230,28 +230,34 @@ function _updateInMemoryPin(userId, pinHash) {
 
 async function _sendSms(phone, message) {
   try {
-    if (process.env.SMS_PROVIDER_URL && process.env.SMS_API_KEY) {
-      // Intégration générique Termii / Twilio / Custom
-      const response = await fetch(process.env.SMS_PROVIDER_URL, {
+    if (process.env.SMS_API_KEY) {
+      // Configuration spécifique pour Termii
+      // L'URL peut être définie via SMS_PROVIDER_URL ou on utilise l'URL par défaut de Termii
+      const termiiUrl = process.env.SMS_PROVIDER_URL || "https://api.ng.termii.com/api/sms/send";
+      
+      const response = await fetch(termiiUrl, {
         method: "POST",
         headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${process.env.SMS_API_KEY}`
+          "Content-Type": "application/json"
         },
         body: JSON.stringify({
           to: phone,
-          message: message,
-          // Configuration spécifique Termii par exemple :
-          // api_key: process.env.SMS_API_KEY, type: "plain", channel: "generic", from: "VoiceMoMo"
+          from: "N-Alert", // Sender ID par défaut de Termii pour l'Afrique de l'Ouest
+          sms: message,
+          type: "plain",
+          channel: "generic",
+          api_key: process.env.SMS_API_KEY
         })
       });
+      
+      const data = await response.json().catch(() => null);
       if (!response.ok) {
-        console.error("❌ [SMS] Échec de l'envoi via le provider:", await response.text());
+        console.error("❌ [SMS] Échec de l'envoi via Termii:", data || response.statusText);
       } else {
-        console.log(`✅ [SMS] Message envoyé avec succès à ${phone}`);
+        console.log(`✅ [SMS] Message Termii envoyé avec succès à ${phone} ! ID:`, data?.message_id);
       }
     } else {
-      console.log(`⚠️ [SMS] Aucun provider configuré. Simulation locale de l'envoi SMS à ${phone} : "${message}"`);
+      console.log(`⚠️ [SMS] Aucune clé SMS_API_KEY configurée. Simulation de l'envoi SMS à ${phone} : "${message}"`);
     }
   } catch (err) {
     console.error("❌ [SMS] Erreur réseau lors de l'envoi du SMS :", err.message);
