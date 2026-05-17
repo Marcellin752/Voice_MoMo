@@ -243,7 +243,7 @@ async function _sendSms(phone, message) {
         // Ex: 0157311172 (Format 10 chiffres Ivoirien/Africain classique)
         // On force l'indicatif +225 pour la Côte d'Ivoire (ou +229 si c'était le cas)
         // L'utilisateur peut aussi définir process.env.DEFAULT_COUNTRY_CODE dans Render
-        const countryCode = process.env.DEFAULT_COUNTRY_CODE || "225";
+        const countryCode = process.env.DEFAULT_COUNTRY_CODE || "229";
         formattedPhone = `+${countryCode}${formattedPhone}`;
       } else if (formattedPhone.length === 8) {
         // Numéro local béninois classique (8 chiffres)
