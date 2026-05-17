@@ -358,6 +358,7 @@ export async function executeVoiceCommand(
     if (result && (result as any).ambiguity) {
       return {
         success: false,
+        ambiguity: (result as any).ambiguity,  // Tableau des contacts possibles
         message: (result as any).message || 'Plusieurs contacts possibles',
         action: intent,
       };

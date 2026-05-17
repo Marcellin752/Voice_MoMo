@@ -69,16 +69,24 @@ export class ContactResolverService {
         if (permission.contacts !== 'granted') return null;
 
         const result = await Contacts.getContacts({ projection: { name: true, phones: true } });
-        const matches = [];
+        const matches: { name: string; phone: string }[] = [];
         const search = nameQuery.toLowerCase().trim();
 
         for (const contact of result.contacts) {
-          const dName = (contact.displayName || (contact as any).name?.display || "").toLowerCase();
+          const dName = (contact.displayName || (contact as any).name?.display || '').toLowerCase();
           if (dName.includes(search)) {
-            let rawPhone = contact.phones?.[0]?.number || '';
-            if (rawPhone) {
+            const phones = contact.phones ?? [];
+            if (phones.length === 0) continue;
+
+            // Créer une entrée par numéro de téléphone pour permettre la désambiguïsation
+            for (const phoneEntry of phones) {
+              const rawPhone = phoneEntry.number || '';
+              if (!rawPhone) continue;
               const formattedPhone = this.formatBeninNumber(rawPhone);
-              matches.push({ name: contact.displayName, phone: formattedPhone });
+              matches.push({
+                name: contact.displayName || dName,
+                phone: formattedPhone,
+              });
             }
           }
         }
@@ -90,4 +98,5 @@ export class ContactResolverService {
     }
     return null;
   }
+
 }
