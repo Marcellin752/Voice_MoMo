@@ -57,6 +57,18 @@ async function initDb() {
       );
     `);
 
+    // 4. Création de la table des OTPs
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS otps (
+        id SERIAL PRIMARY KEY,
+        phone_number TEXT NOT NULL,
+        code TEXT NOT NULL,
+        expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+        is_used BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
     // 4. Création de la table des notifications
     await pool.query(`
       CREATE TABLE IF NOT EXISTS notifications (

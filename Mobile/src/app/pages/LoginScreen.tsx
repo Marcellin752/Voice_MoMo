@@ -45,11 +45,11 @@ export default function LoginScreen() {
     setPhone(val.replace(/\D/g, ""));
   };
 
-  // Limiter l'OTP à 4 chiffres et auto-soumettre
+  // Limiter l'OTP à 6 chiffres et auto-soumettre
   const handleOtpChange = (val: string) => {
-    const cleaned = val.replace(/\D/g, "").slice(0, 4);
+    const cleaned = val.replace(/\D/g, "").slice(0, 6);
     setOtp(cleaned);
-    if (cleaned.length === 4) {
+    if (cleaned.length === 6) {
       submitVerifyOtp(cleaned);
     }
   };
@@ -85,7 +85,7 @@ export default function LoginScreen() {
   // Étape 2 : Valider l'OTP
   const submitVerifyOtp = async (codeToVerify?: string) => {
     const targetCode = codeToVerify || otp;
-    if (targetCode.length !== 4) return;
+    if (targetCode.length !== 6) return;
 
     setLoading(true);
     try {
@@ -205,34 +205,20 @@ export default function LoginScreen() {
               transition={{ duration: 0.3 }}
               className="space-y-6"
             >
-              {/* Simulation Banner for Demo */}
-              {otpSentCode && (
-                <motion.div
-                  initial={{ scale: 0.95, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  className="bg-blue-50 dark:bg-[#004F71]/10 rounded-2xl border border-blue-200 dark:border-blue-500/20 p-4 text-center"
-                >
-                  <p className="text-xs font-bold text-[#004F71] dark:text-[#FFCC00] flex items-center justify-center gap-1.5">
-                    <Smartphone size={14} />
-                    [DEMO] Code reçu par SMS : <span className="text-base font-black underline tracking-widest">{otpSentCode}</span>
-                  </p>
-                </motion.div>
-              )}
-
               <div className="space-y-4">
                 <div className="flex justify-center">
-                  <div className="relative flex items-center bg-white dark:bg-[#1A1A1A] rounded-2xl border border-slate-200 dark:border-white/5 focus-within:border-[#FFCC00] focus-within:ring-4 focus-within:ring-[#FFCC00]/10 transition-all overflow-hidden shadow-sm w-48">
+                  <div className="relative flex items-center bg-white dark:bg-[#1A1A1A] rounded-2xl border border-slate-200 dark:border-white/5 focus-within:border-[#FFCC00] focus-within:ring-4 focus-within:ring-[#FFCC00]/10 transition-all overflow-hidden shadow-sm w-64">
                     <div className="pl-5 text-slate-400 shrink-0">
                       <KeyRound size={20} />
                     </div>
                     <input
                       type="text"
                       inputMode="numeric"
-                      maxLength={4}
-                      placeholder="••••"
+                      maxLength={6}
+                      placeholder="••••••"
                       value={otp}
                       onChange={(e) => handleOtpChange(e.target.value)}
-                      className="w-full bg-transparent text-slate-900 dark:text-white font-black text-2xl py-5 px-4 outline-none placeholder:text-slate-300 dark:placeholder:text-zinc-700 tracking-[0.5em] text-center"
+                      className="w-full bg-transparent text-slate-900 dark:text-white font-black text-2xl py-5 px-4 outline-none placeholder:text-slate-300 dark:placeholder:text-zinc-700 tracking-[0.3em] text-center"
                       autoFocus
                     />
                   </div>
