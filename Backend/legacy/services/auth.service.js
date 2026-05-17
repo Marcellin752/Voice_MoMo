@@ -230,9 +230,38 @@ function _updateInMemoryPin(userId, pinHash) {
 
 async function _sendSms(phone, message) {
   try {
+    // 1. Alternative : TWILIO (Recommandé pour tester sans blocage de Sender ID)
+    if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_PHONE_NUMBER) {
+      const url = `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`;
+      const auth = Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64');
+      
+      const formData = new URLSearchParams();
+      // Format E.164 obligatoire pour Twilio (ex: +229...)
+      const formattedPhone = phone.startsWith('+') ? phone : `+229${phone.replace(/^0+/, '')}`;
+      formData.append("To", formattedPhone);
+      formData.append("From", process.env.TWILIO_PHONE_NUMBER);
+      formData.append("Body", message);
+
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Authorization": `Basic ${auth}`,
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        body: formData.toString()
+      });
+      
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        console.error("❌ [SMS] Échec de l'envoi via Twilio:", data || response.statusText);
+      } else {
+        console.log(`✅ [SMS] Message Twilio envoyé avec succès à ${phone} !`);
+      }
+      return;
+    }
+
+    // 2. Alternative : TERMII (Avec support de SMS_SENDER_ID)
     if (process.env.SMS_API_KEY) {
-      // Configuration spécifique pour Termii
-      // L'URL peut être définie via SMS_PROVIDER_URL ou on utilise l'URL par défaut de Termii
       const termiiUrl = process.env.SMS_PROVIDER_URL || "https://api.ng.termii.com/api/sms/send";
       
       const response = await fetch(termiiUrl, {
@@ -242,7 +271,7 @@ async function _sendSms(phone, message) {
         },
         body: JSON.stringify({
           to: phone,
-          from: "N-Alert", // Sender ID par défaut de Termii pour l'Afrique de l'Ouest
+          from: process.env.SMS_SENDER_ID || "N-Alert", // Sender ID dynamique via .env (ex: "Termii")
           sms: message,
           type: "plain",
           channel: "generic",
@@ -256,9 +285,11 @@ async function _sendSms(phone, message) {
       } else {
         console.log(`✅ [SMS] Message Termii envoyé avec succès à ${phone} ! ID:`, data?.message_id);
       }
-    } else {
-      console.log(`⚠️ [SMS] Aucune clé SMS_API_KEY configurée. Simulation de l'envoi SMS à ${phone} : "${message}"`);
+      return;
     }
+
+    // 3. Mode Simulation
+    console.log(`⚠️ [SMS] Aucun provider configuré. Simulation de l'envoi SMS à ${phone} : "${message}"`);
   } catch (err) {
     console.error("❌ [SMS] Erreur réseau lors de l'envoi du SMS :", err.message);
   }
