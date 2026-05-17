@@ -226,12 +226,101 @@ function _updateInMemoryPin(userId, pinHash) {
   return false;
 }
 
+const _otps = new Map(); // phone -> { code, expiresAt }
+
+async function sendOtp(phone) {
+  const cleaned = _cleanPhone(phone);
+  _validatePhone(cleaned);
+
+  // Générer un code à 4 chiffres
+  const otpCode = Math.floor(1000 + Math.random() * 9000).toString();
+  const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+
+  _otps.set(cleaned, { code: otpCode, expiresAt });
+  console.log(`🔑 [OTP] Code OTP généré pour ${cleaned} : ${otpCode}`);
+
+  return { 
+    success: true, 
+    message: "Code OTP envoyé par SMS.",
+    // Pour faciliter la démo et le dev, on renvoie le code dans la réponse
+    code: otpCode
+  };
+}
+
+async function verifyOtp(phone, code) {
+  const cleaned = _cleanPhone(phone);
+  _validatePhone(cleaned);
+
+  const stored = _otps.get(cleaned);
+  if (!stored) {
+    const err = new Error("Code OTP expiré ou inexistant. Veuillez en demander un nouveau.");
+    err.status = 400;
+    throw err;
+  }
+
+  if (new Date() > stored.expiresAt) {
+    _otps.delete(cleaned);
+    const err = new Error("Code OTP expiré.");
+    err.status = 400;
+    throw err;
+  }
+
+  if (String(stored.code) !== String(code)) {
+    const err = new Error("Code OTP incorrect.");
+    err.status = 400;
+    throw err;
+  }
+
+  // Code valide, supprimer
+  _otps.delete(cleaned);
+
+  const useDb = await _isDbAvailable();
+  let user = null;
+
+  if (useDb) {
+    const existing = await db.query(
+      "SELECT * FROM users WHERE phone_number = $1 AND is_active = TRUE",
+      [cleaned]
+    );
+    if (existing.rows.length > 0) {
+      user = _formatDbUser(existing.rows[0]);
+    }
+  } else {
+    const memUser = _users.get(cleaned);
+    if (memUser) {
+      user = { id: memUser.id, fullName: memUser.fullName, phone: cleaned, balance: memUser.balance, currency: memUser.currency };
+    }
+  }
+
+  // Si l'utilisateur n'existe pas, on l'inscrit automatiquement
+  if (!user) {
+    console.log(`👤 [OTP] Nouvel utilisateur détecté (${cleaned}), inscription automatique...`);
+    const shortPhone = cleaned.slice(-4);
+    const defaultName = `Utilisateur ${shortPhone}`;
+    const regResult = await register(cleaned, "0000", defaultName);
+    return { token: regResult.token, user: regResult.user };
+  }
+
+  // Si l'utilisateur existe déjà, on génère une session
+  console.log(`👤 [OTP] Utilisateur existant connecté : ${cleaned}`);
+  const token = _generateToken(user.id, cleaned);
+  
+  if (useDb) {
+    await _saveSession(user.id, token);
+  }
+
+  return { token, user };
+}
+
 module.exports = {
   register,
   login,
   logout,
+  sendOtp,
+  verifyOtp,
   _isDbAvailable,
   _getInMemoryUserById,
   _updateInMemoryUser,
   _updateInMemoryPin,
 };
+

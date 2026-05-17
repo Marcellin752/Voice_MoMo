@@ -14,4 +14,19 @@ router.post(
 // POST /api/auth/login
 router.post("/login", requireFields(["phone", "pin"]), authController.login);
 
+// POST /api/auth/send-otp
+router.post(
+  "/send-otp",
+  requireFields(["phone"]),
+  authController.sendOtp
+);
+
+// POST /api/auth/verify-otp
+router.post(
+  "/verify-otp",
+  requireFields(["phone", "code"]),
+  authController.verifyOtp
+);
+
 module.exports = router;
+
