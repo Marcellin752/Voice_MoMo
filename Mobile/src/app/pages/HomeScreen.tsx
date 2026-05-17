@@ -2,9 +2,8 @@ import { SmsListenerService } from '../services/sms.service';
 import { MoMoTransactionEngine } from '../services/ussd_engine/MoMoTransactionEngine';
 import { useState, useEffect, SetStateAction } from "react";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
-import { Mic, Eye, EyeOff, Bell, ArrowDownLeft, ArrowUpRight } from "lucide-react";
-import { motion, AnimatePresence } from "motion/react";
-import { useVoiceAssistantNLP } from "../hooks/useVoiceAssistantNLP";
+import { Eye, EyeOff, Bell, ArrowDownLeft, ArrowUpRight } from "lucide-react";
+import { motion } from "motion/react";
 import { useNavigate } from "react-router";
 import * as usersService from "../services/users.service";
 import * as transactionsService from "../services/transactions.service";
@@ -15,7 +14,6 @@ import { toast } from "sonner";
 const PROFILE_UPDATED_EVENT = "momo:profile-updated";
 
 export default function HomeScreen() {
-  const { status, transcript, feedback, startListening, stopListening, confirmAction, cancelAction, parsedIntent } = useVoiceAssistantNLP();
   const { t } = useLanguage();
   const [showBalance, setShowBalance] = useState(false);
   const navigate = useNavigate();
@@ -208,69 +206,8 @@ export default function HomeScreen() {
           </div>
         </motion.div>
       </div>
-
-      {/* Voice Assistant - Centered */}
-      <div className="flex flex-col items-center justify-center py-8 gap-4">
-        <AnimatePresence>
-          {status !== 'idle' && (
-            <motion.div
-              initial={{ opacity: 0, y: 20, scale: 0.9 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 20, scale: 0.9 }}
-              className="bg-white dark:bg-[#1A1A1A] p-4 rounded-2xl shadow-xl shadow-slate-200/50 dark:shadow-none border border-slate-100 dark:border-white/10 max-w-[260px]"
-            >
-              <p className="text-[#004F71] dark:text-[#FFCC00] text-sm font-bold italic">"{transcript || '...'}"</p>
-              {feedback && (
-                <p className={`text-xs mt-1 font-medium ${status === 'error' ? 'text-red-500' : 'text-slate-500 dark:text-zinc-400'}`}>
-                  {feedback}
-                </p>
-              )}
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        <motion.button
-          onClick={status === 'idle' ? startListening : stopListening}
-          whileTap={{ scale: 0.9 }}
-          className={`relative w-20 h-20 rounded-full flex items-center justify-center shadow-xl border-[3px] border-slate-50 dark:border-[#121212] ${status === 'idle'
-            ? 'bg-[#004F71] text-white hover:bg-[#003B5C]'
-            : 'bg-red-500 text-white'
-            }`}
-        >
-          {status === 'listening' || status === 'processing' ? (
-            <motion.div
-              animate={{
-                boxShadow: ["0 0 0 0px rgba(239, 68, 68, 0.4)", "0 0 0 20px rgba(239, 68, 68, 0)"]
-              }}
-              transition={{ repeat: Infinity, duration: 1.5 }}
-              className="absolute inset-0 rounded-full"
-            />
-          ) : null}
-          <Mic size={32} className={status === 'listening' ? 'animate-pulse' : ''} />
-        </motion.button>
-
-        {/* Boutons Confirmer/Annuler - affichés quand confirmation nécessaire */}
-        {parsedIntent?.needs_confirmation && (
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="flex gap-3 mt-4"
-          >
-            <button
-              onClick={confirmAction}
-              className="bg-green-500 hover:bg-green-600 text-white px-5 py-2.5 rounded-xl font-semibold shadow-lg transition-colors"
-            >
-              Confirmer
-            </button>
-            <button
-              onClick={cancelAction}
-              className="bg-red-500 hover:bg-red-600 text-white px-5 py-2.5 rounded-xl font-semibold shadow-lg transition-colors"
-            >
-              Annuler
-            </button>
-          </motion.div>
-        )}
-      </div>
+      {/* Spacer to separate sections cleanly */}
+      <div className="h-6" />
 
       {/* Recent Transactions */}
       <div className="px-6 pb-6">

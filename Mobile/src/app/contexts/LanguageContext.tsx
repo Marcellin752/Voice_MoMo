@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import * as usersService from "../services/users.service";
+import { StorageService } from "../services/storage.service";
 
 export type AppLanguage = "fr" | "en";
 
@@ -96,16 +97,41 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   const [language, setLanguageState] = useState<AppLanguage>("fr");
 
   useEffect(() => {
-    usersService
-      .getLanguage()
-      .then((res) => setLanguageState(res.language))
-      .catch(() => {});
+    async function loadLanguage() {
+      // 1. Lire immédiatement depuis les préférences locales (SharedPreferences)
+      const localLang = await StorageService.get<AppLanguage>('momo.language');
+      if (localLang === 'fr' || localLang === 'en') {
+        setLanguageState(localLang);
+      }
+      
+      // 2. Tenter de charger/synchroniser avec le serveur
+      try {
+        const res = await usersService.getLanguage();
+        if (res.language && res.language !== localLang) {
+          setLanguageState(res.language);
+          await StorageService.set('momo.language', res.language);
+        }
+      } catch (err) {
+        console.warn("⚠️ Impossible de synchroniser la langue avec le backend", err);
+      }
+    }
+    loadLanguage();
   }, []);
+
+  const changeLanguage = async (lang: AppLanguage) => {
+    setLanguageState(lang);
+    await StorageService.set('momo.language', lang);
+    try {
+      await usersService.updateLanguage(lang);
+    } catch (err) {
+      console.warn("⚠️ Échec d'envoi de la langue au backend", err);
+    }
+  };
 
   const value = useMemo<LanguageContextType>(
     () => ({
       language,
-      setLanguage: setLanguageState,
+      setLanguage: changeLanguage,
       t: (key: string) => translations[language][key] || key,
     }),
     [language]
@@ -119,4 +145,5 @@ export function useLanguage() {
   if (!ctx) throw new Error("useLanguage must be used within LanguageProvider");
   return ctx;
 }
+
 

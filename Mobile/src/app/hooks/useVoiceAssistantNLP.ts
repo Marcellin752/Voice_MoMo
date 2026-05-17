@@ -259,79 +259,64 @@ export function useVoiceAssistantNLP(
         }
       }, 15000);
       
-      // Détection du silence pour arrêt automatique plus rapide
-      // (après 2 secondes de silence ou 30 secondes max)
+      // Détection du silence pour arrêt automatique ultra-rapide (après 800ms de silence)
       const silenceConfig = {
         // @ts-ignore - Vite environment variables
-        silenceThreshold: Number((import.meta.env.VITE_SILENCE_THRESHOLD as string | undefined) || 0.02),
+        silenceThreshold: Number((import.meta.env.VITE_SILENCE_THRESHOLD as string | undefined) || 0.015),
         // @ts-ignore - Vite environment variables
-        silenceDurationMs: Number((import.meta.env.VITE_SILENCE_DURATION_MS as string | undefined) || 2000),
+        silenceDurationMs: Number((import.meta.env.VITE_SILENCE_DURATION_MS as string | undefined) || 800),
         // @ts-ignore - Vite environment variables
-        maxRecordingMs: Number((import.meta.env.VITE_MAX_RECORDING_TIME_MS as string | undefined) || 30000),
+        maxRecordingMs: Number((import.meta.env.VITE_MAX_RECORDING_TIME_MS as string | undefined) || 15000),
       };
       
       let lastSoundTime = Date.now();
       let silenceDetected = false;
       
-      const monitorAudio = async () => {
-        try {
-          const analyser = audioContextRef.current?.createAnalyser();
-          if (!analyser || !streamRef.current) return;
+      // Démarrer le monitoring du silence avec l'analyseur connecté en temps réel
+      try {
+        const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+        audioContextRef.current = audioCtx;
+        const source = audioCtx.createMediaStreamSource(stream);
+        const analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 512; // Plus petit fftSize pour une réactivité optimale
+        source.connect(analyser);
+        
+        const dataArray = new Uint8Array(analyser.fftSize);
+        
+        const checkSilence = () => {
+          if (mediaRecorderRef.current?.state !== 'recording') return;
           
-          const dataArray = new Uint8Array(analyser.frequencyBinCount);
-          const checkSilence = () => {
-            analyser.getByteFrequencyData(dataArray);
-            
-            // Calculer le RMS (Root Mean Square) pour déterminer le niveau sonore
-            let sum = 0;
-            for (let i = 0; i < dataArray.length; i++) {
-              const normalized = (dataArray[i] - 128) / 128;
-              sum += normalized * normalized;
-            }
-            const rms = Math.sqrt(sum / dataArray.length);
-            
-            if (rms > silenceConfig.silenceThreshold) {
-              // Son détecté
-              lastSoundTime = Date.now();
-              if (silenceDetected) {
-                console.log('🔊 [AUDIO] Son rédetecté après silence');
-                silenceDetected = false;
-              }
-            } else {
-              // Silence
-              const silenceDuration = Date.now() - lastSoundTime;
-              if (silenceDuration > silenceConfig.silenceDurationMs && !silenceDetected) {
-                console.log(`🔇 [AUDIO] Silence détecté après ${silenceDuration}ms`);
-                silenceDetected = true;
-                // Arrêter l'enregistrement automatiquement
-                stopListening();
-                return;
-              }
-            }
-            
-            if (mediaRecorderRef.current?.state === 'recording') {
-              requestAnimationFrame(checkSilence);
-            }
-          };
+          analyser.getByteTimeDomainData(dataArray);
           
-          checkSilence();
-        } catch (e) {
-          console.warn('⚠️ [AUDIO] Erreur détection silence:', e);
-        }
-      };
-      
-      // Démarrer le monitoring du silence
-      if (!audioContextRef.current) {
-        try {
-          audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-          const source = audioContextRef.current.createMediaStreamSource(stream);
-          const analyser = audioContextRef.current.createAnalyser();
-          analyser.fftSize = 1024;
-          source.connect(analyser);
-          monitorAudio();
-        } catch (e) {
-          console.warn('⚠️ [AUDIO] Impossible créer AudioContext pour détection silence:', e);
-        }
+          // Calcul correct du RMS (Root Mean Square) sur les échantillons dans le domaine temporel
+          let sum = 0;
+          for (let i = 0; i < dataArray.length; i++) {
+            const normalized = (dataArray[i] - 128) / 128;
+            sum += normalized * normalized;
+          }
+          const rms = Math.sqrt(sum / dataArray.length);
+          
+          if (rms > silenceConfig.silenceThreshold) {
+            lastSoundTime = Date.now();
+            if (silenceDetected) {
+              silenceDetected = false;
+            }
+          } else {
+            const silenceDuration = Date.now() - lastSoundTime;
+            if (silenceDuration > silenceConfig.silenceDurationMs && !silenceDetected) {
+              console.log(`🔇 [AUDIO-END] Parole terminée. Arrêt auto après ${silenceDuration}ms (RMS: ${rms.toFixed(4)})`);
+              silenceDetected = true;
+              stopListening();
+              return;
+            }
+          }
+          
+          requestAnimationFrame(checkSilence);
+        };
+        
+        requestAnimationFrame(checkSilence);
+      } catch (e) {
+        console.warn('⚠️ [AUDIO] Impossible de configurer AudioContext pour le silence:', e);
       }
       
       return () => clearTimeout(timeout);
@@ -353,20 +338,28 @@ export function useVoiceAssistantNLP(
   }, []);
 
   /**
-   * ⏹️ Arrêter l'enregistrement audio
+   * ⏹️ Arrêter l'enregistrement audio et fermer proprement l'AudioContext
    */
   const stopListening = useCallback(() => {
     if (mediaRecorderRef.current?.state === 'recording') {
       mediaRecorderRef.current.stop();
       
-      // Arrêter le stream microphone
+      // Libérer le flux microphone
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
+      }
+
+      // Nettoyer et détruire proprement l'AudioContext pour éviter les fuites de mémoire
+      if (audioContextRef.current) {
+        if (audioContextRef.current.state !== 'closed') {
+          audioContextRef.current.close().catch(console.error);
+        }
+        audioContextRef.current = null;
       }
       
       setIsListening(false);
       setStatus('processing');
-      console.log('⏹️ Enregistrement arrêté');
+      console.log('⏹️ Enregistrement arrêté et AudioContext libéré.');
     }
   }, []);
 
