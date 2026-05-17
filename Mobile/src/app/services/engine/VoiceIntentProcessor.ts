@@ -46,7 +46,7 @@ export class VoiceIntentProcessor {
     }
 
     if (contacts.length > 1) {
-      return { status: 'ambiguity', contacts, message: `Plusieurs contacts trouvés pour '${recipientRaw}'.` };
+      return { status: 'ambiguity', ambiguity: contacts, message: `Plusieurs contacts trouvés pour '${recipientRaw}'.` };
     }
 
     const finalNumber = contacts[0].phone;
