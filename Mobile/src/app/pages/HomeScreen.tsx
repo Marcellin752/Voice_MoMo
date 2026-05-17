@@ -3,7 +3,7 @@ import { MoMoTransactionEngine } from '../services/ussd_engine/MoMoTransactionEn
 import { useState, useEffect, SetStateAction } from "react";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import { Eye, EyeOff, Bell, ArrowDownLeft, ArrowUpRight } from "lucide-react";
-import { motion } from "motion/react";
+import { motion, AnimatePresence } from "motion/react";
 import { useNavigate } from "react-router";
 import * as usersService from "../services/users.service";
 import * as transactionsService from "../services/transactions.service";
