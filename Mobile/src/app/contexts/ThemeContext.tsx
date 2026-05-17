@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react';
+import { StorageService } from '../services/storage.service';
 
 type Theme = 'light' | 'dark';
 
@@ -12,6 +13,21 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setTheme] = useState<Theme>('light');
 
+  // Charger le thème depuis le stockage natif persistant au chargement de l'application
+  useEffect(() => {
+    async function loadTheme() {
+      const savedTheme = await StorageService.get<Theme>('momo.theme');
+      if (savedTheme === 'light' || savedTheme === 'dark') {
+        setTheme(savedTheme);
+      } else {
+        // Optionnel: Détection automatique du mode sombre système
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        setTheme(prefersDark ? 'dark' : 'light');
+      }
+    }
+    loadTheme();
+  }, []);
+
   useEffect(() => {
     const root = window.document.documentElement;
     if (theme === 'dark') {
@@ -21,8 +37,11 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     }
   }, [theme]);
 
-  const toggleTheme = () => {
-    setTheme(prev => prev === 'light' ? 'dark' : 'light');
+  const toggleTheme = async () => {
+    const nextTheme = theme === 'light' ? 'dark' : 'light';
+    setTheme(nextTheme);
+    await StorageService.set('momo.theme', nextTheme);
+    console.log(`🌗 [THEME] Thème mis à jour et sauvegardé: ${nextTheme}`);
   };
 
   return (

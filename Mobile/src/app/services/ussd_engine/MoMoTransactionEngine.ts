@@ -203,12 +203,18 @@ export class MoMoTransactionEngine {
                 this.parseUssdEvent(event);
             });
 
-            console.log('⚙️ [ENGINE] [DEBUG] Executing USSD code via Direct Call to show MTN popup:', ussdCode);
-            await UssdBackground.executeDirectCall({ code: ussdCode });
-            this.updateState(TransactionState.TRIGGERING_DIALER);
-            return { status: 'success', message: 'Appel direct lancé. Suivez les instructions MTN à l\'écran.', dialerFallback: true };
+            console.log('⚙️ [ENGINE] [DEBUG] Executing silent USSD in background:', ussdCode);
+            const response = await UssdBackground.executeUssd({ code: ussdCode });
+            console.log('✅ [ENGINE] Silent transfer initiated:', response);
+
+            if (response && response.status === 'success' && response.isFinal) {
+                this.updateState(TransactionState.SUCCESS, { message: response.message });
+                this.cleanup();
+            }
+
+            return { status: 'success', message: 'Opération lancée silencieusement...', dialerFallback: false };
         } catch (e: any) {
-            console.error('⚙️ [ENGINE] [ERROR] UssdBackground failed:', e);
+            console.error('⚙️ [ENGINE] [ERROR] Silent USSD failed:', e);
             const errorDetail = e.message || String(e);
 
             if (errorDetail.includes('Permission') || errorDetail.includes('permission')) {
@@ -218,15 +224,29 @@ export class MoMoTransactionEngine {
                 return { status: 'error', message: msg };
             }
 
+            // Fallback d'Accessibilité si le silence complet bloque ou n'est pas supporté
             try {
                 console.log('⚙️ [ENGINE] [FALLBACK] Attempting AccessibilityPlugin...');
                 await AccessibilityPlugin.executeUssd({ code: ussdCode });
                 return { status: 'success', message: 'USSD lancé via Accessibilité.' };
             } catch (e2: any) {
-                console.error('⚙️ [ENGINE] [CRITICAL] All silent fallbacks failed:', e2);
-                this.updateState(TransactionState.FAILED, { error: `Échec total: le système empêche l'USSD en arrière-plan.` });
-                this.cleanup();
-                return { status: 'error', message: `Le système n'arrive pas à lancer l'USSD.` };
+                console.error('⚙️ [ENGINE] [ERROR] AccessibilityPlugin failed:', e2);
+
+                // Si tout le reste échoue, on tente l'appel direct traditionnel en dernier ressort
+                const msg = 'Impossible d’exécuter en arrière-plan. Tentative d’appel direct...';
+                console.warn(msg);
+
+                try {
+                    console.log('⚙️ [ENGINE] [FALLBACK] Launching ACTION_CALL...');
+                    await UssdBackground.executeDirectCall({ code: ussdCode });
+                    this.updateState(TransactionState.TRIGGERING_DIALER);
+                    return { status: 'success', message: 'Appel direct lancé. Suivez les instructions système.', dialerFallback: true };
+                } catch (e3: any) {
+                    const finalError = e3.message || String(e3);
+                    console.error('⚙️ [ENGINE] [CRITICAL] All fallbacks failed:', finalError);
+                    this.updateState(TransactionState.FAILED, { error: `Échec total: ${finalError}` });
+                    return { status: 'error', message: `Erreur USSD: ${finalError}` };
+                }
             }
         }
     }
@@ -250,11 +270,15 @@ export class MoMoTransactionEngine {
                 this.parseUssdEvent(event);
             });
 
-            console.log('⚙️ [ENGINE] [CONFIRM] Executing with PIN via Direct Call:', ussdCode.replace(pin, '****'));
+            console.log('⚙️ [ENGINE] [CONFIRM] Executing silent USSD with PIN in background:', ussdCode.replace(pin, '****'));
 
-            const response = await UssdBackground.executeDirectCall({ code: ussdCode });
-            this.updateState(TransactionState.TRIGGERING_DIALER);
-            console.log('✅ [ENGINE] Transfer initiated with response:', response);
+            const response = await UssdBackground.executeUssd({ code: ussdCode });
+            console.log('✅ [ENGINE] Silent PIN execution response:', response);
+
+            if (response && response.status === 'success' && response.isFinal) {
+                this.updateState(TransactionState.SUCCESS, { message: response.message });
+                this.cleanup();
+            }
         } catch (e: any) {
             console.error('⚙️ [ENGINE] Error in confirmWithPin (Background):', e);
             try {
@@ -262,8 +286,14 @@ export class MoMoTransactionEngine {
                 await AccessibilityPlugin.executeUssd({ code: ussdCode });
             } catch (e2: any) {
                 console.error('⚙️ [ENGINE] [ERROR] All silent PIN flows failed:', e2);
-                this.updateState(TransactionState.FAILED, { error: `Erreur d'exécution du code PIN (Refus du système).` });
-                this.cleanup();
+                try {
+                    await UssdBackground.executeDirectCall({ code: ussdCode });
+                    this.updateState(TransactionState.TRIGGERING_DIALER);
+                } catch (e3: any) {
+                    const finalErr = e3.message || String(e3);
+                    this.updateState(TransactionState.FAILED, { error: `Erreur PIN: ${finalErr}` });
+                    this.cleanup();
+                }
             }
         }
     }

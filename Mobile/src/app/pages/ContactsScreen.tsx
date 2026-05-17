@@ -1,6 +1,7 @@
-import { useState } from "react";
-import { Users, Search, Phone, UserCircle, ChevronRight, AlertCircle } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Users, Search, Phone, UserCircle, ChevronRight, AlertCircle, RefreshCw } from "lucide-react";
 import { Capacitor } from "@capacitor/core";
+import { StorageService } from "../services/storage.service";
 
 type Contact = {
   name: string[];
@@ -33,10 +34,22 @@ export default function ContactsScreen() {
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
 
+  useEffect(() => {
+    async function loadCached() {
+      const cached = await StorageService.get<Contact[]>('momo.contacts');
+      if (cached && cached.length > 0) {
+        setContacts(cached);
+        setLoaded(true);
+      }
+    }
+    loadCached();
+  }, []);
+
   const isWebContactApiSupported = typeof navigator !== "undefined" && "contacts" in navigator;
   const isNative = Capacitor.isNativePlatform();
 
   const toUiContacts = (nativeContacts: NativeContactPayload[]): Contact[] =>
+
     nativeContacts
       .map((entry) => {
         const displayName = entry.name?.display?.trim();
@@ -108,6 +121,7 @@ export default function ContactsScreen() {
 
         const uiContacts = toUiContacts(result.contacts as NativeContactPayload[]);
         setContacts(uiContacts);
+        await StorageService.set('momo.contacts', uiContacts);
         setLoaded(true);
         syncContactsToBackend(uiContacts);
         return;
@@ -124,6 +138,7 @@ export default function ContactsScreen() {
         { multiple: true }
       );
       setContacts(selected);
+      await StorageService.set('momo.contacts', selected);
       setLoaded(true);
       syncContactsToBackend(selected);
     } catch (err: unknown) {
@@ -157,9 +172,19 @@ export default function ContactsScreen() {
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-2xl font-black tracking-tight text-slate-900 dark:text-white">Contacts</h1>
         {loaded && (
-          <span className="text-xs font-bold text-slate-400 dark:text-zinc-500">
-            {contacts.length} contact{contacts.length !== 1 ? "s" : ""}
-          </span>
+          <div className="flex items-center space-x-3">
+            <span className="text-xs font-bold text-slate-400 dark:text-zinc-500">
+              {contacts.length} contact{contacts.length !== 1 ? "s" : ""}
+            </span>
+            <button
+              onClick={loadContacts}
+              disabled={loading}
+              className="p-2 bg-slate-100 dark:bg-white/5 rounded-full text-[#004F71] dark:text-[#FFCC00] hover:bg-slate-200 dark:hover:bg-white/10 transition-colors disabled:opacity-50 cursor-pointer"
+              title="Synchroniser les contacts"
+            >
+              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+            </button>
+          </div>
         )}
       </div>
 
