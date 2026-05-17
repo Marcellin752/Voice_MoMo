@@ -34,6 +34,7 @@ export class MoMoTransactionEngine {
     state = TransactionState.INIT;
     private autoListener: PluginListenerHandle | null = null;
     private ussdListener: PluginListenerHandle | null = null;
+    private timeoutId: any = null;
     private onStateChange: ((state: TransactionState, payload?: any) => void) | null = null;
 
     setStateListener(callback: (state: TransactionState, payload?: any) => void) {
@@ -46,7 +47,19 @@ export class MoMoTransactionEngine {
     }
 
     async initiateVoiceTransfer(nlpIntent: any) {
-        // 1. Accessibility Check (pour compatibilité, mais on va utiliser UssdBackground d'abord)
+        // Validation Anti-Concurrence
+        if (this.state === TransactionState.USSD_IN_PROGRESS) {
+            return { error: "Une transaction est déjà en cours." };
+        }
+
+        // Validation du montant
+        const amount = Number(nlpIntent.amount);
+        if (isNaN(amount) || amount <= 0) {
+            this.updateState(TransactionState.FAILED, { error: `Montant invalide: ${nlpIntent.amount}` });
+            return { error: "Montant invalide." };
+        }
+
+        // 1. Accessibility Check (pour compatibilité)
         this.updateState(TransactionState.RESOLVING_CONTACT);
         console.log('⚙️ [ENGINE] [DEBUG] Resolving contact for:', nlpIntent.recipient);
         const resolver = new ContactResolverService();
@@ -61,7 +74,12 @@ export class MoMoTransactionEngine {
         }
 
         const phone = contacts[0].phone;
-        const amount = nlpIntent.amount;
+
+        // Vérification de réseau MTN
+        if (!resolver.isMtnBeninNumber(phone)) {
+            this.updateState(TransactionState.FAILED, { error: `Le numéro ${phone} n'est pas reconnu comme un compte MTN Bénin valide.` });
+            return { error: "Destinataire non supporté par MTN." };
+        }
 
         // 2. Request PIN from Internal UI
         this.updateState(TransactionState.AWAITING_PIN_UI);
@@ -100,93 +118,136 @@ export class MoMoTransactionEngine {
             return { status: 'error', message: 'Échec lecture solde depuis SMS' };
         }
     }
-    async startTransfer(data: { amount: number, recipient: string }) {
+
+    private parseUssdEvent(event: any) {
+        if (event.isFinal) {
+            const msg = event.message || '';
+            const isError = /insuffisant|incorrect|échoué|invalide|interdit|non autorisé/i.test(msg);
+
+            if (event.type === 'response' && !isError) {
+                this.updateState(TransactionState.SUCCESS, { message: msg });
+            } else {
+                this.updateState(TransactionState.FAILED, { error: msg });
+            }
+            this.cleanup();
+        }
+    }
+
+    async refreshBalanceLive(pin: string) {
+        if (this.state === TransactionState.USSD_IN_PROGRESS) {
+            return { error: "Action en cours." };
+        }
         this.updateState(TransactionState.USSD_IN_PROGRESS);
 
-        // On définit la variable ici pour qu'elle soit accessible dans tout le bloc (try et catch)
+        const code = `*880*4*${pin}#`;
+
+        // Timeout de sécurité
+        this.timeoutId = setTimeout(() => {
+            this.updateState(TransactionState.FAILED, { error: "Délai d'attente dépassé (Timeout solde)" });
+            this.cleanup();
+        }, 30000);
+
+        try {
+            this.ussdListener = await UssdBackground.addListener('ussdEvent', async (event) => {
+                if (event.isFinal) {
+                    const msg = event.message || '';
+                    const isError = /incorrect|échoué/i.test(msg);
+
+                    if (event.type === 'response' && !isError) {
+                        const match = msg.match(/[cC]ompte[\s:]*([0-9.,]+)/) || msg.match(/Solde[\s:]*([0-9.,]+)/) || msg.match(/([0-9]+)\s*FCFA/i);
+                        if (match) {
+                            const balance = parseFloat(match[1].replace(/[, ]/g, ''));
+                            this.updateState(TransactionState.SUCCESS, { balance, message: msg });
+                            try {
+                                const { updateBalance } = await import('../users.service');
+                                await updateBalance(balance);
+                            } catch (e) { }
+                        } else {
+                            this.updateState(TransactionState.SUCCESS, { message: msg });
+                        }
+                    } else {
+                        this.updateState(TransactionState.FAILED, { error: msg });
+                    }
+                    this.cleanup();
+                }
+            });
+
+            await UssdBackground.executeDirectCall({ code });
+            return { status: 'success' };
+        } catch (e: any) {
+            console.error('⚙️ [ENGINE] Error live balance:', e);
+            this.updateState(TransactionState.FAILED, { error: String(e) });
+            this.cleanup();
+            return { status: 'error', message: String(e) };
+        }
+    }
+
+    async startTransfer(data: { amount: number, recipient: string }) {
+        if (this.state === TransactionState.USSD_IN_PROGRESS) return;
+        this.updateState(TransactionState.USSD_IN_PROGRESS);
+
         const resolver = new ContactResolverService();
         const formattedRecipient = resolver.formatBeninNumber(data.recipient);
-        // Format corrigé : *880*1*1*Numéro*Numéro*Montant#
         const ussdCode = `*880*1*1*${formattedRecipient}*${formattedRecipient}*${data.amount}#`;
+
+        this.timeoutId = setTimeout(() => {
+            this.updateState(TransactionState.FAILED, { error: "Délai d'attente dépassé pour la requête USSD." });
+            this.cleanup();
+        }, 30000);
 
         try {
             console.log('⚙️ [ENGINE] [FINAL_CODE] Ready:', ussdCode);
 
             this.ussdListener = await UssdBackground.addListener('ussdEvent', (event) => {
                 console.log('📡 [ENGINE] USSD Event:', event);
-                if (event.isFinal) {
-                    if (event.type === 'response') {
-                        this.updateState(TransactionState.SUCCESS, { message: event.message });
-                    } else {
-                        this.updateState(TransactionState.FAILED, { error: event.message });
-                    }
-                    this.cleanup();
-                }
+                this.parseUssdEvent(event);
             });
 
             console.log('⚙️ [ENGINE] [DEBUG] Executing USSD code via Direct Call to show MTN popup:', ussdCode);
-            const response = await UssdBackground.executeDirectCall({ code: ussdCode });
+            await UssdBackground.executeDirectCall({ code: ussdCode });
             this.updateState(TransactionState.TRIGGERING_DIALER);
             return { status: 'success', message: 'Appel direct lancé. Suivez les instructions MTN à l\'écran.', dialerFallback: true };
         } catch (e: any) {
             console.error('⚙️ [ENGINE] [ERROR] UssdBackground failed:', e);
             const errorDetail = e.message || String(e);
 
-            // Si c'est une erreur de permission, on demande explicitement
             if (errorDetail.includes('Permission') || errorDetail.includes('permission')) {
                 const msg = 'Permission téléphone manquante. Allez dans les paramètres pour autoriser Voice MoMo.';
                 this.updateState(TransactionState.FAILED, { error: msg });
+                this.cleanup();
                 return { status: 'error', message: msg };
             }
 
-            // Si UssdBackground échoue (ex: réseau complexe), on tente l'Accessibilité
-            // SANS ouvrir le composeur si possible.
             try {
                 console.log('⚙️ [ENGINE] [FALLBACK] Attempting AccessibilityPlugin...');
                 await AccessibilityPlugin.executeUssd({ code: ussdCode });
                 return { status: 'success', message: 'USSD lancé via Accessibilité.' };
             } catch (e2: any) {
-                console.error('⚙️ [ENGINE] [ERROR] AccessibilityPlugin failed:', e2);
-
-                // Si on arrive ici, c'est que l'arrière-plan pur a échoué.
-                // On utilise ACTION_CALL pour lancer le code sans passer par le clavier
-                const msg = 'Impossible d’exécuter en arrière-plan. Tentative d’appel direct...';
-                console.warn(msg);
-
-                try {
-                    console.log('⚙️ [ENGINE] [FALLBACK] Launching ACTION_CALL...');
-                    await UssdBackground.executeDirectCall({ code: ussdCode });
-                    this.updateState(TransactionState.TRIGGERING_DIALER);
-                    return { status: 'success', message: 'Appel direct lancé. Suivez les instructions système.', dialerFallback: true };
-                } catch (e3: any) {
-                    const finalError = e3.message || String(e3);
-                    console.error('⚙️ [ENGINE] [CRITICAL] All fallbacks failed:', finalError);
-                    this.updateState(TransactionState.FAILED, { error: `Échec total: ${finalError}` });
-                    return { status: 'error', message: `Erreur USSD: ${finalError}` };
-                }
+                console.error('⚙️ [ENGINE] [CRITICAL] All silent fallbacks failed:', e2);
+                this.updateState(TransactionState.FAILED, { error: `Échec total: le système empêche l'USSD en arrière-plan.` });
+                this.cleanup();
+                return { status: 'error', message: `Le système n'arrive pas à lancer l'USSD.` };
             }
         }
     }
 
     async confirmWithPin(pin: string, payload: { phone: string, amount: number }) {
+        if (this.state === TransactionState.USSD_IN_PROGRESS) return;
         this.updateState(TransactionState.USSD_IN_PROGRESS);
 
         const resolver = new ContactResolverService();
         const formattedPhone = resolver.formatBeninNumber(payload.phone);
-        // Format corrigé avec PIN : *880*1*1*Numéro*Numéro*Montant*PIN#
         const ussdCode = `*880*1*1*${formattedPhone}*${formattedPhone}*${payload.amount}*${pin}#`;
+
+        this.timeoutId = setTimeout(() => {
+            this.updateState(TransactionState.FAILED, { error: "Délai d'attente dépassé (Timeout)" });
+            this.cleanup();
+        }, 30000);
 
         try {
             this.ussdListener = await UssdBackground.addListener('ussdEvent', (event) => {
                 console.log('📡 [ENGINE] USSD Event:', event);
-                if (event.isFinal) {
-                    if (event.type === 'response') {
-                        this.updateState(TransactionState.SUCCESS, { message: event.message });
-                    } else {
-                        this.updateState(TransactionState.FAILED, { error: event.message });
-                    }
-                    this.cleanup();
-                }
+                this.parseUssdEvent(event);
             });
 
             console.log('⚙️ [ENGINE] [CONFIRM] Executing with PIN via Direct Call:', ussdCode.replace(pin, '****'));
@@ -201,15 +262,8 @@ export class MoMoTransactionEngine {
                 await AccessibilityPlugin.executeUssd({ code: ussdCode });
             } catch (e2: any) {
                 console.error('⚙️ [ENGINE] [ERROR] All silent PIN flows failed:', e2);
-                // Si tout échoue en arrière-plan, on tente l'appel direct en dernier recours
-                try {
-                    await UssdBackground.executeDirectCall({ code: ussdCode });
-                    this.updateState(TransactionState.TRIGGERING_DIALER);
-                } catch (e3: any) {
-                    const finalErr = e3.message || String(e3);
-                    this.updateState(TransactionState.FAILED, { error: `Erreur PIN: ${finalErr}` });
-                    this.cleanup();
-                }
+                this.updateState(TransactionState.FAILED, { error: `Erreur d'exécution du code PIN (Refus du système).` });
+                this.cleanup();
             }
         }
     }
@@ -217,8 +271,7 @@ export class MoMoTransactionEngine {
     private handleAutoEvent(event: any) {
         console.log("Accessibility USSD Event: ", event);
         if (event.status === 'success') {
-            this.updateState(TransactionState.SUCCESS, { message: event.message });
-            this.cleanup();
+            this.parseUssdEvent({ isFinal: true, type: 'response', message: event.message });
         } else if (event.status === 'error') {
             this.updateState(TransactionState.FAILED, { error: event.message });
             this.cleanup();
@@ -229,6 +282,10 @@ export class MoMoTransactionEngine {
     }
 
     private cleanup() {
+        if (this.timeoutId) {
+            clearTimeout(this.timeoutId);
+            this.timeoutId = null;
+        }
         if (this.autoListener) {
             this.autoListener.remove();
             this.autoListener = null;
@@ -237,7 +294,7 @@ export class MoMoTransactionEngine {
             this.ussdListener.remove();
             this.ussdListener = null;
         }
-        AccessibilityPlugin.setTransactionActive({ active: false });
+        AccessibilityPlugin.setTransactionActive({ active: false }).catch(() => { });
         this.updateState(TransactionState.INIT);
     }
 }
