@@ -68,11 +68,14 @@ export default function LoginScreen() {
       if (res.success) {
         setStep("otp");
         setTimer(300); // 5 minutes
-        if (res.code) {
-          setOtpSentCode(res.code);
-          toast.success("Code OTP envoyé !");
+        if (res.devCode) {
+          // Le SMS n'a pas pu être envoyé (numéro non vérifié Twilio trial)
+          // On affiche le code directement sur l'écran pour permettre la connexion
+          setOtpSentCode(res.devCode);
+          toast.success("SMS indisponible. Votre code est affiché ci-dessous.");
         } else {
-          toast.success("Code OTP envoyé par SMS.");
+          setOtpSentCode("");
+          toast.success("Code OTP envoyé par SMS !");
         }
       }
     } catch (err: any) {
@@ -205,6 +208,22 @@ export default function LoginScreen() {
               transition={{ duration: 0.3 }}
               className="space-y-6"
             >
+              {/* Fallback : afficher le code si le SMS n'a pas pu être envoyé */}
+              {otpSentCode && (
+                <motion.div
+                  initial={{ scale: 0.95, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  className="bg-[#FFCC00]/15 border border-[#FFCC00]/50 rounded-2xl p-4 text-center space-y-1"
+                >
+                  <p className="text-xs font-semibold text-[#004F71] dark:text-[#FFCC00]/80">
+                    ⚠️ SMS non reçu ? Utilisez ce code :
+                  </p>
+                  <p className="text-3xl font-black tracking-[0.3em] text-[#004F71] dark:text-[#FFCC00]">
+                    {otpSentCode}
+                  </p>
+                </motion.div>
+              )}
+
               <div className="space-y-4">
                 <div className="flex justify-center">
                   <div className="relative flex items-center bg-white dark:bg-[#1A1A1A] rounded-2xl border border-slate-200 dark:border-white/5 focus-within:border-[#FFCC00] focus-within:ring-4 focus-within:ring-[#FFCC00]/10 transition-all overflow-hidden shadow-sm w-64">

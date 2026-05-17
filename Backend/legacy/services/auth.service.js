@@ -230,27 +230,21 @@ function _updateInMemoryPin(userId, pinHash) {
 
 async function _sendSms(phone, message) {
   try {
-    // 1. Alternative : TWILIO (Recommandé pour tester sans blocage de Sender ID)
+    // 1. TWILIO
     if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_PHONE_NUMBER) {
       const url = `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`;
       const auth = Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64');
       
       const formData = new URLSearchParams();
-      // On s'assure que le numéro a le format international E.164
-      let formattedPhone = phone.replace(/\D/g, ''); // Nettoyage sécurité
+      let formattedPhone = phone.replace(/\D/g, '');
       
       if (formattedPhone.length === 10 && formattedPhone.startsWith('0')) {
-        // Ex: 0157311172 (Format 10 chiffres Ivoirien/Africain classique)
-        // On force l'indicatif +225 pour la Côte d'Ivoire (ou +229 si c'était le cas)
-        // L'utilisateur peut aussi définir process.env.DEFAULT_COUNTRY_CODE dans Render
         const countryCode = process.env.DEFAULT_COUNTRY_CODE || "229";
         formattedPhone = `+${countryCode}${formattedPhone}`;
       } else if (formattedPhone.length === 8) {
-        // Numéro local béninois classique (8 chiffres)
         const countryCode = process.env.DEFAULT_COUNTRY_CODE || "229";
         formattedPhone = `+${countryCode}${formattedPhone}`;
       } else {
-        // S'il a déjà l'indicatif (ex: 2299012..., 336...)
         formattedPhone = `+${formattedPhone.replace(/^0+/, '')}`;
       }
       
@@ -270,24 +264,22 @@ async function _sendSms(phone, message) {
       const data = await response.json().catch(() => null);
       if (!response.ok) {
         console.error("❌ [SMS] Échec de l'envoi via Twilio:", data || response.statusText);
-      } else {
-        console.log(`✅ [SMS] Message Twilio envoyé avec succès à ${phone} !`);
+        return false; // Échec — le code devra être affiché sur l'écran
       }
-      return;
+      console.log(`✅ [SMS] Message Twilio envoyé avec succès à ${phone} !`);
+      return true;
     }
 
-    // 2. Alternative : TERMII (Avec support de SMS_SENDER_ID)
+    // 2. TERMII
     if (process.env.SMS_API_KEY) {
       const termiiUrl = process.env.SMS_PROVIDER_URL || "https://api.ng.termii.com/api/sms/send";
       
       const response = await fetch(termiiUrl, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           to: phone,
-          from: process.env.SMS_SENDER_ID || "N-Alert", // Sender ID dynamique via .env (ex: "Termii")
+          from: process.env.SMS_SENDER_ID || "N-Alert",
           sms: message,
           type: "plain",
           channel: "generic",
@@ -298,16 +290,18 @@ async function _sendSms(phone, message) {
       const data = await response.json().catch(() => null);
       if (!response.ok) {
         console.error("❌ [SMS] Échec de l'envoi via Termii:", data || response.statusText);
-      } else {
-        console.log(`✅ [SMS] Message Termii envoyé avec succès à ${phone} ! ID:`, data?.message_id);
+        return false;
       }
-      return;
+      console.log(`✅ [SMS] Message Termii envoyé avec succès à ${phone} ! ID:`, data?.message_id);
+      return true;
     }
 
-    // 3. Mode Simulation
+    // 3. Aucun provider
     console.log(`⚠️ [SMS] Aucun provider configuré. Simulation de l'envoi SMS à ${phone} : "${message}"`);
+    return false;
   } catch (err) {
     console.error("❌ [SMS] Erreur réseau lors de l'envoi du SMS :", err.message);
+    return false;
   }
 }
 
@@ -353,12 +347,22 @@ async function sendOtp(phone) {
   console.log(`🔑 [OTP] Code OTP généré pour ${cleaned} : ${otpCode}`);
   
   // Envoi du SMS réel via le provider
-  await _sendSms(cleaned, `Votre code de connexion Voice MoMo est : ${otpCode}. Il expire dans 5 minutes.`);
+  const smsSent = await _sendSms(cleaned, `Votre code de connexion Voice MoMo est : ${otpCode}. Il expire dans 5 minutes.`);
+
+  // Si l'envoi SMS a échoué (ex: numéro non vérifié sur compte Twilio trial),
+  // on renvoie le code directement pour permettre les tests sans SMS.
+  if (!smsSent) {
+    console.warn(`⚠️ [OTP] SMS non délivré pour ${cleaned}. Code renvoyé en réponse pour test.`);
+    return {
+      success: true,
+      message: "SMS non délivré. Utilisez le code ci-dessous pour vous connecter.",
+      devCode: otpCode // Affiché sur l'écran uniquement si le SMS échoue
+    };
+  }
 
   return { 
     success: true, 
     message: "Code OTP envoyé par SMS."
-    // Ne pas renvoyer le code au frontend en production
   };
 }
 
