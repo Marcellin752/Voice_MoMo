@@ -51,6 +51,56 @@ export class ContactResolverService {
     return true;
   }
 
+  /**
+   * Nettoye une chaîne pour la comparaison (minuscules, sans accents)
+   */
+  private normalizeString(str: string): string {
+    return str
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim();
+  }
+
+  /**
+   * Calcule la distance de Levenshtein entre deux chaînes
+   */
+  private levenshtein(a: string, b: string): number {
+    const matrix = [];
+    for (let i = 0; i <= b.length; i++) {
+      matrix[i] = [i];
+    }
+    for (let j = 0; j <= a.length; j++) {
+      matrix[0][j] = j;
+    }
+    for (let i = 1; i <= b.length; i++) {
+      for (let j = 1; j <= a.length; j++) {
+        if (b.charAt(i - 1) === a.charAt(j - 1)) {
+          matrix[i][j] = matrix[i - 1][j - 1];
+        } else {
+          matrix[i][j] = Math.min(
+            matrix[i - 1][j - 1] + 1, // substitution
+            Math.min(
+              matrix[i][j - 1] + 1, // insertion
+              matrix[i - 1][j] + 1 // deletion
+            )
+          );
+        }
+      }
+    }
+    return matrix[b.length][a.length];
+  }
+
+  /**
+   * Calcule un score de similarité entre 0 et 1
+   */
+  private getSimilarityScore(a: string, b: string): number {
+    const distance = this.levenshtein(a, b);
+    const maxLength = Math.max(a.length, b.length);
+    if (maxLength === 0) return 1.0;
+    return 1 - distance / maxLength;
+  }
+
   async resolve(nameQuery: string): Promise<any> {
     if (!nameQuery) return null;
 
@@ -58,7 +108,7 @@ export class ContactResolverService {
     const digitsOnly = nameQuery.replace(/\D/g, '');
     if (digitsOnly.length >= 8) {
       const formatted = this.formatBeninNumber(digitsOnly);
-      return [{ name: "Numéro saisi", phone: formatted }];
+      return [{ name: "Numéro saisi", phone: formatted, confidence: 1.0 }];
     }
 
     if (Capacitor.isNativePlatform()) {
@@ -69,12 +119,37 @@ export class ContactResolverService {
         if (permission.contacts !== 'granted') return null;
 
         const result = await Contacts.getContacts({ projection: { name: true, phones: true } });
-        const matches: { name: string; phone: string }[] = [];
-        const search = nameQuery.toLowerCase().trim();
+        const matches: { name: string; phone: string; confidence: number }[] = [];
+        const searchNormalized = this.normalizeString(nameQuery);
 
         for (const contact of result.contacts) {
-          const dName = (contact.displayName || (contact as any).name?.display || '').toLowerCase();
-          if (dName.includes(search)) {
+          const rawName = (contact as any).displayName || (contact as any).name?.display || '';
+          const nameNormalized = this.normalizeString(rawName);
+
+          if (!nameNormalized) continue;
+
+          // Score base sur string contains
+          let confidence = 0.0;
+          if (nameNormalized.includes(searchNormalized)) {
+            // Correspondance directe (exacte ou partielle)
+            confidence = (searchNormalized.length === nameNormalized.length) ? 1.0 : 0.8;
+          } else {
+            // Correspondance floue (Levenshtein) - recherche par proximité lexicale (pour homonymes/fautes)
+            confidence = this.getSimilarityScore(searchNormalized, nameNormalized);
+
+            // Si le nom du contact contient plusieurs mots (ex: prénom nom), testons les mots séparés aussi
+            const words = nameNormalized.split(/\s+/);
+            for (const word of words) {
+              const wordScore = this.getSimilarityScore(searchNormalized, word);
+              if (wordScore > confidence) {
+                // Pénalité légère pour le match sur un seul mot d'un nom composé
+                confidence = wordScore * 0.95;
+              }
+            }
+          }
+
+          // Seuil de tolérance: 0.7 (70% de similarité)
+          if (confidence >= 0.7) {
             const phones = contact.phones ?? [];
             if (phones.length === 0) continue;
 
@@ -83,18 +158,22 @@ export class ContactResolverService {
               const rawPhone = phoneEntry.number || '';
               if (!rawPhone) continue;
               const formattedPhone = this.formatBeninNumber(rawPhone);
-              
-              // Filtre anti-doublon : on évite d'ajouter le même numéro (ex: avec et sans indicatif)
+              // Filtre anti-doublon : éviter d'ajouter le même numéro (ex: avec/sans indicatif)
               const isDuplicate = matches.some(m => m.phone === formattedPhone);
               if (!isDuplicate) {
                 matches.push({
-                  name: contact.displayName || dName,
+                  name: rawName,
                   phone: formattedPhone,
+                  confidence: parseFloat(confidence.toFixed(2))
                 });
               }
             }
           }
         }
+
+        // Trier les résultats par indice de confiance décroissant
+        matches.sort((a, b) => b.confidence - a.confidence);
+
         return matches.length > 0 ? matches : null;
       } catch (e) {
         console.error("Erreur ContactResolver", e);

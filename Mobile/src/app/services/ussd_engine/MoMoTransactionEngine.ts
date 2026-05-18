@@ -1,5 +1,6 @@
 import { registerPlugin, PluginListenerHandle } from '@capacitor/core';
 import { ContactResolverService } from '../engine/ContactResolverService';
+import { SmsListenerService } from '../sms.service';
 import type { AccessibilityPluginInterface } from './AccessibilityPlugin.types';
 import type { UssdBackgroundPlugin } from './UssdBackgroundPlugin.types';
 
@@ -210,9 +211,13 @@ export class MoMoTransactionEngine {
             if (response && response.status === 'success' && response.isFinal) {
                 this.updateState(TransactionState.SUCCESS, { message: response.message });
                 this.cleanup();
+            } else {
+                // USSD envoyé mais pas de confirmation directe → attendre le SMS de confirmation MTN
+                console.log('📩 [ENGINE] USSD envoyé, écoute du SMS de confirmation MTN...');
+                this._waitForSmsConfirmation(data.amount);
             }
 
-            return { status: 'success', message: 'Opération lancée silencieusement...', dialerFallback: false };
+            return { status: 'success', message: 'Opération lancée. En attente de confirmation MTN...', dialerFallback: false };
         } catch (e: any) {
             console.error('⚙️ [ENGINE] [ERROR] Silent USSD failed:', e);
             const errorDetail = e.message || String(e);
@@ -228,11 +233,12 @@ export class MoMoTransactionEngine {
             try {
                 console.log('⚙️ [ENGINE] [FALLBACK] Attempting AccessibilityPlugin...');
                 await AccessibilityPlugin.executeUssd({ code: ussdCode });
-                return { status: 'success', message: 'USSD lancé via Accessibilité.' };
+                // Même en fallback, on attend le SMS
+                this._waitForSmsConfirmation(data.amount);
+                return { status: 'success', message: 'USSD lancé via Accessibilité. En attente du SMS de confirmation...' };
             } catch (e2: any) {
                 console.error('⚙️ [ENGINE] [ERROR] AccessibilityPlugin failed:', e2);
 
-                // Si tout le reste échoue, on tente l'appel direct traditionnel en dernier ressort
                 const msg = 'Impossible d’exécuter en arrière-plan. Tentative d’appel direct...';
                 console.warn(msg);
 
@@ -240,6 +246,8 @@ export class MoMoTransactionEngine {
                     console.log('⚙️ [ENGINE] [FALLBACK] Launching ACTION_CALL...');
                     await UssdBackground.executeDirectCall({ code: ussdCode });
                     this.updateState(TransactionState.TRIGGERING_DIALER);
+                    // En mode appel direct, on attend aussi le SMS
+                    this._waitForSmsConfirmation(data.amount);
                     return { status: 'success', message: 'Appel direct lancé. Suivez les instructions système.', dialerFallback: true };
                 } catch (e3: any) {
                     const finalError = e3.message || String(e3);
@@ -249,6 +257,96 @@ export class MoMoTransactionEngine {
                 }
             }
         }
+    }
+
+    /**
+     * Écoute l'arrivée d'un SMS MTN MoMo pour confirmer le succès d'une transaction.
+     * Utilise directement l'événement DOM 'onSMSArrive' pour ne pas entrer en conflit
+     * avec le listener SMS permanent de HomeScreen.
+     * Émet un CustomEvent 'momo:transaction-complete' que l'UI peut écouter.
+     */
+    private _waitForSmsConfirmation(_expectedAmount?: number): void {
+        const SMS_TIMEOUT_MS = 45000;
+        let smsTimeoutId: any = null;
+        let resolved = false;
+
+        console.log('📩 [SMS_CONFIRM] En attente du SMS MTN (timeout 45s)...');
+
+        const finish = (success: boolean, detail: Record<string, any>) => {
+            if (resolved) return;
+            resolved = true;
+            if (smsTimeoutId) clearTimeout(smsTimeoutId);
+            document.removeEventListener('onSMSArrive', onSmsArrive);
+
+            // Émettre un CustomEvent pour que l'UI (HomeScreen) puisse réagir
+            window.dispatchEvent(new CustomEvent('momo:transaction-complete', { detail }));
+
+            if (success) {
+                this.updateState(TransactionState.SUCCESS, detail);
+            } else if (this.state !== TransactionState.SUCCESS) {
+                this.updateState(TransactionState.SUCCESS, {
+                    ...detail,
+                    balanceUnknown: true,
+                });
+            }
+            this.cleanup();
+        };
+
+        const onSmsArrive = (e: Event) => {
+            if (resolved) return;
+            const sms = (e as any).data || e;
+            const body: string = sms.body || sms.text || sms.message || '';
+            const address: string = sms.address || sms.originatingAddress || sms.phone || '';
+
+            if (!SmsListenerService.isLikelyMtnMomoMessage(address, body)) return;
+
+            console.log('📩 [SMS_CONFIRM] SMS MTN intercepté:', body);
+
+            // Échec explicite renvoyé par MTN
+            if (/insuffisant|incorrect|échoué|invalide|refus|non autorisé|failed/i.test(body)) {
+                console.warn('❌ [SMS_CONFIRM] SMS indique un échec.');
+                document.removeEventListener('onSMSArrive', onSmsArrive);
+                if (smsTimeoutId) clearTimeout(smsTimeoutId);
+                resolved = true;
+                window.dispatchEvent(new CustomEvent('momo:transaction-complete', {
+                    detail: { success: false, message: body }
+                }));
+                this.updateState(TransactionState.FAILED, { error: body });
+                this.cleanup();
+                return;
+            }
+
+            const balanceResult = SmsListenerService.extractBalanceWithPriority(body);
+            if (balanceResult !== null) {
+                const newBalance = balanceResult.value;
+                console.log(`✅ [SMS_CONFIRM] Nouveau solde: ${newBalance} FCFA`);
+                import('../users.service').then(({ updateBalance }) => {
+                    updateBalance(newBalance).catch((err: any) =>
+                        console.warn('⚠️ [SMS_CONFIRM] updateBalance failed:', err)
+                    );
+                });
+                finish(true, {
+                    success: true,
+                    message: `Transaction réussie ! Nouveau solde : ${newBalance.toLocaleString('fr-FR')} FCFA.`,
+                    balance: newBalance,
+                });
+            } else {
+                // SMS MTN reçu sans montant lisible → présumer succès
+                finish(true, { success: true, message: 'Transaction confirmée par MTN.' });
+            }
+        };
+
+        document.addEventListener('onSMSArrive', onSmsArrive);
+
+        // Timeout 45s : si aucun SMS, on présume que l'USSD est parti et on laisse HomeScreen
+        // mettre à jour le solde quand un SMS arrive plus tard.
+        smsTimeoutId = setTimeout(() => {
+            console.warn('⏱️ [SMS_CONFIRM] Timeout 45s — aucun SMS MTN reçu.');
+            finish(false, {
+                success: false,
+                message: 'Transaction envoyée. Vérifiez votre historique MoMo si le solde ne se met pas à jour.',
+            });
+        }, SMS_TIMEOUT_MS);
     }
 
     async confirmWithPin(pin: string, payload: { phone: string, amount: number }) {
@@ -278,17 +376,23 @@ export class MoMoTransactionEngine {
             if (response && response.status === 'success' && response.isFinal) {
                 this.updateState(TransactionState.SUCCESS, { message: response.message });
                 this.cleanup();
+            } else {
+                // Pas de réponse directe : attendre le SMS de confirmation MTN
+                console.log('📩 [ENGINE] USSD PIN envoyé, écoute du SMS MTN...');
+                this._waitForSmsConfirmation(payload.amount);
             }
         } catch (e: any) {
             console.error('⚙️ [ENGINE] Error in confirmWithPin (Background):', e);
             try {
                 console.log('⚙️ [ENGINE] [FALLBACK] Attempting Accessibility for PIN flow...');
                 await AccessibilityPlugin.executeUssd({ code: ussdCode });
+                this._waitForSmsConfirmation(payload.amount);
             } catch (e2: any) {
                 console.error('⚙️ [ENGINE] [ERROR] All silent PIN flows failed:', e2);
                 try {
                     await UssdBackground.executeDirectCall({ code: ussdCode });
                     this.updateState(TransactionState.TRIGGERING_DIALER);
+                    this._waitForSmsConfirmation(payload.amount);
                 } catch (e3: any) {
                     const finalErr = e3.message || String(e3);
                     this.updateState(TransactionState.FAILED, { error: `Erreur PIN: ${finalErr}` });
