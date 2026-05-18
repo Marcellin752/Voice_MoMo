@@ -33,13 +33,26 @@ public final class TelephonyUssdHelper {
 
         int subId = SubscriptionManager.INVALID_SUBSCRIPTION_ID;
         try {
-            subId = SubscriptionManager.getDefaultDataSubscriptionId();
-            if (subId == SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
-                subId = SubscriptionManager.getDefaultVoiceSubscriptionId();
+            List<SubscriptionInfo> list = sm.getActiveSubscriptionInfoList();
+            if (list != null) {
+                // 1. Chercher prioritairement une carte SIM MTN
+                for (SubscriptionInfo info : list) {
+                    String carrierName = info.getCarrierName() != null ? info.getCarrierName().toString().toLowerCase() : "";
+                    if (carrierName.contains("mtn")) {
+                        subId = info.getSubscriptionId();
+                        Log.i(TAG, "Carte SIM MTN détectée. Utilisation de subscriptionId=" + subId);
+                        break;
+                    }
+                }
             }
+
+            // 2. Si aucune SIM MTN trouvée, on retombe sur la logique par défaut
             if (subId == SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
-                List<SubscriptionInfo> list = sm.getActiveSubscriptionInfoList();
-                if (list != null && !list.isEmpty()) {
+                subId = SubscriptionManager.getDefaultDataSubscriptionId();
+                if (subId == SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
+                    subId = SubscriptionManager.getDefaultVoiceSubscriptionId();
+                }
+                if (subId == SubscriptionManager.INVALID_SUBSCRIPTION_ID && list != null && !list.isEmpty()) {
                     subId = list.get(0).getSubscriptionId();
                 }
             }
