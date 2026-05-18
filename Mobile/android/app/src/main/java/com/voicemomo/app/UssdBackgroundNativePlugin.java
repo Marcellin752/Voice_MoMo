@@ -48,6 +48,8 @@ public class UssdBackgroundNativePlugin extends Plugin {
     public void executeUssd(PluginCall call) {
         String ussdCode = call.getString("code");
         Log.i("UssdBackground", "📥 Appel executeUssd avec: " + ussdCode);
+        Log.i("UssdBackground", "📥 Code length: " + (ussdCode != null ? ussdCode.length() : "null"));
+        Log.i("UssdBackground", "📥 Code bytes: " + (ussdCode != null ? ussdCode.getBytes().length : "null"));
         
         if (ussdCode == null || ussdCode.isEmpty()) {
             call.reject("USSD code is missing");
@@ -163,6 +165,12 @@ public class UssdBackgroundNativePlugin extends Plugin {
                 }
             };
             
+            Log.i("UssdBackground", "📡 [DEBUG] Envoi du code USSD: " + ussdCode);
+            Log.i("UssdBackground", "📡 [DEBUG] Longueur du code: " + ussdCode.length());
+            for (int i = 0; i < ussdCode.length(); i++) {
+                char c = ussdCode.charAt(i);
+                Log.i("UssdBackground", "    [" + i + "] = '" + c + "' (ASCII: " + (int)c + ")");
+            }
             tm.sendUssdRequest(ussdCode, responseCallback, handler);
             Log.d("UssdBackground", "📨 Requête envoyée au système Android");
             

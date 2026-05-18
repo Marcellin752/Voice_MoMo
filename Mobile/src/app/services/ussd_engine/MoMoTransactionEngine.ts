@@ -197,6 +197,9 @@ export class MoMoTransactionEngine {
         }, 30000);
 
         try {
+            console.log('⚙️ [ENGINE] [DEBUG] Raw recipient:', data.recipient);
+            console.log('⚙️ [ENGINE] [DEBUG] Formatted recipient:', formattedRecipient);
+            console.log('⚙️ [ENGINE] [DEBUG] Amount:', data.amount);
             console.log('⚙️ [ENGINE] [FINAL_CODE] Ready:', ussdCode);
 
             this.ussdListener = await UssdBackground.addListener('ussdEvent', (event) => {
