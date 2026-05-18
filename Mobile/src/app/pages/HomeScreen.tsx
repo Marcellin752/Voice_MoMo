@@ -84,9 +84,28 @@ export default function HomeScreen() {
       }
     });
 
+    // Écouter les confirmations de transaction de l'engine USSD
+    const onTransactionComplete = (e: Event) => {
+      const { success, message, balance: newBalance } = (e as CustomEvent).detail || {};
+      if (success) {
+        toast.success(message || 'Transaction confirmée par MTN. 🎉');
+        if (typeof newBalance === 'number') {
+          setIsUpdating(true);
+          setBalance(newBalance);
+          setTimeout(() => setIsUpdating(false), 2000);
+        }
+      } else {
+        // balanceUnknown = USSD envoyé mais pas de SMS reçu dans les temps
+        toast.info(message || 'Transaction envoyée. Consultez vos SMS MTN pour confirmation.');
+      }
+    };
+
+    window.addEventListener('momo:transaction-complete', onTransactionComplete);
+
     return () => {
       SmsListenerService.stopListening();
       window.removeEventListener(PROFILE_UPDATED_EVENT, onProfileUpdated);
+      window.removeEventListener('momo:transaction-complete', onTransactionComplete);
     };
 
   }, []);
@@ -111,7 +130,7 @@ export default function HomeScreen() {
     try {
       const engine = new MoMoTransactionEngine();
       // On tente d'abord l'USSD Direct
-      const result = await engine.refreshBalanceLive(pinValue);
+      const result: any = await engine.refreshBalanceLive(pinValue);
 
       if (result.status === 'success' || result.balance !== undefined) {
         if (result.balance !== undefined) {
