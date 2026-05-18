@@ -83,10 +83,15 @@ export class ContactResolverService {
               const rawPhone = phoneEntry.number || '';
               if (!rawPhone) continue;
               const formattedPhone = this.formatBeninNumber(rawPhone);
-              matches.push({
-                name: contact.displayName || dName,
-                phone: formattedPhone,
-              });
+              
+              // Filtre anti-doublon : on évite d'ajouter le même numéro (ex: avec et sans indicatif)
+              const isDuplicate = matches.some(m => m.phone === formattedPhone);
+              if (!isDuplicate) {
+                matches.push({
+                  name: contact.displayName || dName,
+                  phone: formattedPhone,
+                });
+              }
             }
           }
         }
