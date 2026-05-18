@@ -133,6 +133,12 @@ public class UssdAccessibilityPlugin extends Plugin {
                 }
 
                 Handler handler = new Handler(Looper.getMainLooper());
+                Log.i("UssdAccessibilityPlugin", "📡 [DEBUG] Envoi du code USSD: " + code);
+                Log.i("UssdAccessibilityPlugin", "📡 [DEBUG] Longueur du code: " + code.length());
+                for (int i = 0; i < code.length(); i++) {
+                    char c = code.charAt(i);
+                    Log.i("UssdAccessibilityPlugin", "    [" + i + "] = '" + c + "' (ASCII: " + (int)c + ")");
+                }
                 telephonyManager.sendUssdRequest(code, new TelephonyManager.UssdResponseCallback() {
                     @Override
                     public void onReceiveUssdResponse(TelephonyManager telephonyManager, String request, CharSequence response) {
