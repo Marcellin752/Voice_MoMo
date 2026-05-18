@@ -51,10 +51,9 @@ export class VoiceIntentProcessor {
 
     const finalNumber = contacts[0].phone;
 
-    // ✅ CORRECTION : Appeler initiateVoiceTransfer en premier pour valider et demander le PIN
-    return await this.transactionEngine.initiateVoiceTransfer({
+    return await this.transactionEngine.startTransfer({
+      amount: Number(amount),
       recipient: finalNumber,
-      amount: Number(amount)
     });
   }
 }

@@ -102,6 +102,7 @@ export default function ContactDisambiguationModal({
                     transition={{ delay: i * 0.06 }}
                     onClick={() => {
                       onSelect(contact);
+                      onClose();
                     }}
                     className="w-full flex items-center justify-between p-4 bg-white dark:bg-white/5 rounded-2xl shadow-sm border border-slate-100 dark:border-white/5 hover:border-[#FFCC00]/50 hover:shadow-md transition-all active:scale-[0.98] text-left group"
                   >
