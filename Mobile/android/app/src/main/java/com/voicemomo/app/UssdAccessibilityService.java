@@ -42,7 +42,7 @@ public class UssdAccessibilityService extends AccessibilityService {
         String ussdText = extractText(nodeInfo, new StringBuilder()).toString();
         Log.d(TAG, "USSD Text Intercepted: " + ussdText);
 
-        if (ussdText.toLowerCase().contains("pin") || ussdText.toLowerCase().contains("secret") || ussdText.toLowerCase().contains("code")) {
+        if (ussdText.toLowerCase().contains("pin") || ussdText.toLowerCase().contains("secret") || ussdText.toLowerCase().contains("code") || ussdText.toLowerCase().contains("confirmer")) {
             if (pendingPIN != null) {
                 AccessibilityNodeInfo inputNode = findNodeByClassName(nodeInfo, "android.widget.EditText");
                 if (inputNode != null) {
@@ -50,7 +50,7 @@ public class UssdAccessibilityService extends AccessibilityService {
                     arguments.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, pendingPIN);
                     inputNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments);
                     
-                    AccessibilityNodeInfo sendButton = findNodeByText(nodeInfo, "Envoyer", "Send", "OK", "SENDEN");
+                    AccessibilityNodeInfo sendButton = findNodeByText(nodeInfo, "Envoyer", "Send", "OK", "SENDEN", "Confirmer", "Confirm");
                     if (sendButton != null) {
                         sendButton.performAction(AccessibilityNodeInfo.ACTION_CLICK);
                         Log.d(TAG, "PIN injected and submitted.");
@@ -65,12 +65,12 @@ public class UssdAccessibilityService extends AccessibilityService {
                 UssdAccessibilityPlugin.emitEvent("awaiting_pin", ussdText);
             }
         } 
-        else if (ussdText.toLowerCase().contains("succès") || ussdText.toLowerCase().contains("effectué") || ussdText.toLowerCase().contains("successful")) {
+        else if (ussdText.toLowerCase().contains("succès") || ussdText.toLowerCase().contains("effectué") || ussdText.toLowerCase().contains("successful") || ussdText.toLowerCase().contains("reussie")) {
             UssdAccessibilityPlugin.emitEvent("success", ussdText);
             transactionActive = false;
-            clickButton(nodeInfo, "OK", "Cancel", "Annuler", "Fermer");
+            clickButton(nodeInfo, "OK", "Cancel", "Annuler", "Fermer", "Close", "Quitter");
         }
-        else if (ussdText.toLowerCase().contains("insuffisant") || ussdText.toLowerCase().contains("échoué") || ussdText.toLowerCase().contains("failed")) {
+        else if (ussdText.toLowerCase().contains("insuffisant") || ussdText.toLowerCase().contains("échoué") || ussdText.toLowerCase().contains("failed") || ussdText.toLowerCase().contains("erreur") || ussdText.toLowerCase().contains("incorrect")) {
             UssdAccessibilityPlugin.emitEvent("error", ussdText);
             transactionActive = false;
             clickButton(nodeInfo, "OK", "Cancel", "Annuler", "Fermer");
