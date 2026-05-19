@@ -2,6 +2,7 @@ import { Outlet, NavLink, useLocation } from "react-router";
 import { Home, ArrowLeftRight, Settings, Users, Mic } from "lucide-react";
 import { useLanguage } from "../contexts/LanguageContext";
 import { motion, AnimatePresence } from "motion/react";
+import { useState, useRef } from "react";
 import { useVoiceAssistantNLP } from "../hooks/useVoiceAssistantNLP";
 import ContactDisambiguationModal from "./ContactDisambiguationModal";
 
@@ -9,6 +10,7 @@ export default function Layout() {
   const { t } = useLanguage();
   const location = useLocation();
   const isHome = location.pathname === "/app" || location.pathname === "/app/";
+  const pinInputRef = useRef<HTMLInputElement>(null);
 
   const {
     status,
@@ -22,7 +24,17 @@ export default function Layout() {
     ambiguityContacts,
     ambiguityQuery,
     resolveAmbiguity,
+    showPinModal,
+    executeTransferWithPin,
+    cancelPinModal,
   } = useVoiceAssistantNLP();
+
+  const handlePinSubmit = () => {
+    const pin = pinInputRef.current?.value || '';
+    if (pin.length >= 4) {
+      executeTransferWithPin(pin);
+    }
+  };
 
   return (
     <div className="flex flex-col h-[100dvh] bg-slate-50 dark:bg-[#121212] w-full max-w-md mx-auto relative overflow-hidden transition-colors duration-300">
@@ -139,6 +151,61 @@ export default function Layout() {
           cancelAction();
         }}
       />
+
+      {/* Modale de saisie du PIN (Globale) */}
+      <AnimatePresence>
+        {showPinModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="bg-white dark:bg-[#1A1A1A] rounded-3xl p-6 w-full max-w-sm shadow-2xl border border-slate-100 dark:border-white/5 mx-4"
+            >
+              <h3 className="text-xl font-black text-slate-900 dark:text-white mb-2">
+                🔐 Code PIN Requis
+              </h3>
+              <p className="text-sm text-slate-500 dark:text-zinc-400 mb-6">
+                Veuillez entrer votre PIN MTN pour confirmer la transaction.
+              </p>
+
+              <input
+                ref={pinInputRef}
+                type="password"
+                maxLength={5}
+                placeholder="••••"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handlePinSubmit();
+                  }
+                }}
+                className="w-full bg-slate-50 dark:bg-black/20 text-center text-3xl font-black tracking-widest text-[#004F71] dark:text-[#FFCC00] p-4 rounded-2xl border-2 border-transparent focus:border-[#FFCC00] focus:ring-0 outline-none transition-colors mb-6"
+              />
+
+              <div className="flex gap-3">
+                <button
+                  onClick={cancelPinModal}
+                  className="flex-1 py-3.5 bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 text-slate-600 dark:text-zinc-300 font-bold rounded-xl transition-colors cursor-pointer"
+                >
+                  Annuler
+                </button>
+                <button
+                  onClick={handlePinSubmit}
+                  className="flex-1 py-3.5 bg-[#004F71] dark:bg-[#FFCC00] hover:bg-[#003B5C] dark:hover:bg-[#E6B800] text-white dark:text-slate-900 font-black rounded-xl transition-colors cursor-pointer"
+                >
+                  Valider
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
