@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { executeVoiceCommand } from '../services/ussd.service';
 
-
-type AssistantStatus = 'idle' | 'listening' | 'processing' | 'success' | 'error' | 'awaiting_confirmation' | 'awaiting_disambiguation';
+type AssistantStatus = 'idle' | 'listening' | 'processing' | 'success' | 'error' | 'awaiting_confirmation' | 'awaiting_disambiguation' | 'awaiting_pin';
 
 interface ParsedResponse {
   success: boolean;
@@ -12,6 +11,7 @@ interface ParsedResponse {
   currency?: string;
   bill_type?: string;
   needs_confirmation: boolean;
+  requires_confirmation?: boolean;
   confirmation_message: string;
   understood_text: string;
   metadata: any;
@@ -34,7 +34,6 @@ interface VoiceHookReturn {
   ambiguityContacts: any[] | null;
   ambiguityQuery: string;
   resolveAmbiguity: (contact: { name: string; phone: string }) => void;
-  // PIN modal
   showPinModal: boolean;
   executeTransferWithPin: (pin: string) => Promise<void>;
   cancelPinModal: () => void;
@@ -52,566 +51,35 @@ export function useVoiceAssistantNLP(
   const [isListening, setIsListening] = useState(false);
   const statusRef = useRef<AssistantStatus>('idle');
 
-  // Nouveaux états pour la désambiguïsation
   const [ambiguityContacts, setAmbiguityContacts] = useState<any[] | null>(null);
   const [ambiguityQuery, setAmbiguityQuery] = useState('');
   const ambiguityContextRef = useRef<{ intent: string; data: any } | null>(null);
 
-  // MediaRecorder pour audio brut
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [pinContext, setPinContext] = useState<{ intent: string; data: any } | null>(null);
+
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recorderMimeTypeRef = useRef<string>('audio/webm');
-  const audioContextRef = useRef<AudioContext | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-
-  // Web Speech Recognition fallback
-  const recognitionRef = useRef<any>(null);
-
-  // Token JWT
   const tokenRef = useRef<string | null>(null);
-
-  // Transaction ID pour confirmation
   const transactionIdRef = useRef<string | null>(null);
 
-  // Initializar token JWT
   useEffect(() => {
     const token = jwtToken || localStorage.getItem('momo.auth.token');
     tokenRef.current = token;
-    console.log(`🔐 [AUTH] Token inicializado${token ? ': presente' : ': NO ENCONTRADO'}`);
   }, [jwtToken]);
-
-  // Initialiser la reconnaissance vocale
-  useEffect(() => {
-    // @ts-ignore
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-
-    if (SpeechRecognition) {
-      const rec = new SpeechRecognition();
-      rec.continuous = false;
-      rec.interimResults = false;
-      rec.lang = 'fr-FR';
-
-      rec.onerror = (event: any) => {
-        console.error('Speech recognition error:', event.error);
-      };
-
-      recognitionRef.current = rec;
-    }
-
-    return () => {
-      if (recognitionRef.current) {
-        recognitionRef.current.stop();
-      }
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
-      }
-    };
-  }, []);
 
   useEffect(() => {
     statusRef.current = status;
   }, [status]);
 
-  // Charger les voix TTS au démarrage + workaround bug Chrome
-  useEffect(() => {
-    if ('speechSynthesis' in window) {
-      const loadVoices = () => {
-        const voices = window.speechSynthesis.getVoices();
-        console.log('🎙️ [TTS] Voix chargées:', voices.length);
-        const frenchVoices = voices.filter(v => v.lang.startsWith('fr'));
-        console.log('🇫🇷 [TTS] Voix françaises:', frenchVoices.map(v => v.name));
-      };
-
-      // Charger immédiatement si déjà disponibles
-      loadVoices();
-
-      // Écouter le chargement asynchrone des voix (Chrome)
-      window.speechSynthesis.onvoiceschanged = loadVoices;
-
-      // 🔧 Workaround bug Chrome: empêcher TTS de s'arrêter après inactivité
-      const keepAliveInterval = setInterval(() => {
-        if (window.speechSynthesis.paused) {
-          console.log('🔧 [TTS] Resume after pause');
-          window.speechSynthesis.resume();
-        }
-      }, 5000);
-
-      return () => {
-        window.speechSynthesis.onvoiceschanged = null;
-        clearInterval(keepAliveInterval);
-      };
-    }
+  const updateStatus = useCallback((newStatus: AssistantStatus) => {
+    console.log(`[STATUS] ${statusRef.current} -> ${newStatus}`);
+    setStatus(newStatus);
+    statusRef.current = newStatus;
   }, []);
 
-  /**
-   * 🎤 Démarrer l'enregistrement audio brut
-   */
-  const startListening = useCallback(async () => {
-    try {
-      console.log('🎤 [START] Demande d\'accès microphone...');
-
-      // Request native Android permissions via Capacitor before web access
-      try {
-        const { SpeechRecognition } = await import('@capacitor-community/speech-recognition');
-        await SpeechRecognition.requestPermissions();
-        console.log('✅ [NATIVE] Capacitor permissions demandées');
-      } catch (e) {
-        console.warn('⚠️ [NATIVE] Impossible de demander les permissions Capacitor (peut-être sur web)', e);
-      }
-
-      // 🔔 Réveiller l'audio context (nécessaire pour l'autoplay sur mobile)
-      if (window.speechSynthesis) {
-        window.speechSynthesis.cancel(); // Réinitialise l'état
-        // Petit "blip" silencieux pour débloquer l'audio
-        const unlockUtterance = new SpeechSynthesisUtterance('');
-        unlockUtterance.volume = 0;
-        window.speechSynthesis.speak(unlockUtterance);
-        console.log('🔓 [AUDIO] Contexte audio débloqué');
-      }
-
-      // Demander l'accès au microphone
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        }
-      });
-
-      console.log('✅ [AUDIO] Microphone accès autorisé');
-      streamRef.current = stream;
-
-      // Détecter les MIME types supportés
-      const supportedMimeTypes = [
-        'audio/webm',
-        'audio/wav',
-        'audio/ogg',
-        'audio/mp4',
-        'audio/webm;codecs=opus',
-      ];
-
-      let selectedMimeType = '';
-      for (const mimeType of supportedMimeTypes) {
-        if (MediaRecorder.isTypeSupported(mimeType)) {
-          selectedMimeType = mimeType;
-          console.log(`✅ [AUDIO] MIME type supporté: ${mimeType}`);
-          break;
-        }
-      }
-
-      if (!selectedMimeType) {
-        // Fallback: créer sans spécifier le MIME type
-        console.warn('⚠️ [AUDIO] Aucun MIME type spécifique supporté, utilisation du défaut du navigateur');
-        selectedMimeType = '';
-      }
-
-      // Créer MediaRecorder
-      const mediaRecorderOptions = selectedMimeType ? { mimeType: selectedMimeType } : {};
-      const mediaRecorder = new MediaRecorder(stream, mediaRecorderOptions);
-      recorderMimeTypeRef.current = selectedMimeType || mediaRecorder.mimeType || 'audio/webm';
-
-      console.log(`📝 [AUDIO] MediaRecorder initié (format: ${selectedMimeType || 'default'})`);
-      mediaRecorderRef.current = mediaRecorder;
-      audioChunksRef.current = [];
-
-      // Collecter les chunks audio
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
-      };
-
-      // Lorsque l'enregistrement est terminé
-      mediaRecorder.onstop = async () => {
-        console.log('⏹️ [AUDIO] Enregistrement terminé, construction du Blob...');
-        // Conserver le vrai MIME type pour éviter d'envoyer un faux WAV
-        const mimeType = recorderMimeTypeRef.current || 'audio/webm';
-        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
-        const audioExtension = mimeType.includes('webm')
-          ? 'webm'
-          : mimeType.includes('wav')
-            ? 'wav'
-            : mimeType.includes('ogg') || mimeType.includes('opus')
-              ? 'ogg'
-              : mimeType.includes('mp4') || mimeType.includes('aac')
-                ? 'm4a'
-                : 'webm';
-
-        console.log(`🎵 [SUCCESS] Audio enregistré: ${audioBlob.size} bytes (${mimeType})`);
-        if (audioBlob.size === 0) {
-          console.error('❌ [ERROR] Audio blob est vide!');
-          setStatus('error');
-          setFeedback('Erreur: aucun audio enregistré. Réessayez.');
-          return;
-        }
-
-        // Envoyer à l'API backend
-        await sendAudioToBackend(audioBlob, `audio.${audioExtension}`);
-      };
-
-      mediaRecorder.start();
-      setStatus('listening');
-      setIsListening(true);
-      setFeedback('Je vous écoute...');
-      setTranscript('');
-      setParsedIntent(null);
-
-      console.log('✅ [SUCCESS] Enregistrement démarré');
-      setStatus('listening');
-      setIsListening(true);
-      setFeedback('Je vous écoute...');
-      setTranscript('');
-      setParsedIntent(null);
-
-      // Auto-stop de sécurité après 60 secondes max (si l'utilisateur oublie de désactiver)
-      const timeout = setTimeout(() => {
-        if (mediaRecorderRef.current?.state === 'recording') {
-          console.log('⏱️ [TIMEOUT] Arrêt auto de sécurité après 60s');
-          stopListening();
-        }
-      }, 60000);
-
-      return () => clearTimeout(timeout);
-
-    } catch (error: any) {
-      console.error('❌ [ERROR] Erreur accès microphone:', error);
-      console.error('   Type:', error.name);
-      console.error('   Message:', error.message);
-      setStatus('error');
-      const errorMsg = error.name === 'NotAllowedError'
-        ? 'Accès microphone refusé. Vérifiez les permissions du navigateur.'
-        : error.name === 'NotFoundError'
-          ? 'Aucun microphone trouvé.'
-          : 'Erreur accès microphone: ' + error.message;
-      setFeedback(errorMsg);
-      console.error('📢 [FEEDBACK]', errorMsg);
-      speakFeedback(errorMsg);
-    }
-  }, []);
-
-  /**
-   * ⏹️ Arrêter l'enregistrement audio et fermer proprement l'AudioContext
-   */
-  const stopListening = useCallback(() => {
-    if (mediaRecorderRef.current?.state === 'recording') {
-      mediaRecorderRef.current.stop();
-
-      // Libérer le flux microphone
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
-      }
-
-      // Nettoyer et détruire proprement l'AudioContext pour éviter les fuites de mémoire
-      if (audioContextRef.current) {
-        if (audioContextRef.current.state !== 'closed') {
-          audioContextRef.current.close().catch(console.error);
-        }
-        audioContextRef.current = null;
-      }
-
-      setIsListening(false);
-      setStatus('processing');
-      console.log('⏹️ Enregistrement arrêté et AudioContext libéré.');
-    }
-  }, []);
-
-  /**
-   * 🚀 Déclencher l'exécution USSD locale
-   */
-  // État pour la modal PIN
-  const [showPinModal, setShowPinModal] = useState(false);
-  const [pinContext, setPinContext] = useState<{ intent: string; data: any } | null>(null);
-
-  const triggerUSSD = async (
-    intent: string,
-    data: any
-  ): Promise<{ success: boolean; message: string; dialerFallback?: boolean; ambiguity?: any[]; promptPin?: boolean; context?: any }> => {
-    if (!intent || intent === 'unknown' || intent === 'confirm' || intent === 'cancel') {
-      console.log(`ℹ️ [USSD] Intent ignoré: ${intent}`);
-      return { success: true, message: '' };
-    }
-
-    console.log(`📱 [USSD] Lancement local pour intent: ${intent}`);
-
-    try {
-      const ussdResult = await executeVoiceCommand(intent, {
-        amount: data?.amount,
-        recipient: data?.recipient,
-      });
-      console.log('✅ [USSD] Résultat:', ussdResult);
-
-      if (ussdResult.success) {
-        setFeedback(ussdResult.message);
-        return ussdResult;
-      }
-
-      const ussdResultAny = ussdResult as any;
-
-      // Gestion spécifique de l'ambiguïté des contacts
-      if (ussdResultAny.ambiguity) {
-        console.log('🤔 [USSD] Ambiguïté détectée pour:', data?.recipient);
-        setAmbiguityContacts(ussdResultAny.ambiguity);
-        setAmbiguityQuery(data?.recipient || 'Contact');
-        ambiguityContextRef.current = { intent, data };
-        setStatus('awaiting_disambiguation');
-        setFeedback('Plusieurs contacts correspondent. Veuillez choisir.');
-        speakFeedback('Plusieurs contacts correspondent. Veuillez en choisir un sur l\'écran.');
-        return { ...ussdResult, success: false };
-      }
-
-      // Gestion de la demande de PIN
-      if (ussdResultAny.promptPin) {
-        console.log('🔐 [USSD] Demande de PIN détectée');
-        setPinContext({ intent, data: ussdResultAny.context });
-        setShowPinModal(true);
-        setFeedback('Veuillez entrer votre code PIN pour confirmer la transaction.');
-        speakFeedback('Veuillez entrer votre code PIN.');
-        return { ...ussdResult, success: false };
-      }
-
-      setFeedback(ussdResult.message);
-      alert(`Échec USSD: ${ussdResult.message}`);
-      return { ...ussdResult, success: false };
-    } catch (ussdError: any) {
-      console.error('❌ [USSD] Erreur lors du lancement USSD:', ussdError);
-      const msg = ussdError?.message || 'Erreur USSD';
-      setFeedback(msg);
-      alert(`Erreur critique USSD: ${msg}`);
-      return { success: false, message: msg };
-    }
-  };
-
-  // Fonction pour exécuter le transfert avec PIN
-  const executeTransferWithPin = useCallback(async (pin: string) => {
-    const ctx = pinContext;
-    if (!ctx) {
-      console.error('❌ [PIN] Pas de contexte PIN');
-      return;
-    }
-
-    try {
-      console.log('🔐 [PIN] Exécution du transfert avec PIN');
-      const { MoMoTransactionEngine } = await import('../services/ussd_engine/MoMoTransactionEngine');
-      const engine = new MoMoTransactionEngine();
-      
-      const result = await engine.confirmWithPin(pin, {
-        phone: ctx.data?.phone,
-        amount: ctx.data?.amount,
-      });
-
-      setShowPinModal(false);
-      setPinContext(null);
-
-      const resultAny = result as any;
-      if (resultAny?.status === 'success') {
-        setFeedback('Transaction confirmée avec succès !');
-        speakFeedback('Transaction confirmée avec succès !');
-        setStatus('success');
-      } else {
-        setFeedback(resultAny?.message || 'Échec de la transaction');
-        speakFeedback(resultAny?.message || 'Échec de la transaction');
-        setStatus('error');
-      }
-    } catch (error: any) {
-      console.error('❌ [PIN] Erreur lors de la confirmation avec PIN:', error);
-      setShowPinModal(false);
-      setPinContext(null);
-      setFeedback('Erreur lors de la confirmation');
-      speakFeedback('Erreur lors de la confirmation');
-      setStatus('error');
-    }
-  }, [pinContext]);
-
-  // Annuler la demande de PIN
-  const cancelPinModal = useCallback(() => {
-    setShowPinModal(false);
-    setPinContext(null);
-    setFeedback('Transaction annulée');
-    speakFeedback('Transaction annulée');
-    setStatus('idle');
-  }, []);
-
-  /**
-   * 📤 Envoyer l'audio au backend
-   */
-  const sendAudioToBackend = async (audioBlob: Blob, filename: string = 'audio.webm') => {
-    try {
-      console.log('📤 [START] Envoi audio au backend...');
-      console.log(`   URL: ${nlpApiUrl}/api/voice-command`);
-      console.log(`   Size: ${audioBlob.size} bytes`);
-      console.log(`   Type: ${audioBlob.type}`);
-      console.log(`   File: ${filename}`);
-
-      // FormData pour uploader le fichier
-      const formData = new FormData();
-      formData.append('audio_file', audioBlob, filename);
-
-      // Headers avec JWT
-      const headers: any = {};
-      if (tokenRef.current) {
-        headers['Authorization'] = `Bearer ${tokenRef.current}`;
-        console.log('🔐 [AUTH] Token JWT présent');
-      } else {
-        console.warn('⚠️ [AUTH] Pas de token JWT trouvé');
-      }
-
-      console.log('📡 [NETWORK] Envoi de la requête...');
-      const response = await fetch(`${nlpApiUrl}/api/voice-command`, {
-        method: 'POST',
-        headers,
-        body: formData,
-      });
-
-      console.log(`📥 [RESPONSE] Status: ${response.status} ${response.statusText}`);
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`❌ [ERROR] Backend error: ${response.status}`);
-        console.error(`   Response body: ${errorText}`);
-        throw new Error(`Backend error: ${response.status} - ${errorText}`);
-      }
-
-      const result: ParsedResponse = await response.json();
-      console.log('✅ [SUCCESS] Réponse backend reçue');
-      console.log(`   Intent: ${result.intent}`);
-      console.log(`   Confidence: ${result.metadata?.confidence}`);
-      console.log(`   Understood: "${result.understood_text}"`);
-      console.log(`   Needs confirmation: ${result.needs_confirmation}`);
-
-      // Sauvegarder l'intent parsé
-      setParsedIntent(result);
-      setTranscript(result.understood_text || '');
-
-      // Sauvegarder le transaction_id si présent (pour confirmation)
-      if (result.transaction_id) {
-        transactionIdRef.current = result.transaction_id;
-        console.log(`💾 [CACHE] Transaction ID: ${result.transaction_id}`);
-      }
-
-      // Afficher le message de réponse
-      const message = result.message || result.confirmation_message || 'Action exécutée';
-      console.log(`📢 [FEEDBACK] Message: "${message}"`);
-      setFeedback(message);
-
-      const moneyIntents = new Set(['transfer', 'deposit', 'momo_send', 'momo_deposit']);
-
-      // Gérer l'état selon si confirmation nécessaire
-      if (result.needs_confirmation) {
-        console.log(`⏳ [STATE] Attente de confirmation pour: ${result.intent}`);
-        // TTS / audio seulement quand on attend une confirmation (pas encore d'USSD)
-        if (result.audio_base64) {
-          console.log('🔊 [AUDIO] Audio de réponse trouvé, lecture...');
-          await playAudioResponse(result.audio_base64);
-        } else {
-          console.log('💬 [TTS] Pas d\'audio de réponse, utilisation TTS');
-          speakFeedback(message);
-        }
-        setStatus('awaiting_confirmation');
-      } else {
-        console.log(`✅ [STATE] Action réussie: ${result.intent}`);
-        setStatus('success');
-
-        if (result.success && result.intent !== 'help') {
-          const ussdResult = await triggerUSSD(result.intent, result.data || result);
-          if (!ussdResult.success) {
-            setStatus('error');
-            speakFeedback(ussdResult.message);
-          } else if (moneyIntents.has(result.intent)) {
-            const spoken = ussdResult.dialerFallback
-              ? ussdResult.message
-              : ussdResult.message ||
-              'Demande envoyée à MTN. Validez avec votre code PIN si une fenêtre apparaît.';
-            setFeedback(spoken);
-            speakFeedback(spoken);
-          } else if (result.audio_base64) {
-            await playAudioResponse(result.audio_base64);
-          } else {
-            speakFeedback(message);
-          }
-        } else {
-          if (result.audio_base64) {
-            await playAudioResponse(result.audio_base64);
-          } else {
-            speakFeedback(message);
-          }
-        }
-
-        // Reset à idle après 3s
-        setTimeout(() => {
-          if (statusRef.current === 'success' || statusRef.current === 'error') {
-            console.log('[STATE] Reset to idle');
-            setStatus('idle');
-          }
-        }, 3000);
-      }
-
-    } catch (error) {
-      console.error('❌ [ERROR] Erreur envoi audio:');
-      console.error('   Type:', (error as any)?.name);
-      console.error('   Message:', (error as any)?.message);
-      console.error('   Stack:', (error as any)?.stack);
-      setStatus('error');
-      const errorMsg = (error as any)?.message || 'Erreur lors du traitement audio. Veuillez réessayer.';
-      setFeedback(errorMsg);
-      console.error(`📢 [FEEDBACK] ERROR: ${errorMsg}`);
-      speakFeedback(errorMsg);
-
-      setTimeout(() => setStatus('idle'), 5000);
-    }
-  };
-
-  /**
-   * 🔊 Jouer l'audio de réponse (base64)
-   */
-  const playAudioResponse = async (base64Audio: string): Promise<void> => {
-    return new Promise((resolve) => {
-      try {
-        console.log('🔊 Lecture audio de réponse...');
-
-        // Décoder base64 vers ArrayBuffer
-        const binaryString = atob(base64Audio);
-        const len = binaryString.length;
-        const bytes = new Uint8Array(len);
-
-        for (let i = 0; i < len; i++) {
-          bytes[i] = binaryString.charCodeAt(i);
-        }
-
-        // Créer Blob et jouer
-        const audioBlob = new Blob([bytes.buffer], { type: 'audio/mpeg' });
-        const audioUrl = URL.createObjectURL(audioBlob);
-        const audio = new Audio(audioUrl);
-
-        audio.onended = () => {
-          URL.revokeObjectURL(audioUrl);
-          console.log('✅ Audio terminé');
-          resolve();
-        };
-
-        audio.onerror = (error) => {
-          console.error('❌ Erreur lecture audio:', error);
-          URL.revokeObjectURL(audioUrl);
-          resolve(); // Continuer même si erreur
-        };
-
-        audio.play().catch(err => {
-          console.error('❌ Erreur play():', err);
-          resolve(); // Continuer même si erreur
-        });
-
-        // Timeout si audio ne termine pas
-        setTimeout(resolve, 30000);
-
-      } catch (error) {
-        console.error('❌ Erreur décodage audio:', error);
-        resolve(); // Continuer même si erreur
-      }
-    });
-  };
-
-  /**
-   * 🔊 TTS Fallback avec gestion des voix
-   */
   const speakFeedback = async (text: string) => {
     try {
       const { TextToSpeech } = await import('@capacitor-community/text-to-speech');
@@ -623,206 +91,263 @@ export function useVoiceAssistantNLP(
         volume: 1.0,
         category: 'ambient',
       });
-      console.log('✅ [TTS] Texte lu via Capacitor:', text);
     } catch (e) {
-      console.warn('⚠️ [TTS] Erreur plugin Capacitor, fallback Web Speech API', e);
+      console.warn('⚠️ [TTS] Fallback Web Speech API', e);
       if (!('speechSynthesis' in window)) return;
-
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = 'fr-FR';
-      utterance.rate = 1;
-      utterance.volume = 0.8;
-
       const voices = window.speechSynthesis.getVoices();
       const frenchVoice = voices.find(v => v.lang.startsWith('fr'));
       if (frenchVoice) utterance.voice = frenchVoice;
-
       window.speechSynthesis.speak(utterance);
     }
   };
 
-  /**
-   * ✅ Confirmer une action — appel JSON direct à /api/confirm
-   */
-  const confirmAction = useCallback(async () => {
-    const txId = transactionIdRef.current;
-    if (!txId) {
-      console.warn('❌ [ERROR] Pas de transaction_id à confirmer');
-      setFeedback('Erreur: pas d\'action à confirmer');
-      return;
-    }
+  const playAudioResponse = async (base64Audio: string): Promise<void> => {
+    return new Promise((resolve) => {
+      try {
+        const binaryString = atob(base64Audio);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        const audioBlob = new Blob([bytes.buffer], { type: 'audio/mpeg' });
+        const audioUrl = URL.createObjectURL(audioBlob);
+        const audio = new Audio(audioUrl);
+        audio.onended = () => { URL.revokeObjectURL(audioUrl); resolve(); };
+        audio.onerror = () => { URL.revokeObjectURL(audioUrl); resolve(); };
+        audio.play().catch(() => resolve());
+        setTimeout(resolve, 30000);
+      } catch (error) {
+        console.error('❌ Erreur décodage audio:', error);
+        resolve();
+      }
+    });
+  };
 
+  const triggerUSSD = useCallback(async (intent: string, data: any) => {
+    if (!intent || ['unknown', 'confirm', 'cancel'].includes(intent)) return { success: true, message: '' };
+    
+    console.log(`📱 [USSD] Intent: ${intent}`, data);
     try {
-      console.log(`✅ [START] Confirmation lancée — transaction_id: ${txId}`);
-      setFeedback('Envoi de votre confirmation...');
-      setStatus('processing');
+      const ussdResult = await executeVoiceCommand(intent, {
+        amount: data?.amount,
+        recipient: data?.recipient,
+      });
 
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (ussdResult.success) {
+        return { success: true, message: ussdResult.message };
+      }
+
+      const resultAny = ussdResult as any;
+
+      if (resultAny.ambiguity) {
+        console.log('🤔 [USSD] Ambiguity detected');
+        setAmbiguityContacts(resultAny.ambiguity);
+        setAmbiguityQuery(data?.recipient || 'Contact');
+        ambiguityContextRef.current = { intent, data };
+        updateStatus('awaiting_disambiguation');
+        const msg = `Plusieurs contacts trouvés pour '${data?.recipient || 'ce nom'}'. Veuillez choisir sur l'écran.`;
+        setFeedback(msg);
+        speakFeedback(msg);
+        return { success: false, isAwaiting: true };
+      }
+
+      if (resultAny.promptPin) {
+        console.log('🔐 [USSD] PIN prompt required');
+        setPinContext({ intent, data: resultAny.context });
+        setShowPinModal(true);
+        updateStatus('awaiting_pin');
+        const amount = resultAny.context?.amount || '...';
+        const recipient = resultAny.context?.recipientName || resultAny.context?.phone || '...';
+        const pinMsg = `Transfert de ${amount} FCFA à ${recipient}. Veuillez entrer votre code PIN.`;
+        setFeedback(pinMsg);
+        speakFeedback(`Veuillez entrer votre code PIN pour confirmer le transfert.`);
+        return { success: false, isAwaiting: true };
+      }
+
+      return { success: false, message: ussdResult.message || 'Échec de l\'opération' };
+    } catch (e: any) {
+      console.error('❌ [USSD] Erreur:', e);
+      return { success: false, message: e.message || 'Erreur USSD' };
+    }
+  }, [updateStatus]);
+
+  const sendAudioToBackend = async (audioBlob: Blob, filename: string = 'audio.webm') => {
+    try {
+      updateStatus('processing');
+      const formData = new FormData();
+      formData.append('audio_file', audioBlob, filename);
+      const headers: any = {};
       if (tokenRef.current) headers['Authorization'] = `Bearer ${tokenRef.current}`;
 
+      const response = await fetch(`${nlpApiUrl}/api/voice-command`, { method: 'POST', headers, body: formData });
+      if (!response.ok) throw new Error(`Erreur backend: ${response.status}`);
+
+      const result: ParsedResponse = await response.json();
+      setParsedIntent(result);
+      setTranscript(result.understood_text || '');
+      if (result.transaction_id) transactionIdRef.current = result.transaction_id;
+
+      const feedbackMsg = result.message || result.confirmation_message || 'Action exécutée';
+      setFeedback(feedbackMsg);
+
+      if (result.needs_confirmation || result.requires_confirmation) {
+        if (result.audio_base64) await playAudioResponse(result.audio_base64);
+        else speakFeedback(feedbackMsg);
+        updateStatus('awaiting_confirmation');
+      } else {
+        if (result.success && result.intent !== 'help') {
+          const ussdRes = await triggerUSSD(result.intent, result.data || result);
+          if (ussdRes.success) {
+            updateStatus('success');
+            const spoken = ussdRes.message || 'Opération réussie.';
+            setFeedback(spoken);
+            speakFeedback(spoken);
+            setTimeout(() => { if (statusRef.current === 'success') updateStatus('idle'); }, 5000);
+          } else if (!(ussdRes as any).isAwaiting) {
+            updateStatus('error');
+            const spoken = ussdRes.message || 'Une erreur est survenue.';
+            setFeedback(spoken);
+            speakFeedback(spoken);
+            setTimeout(() => { if (statusRef.current === 'error') updateStatus('idle'); }, 5000);
+          }
+        } else {
+          updateStatus('success');
+          if (result.audio_base64) await playAudioResponse(result.audio_base64);
+          else speakFeedback(feedbackMsg);
+          setTimeout(() => { if (statusRef.current === 'success') updateStatus('idle'); }, 5000);
+        }
+      }
+    } catch (error: any) {
+      console.error('❌ Erreur audio:', error);
+      updateStatus('error');
+      setFeedback(error.message || 'Erreur de traitement');
+      setTimeout(() => updateStatus('idle'), 5000);
+    }
+  };
+
+  const startListening = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+      mediaRecorder.ondataavailable = (e) => audioChunksRef.current.push(e.data);
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: recorderMimeTypeRef.current });
+        if (audioBlob.size > 0) await sendAudioToBackend(audioBlob);
+      };
+      mediaRecorder.start();
+      updateStatus('listening');
+      setIsListening(true);
+      setFeedback('Je vous écoute...');
+    } catch (e: any) {
+      updateStatus('error');
+      setFeedback('Microphone inaccessible');
+    }
+  }, [updateStatus]);
+
+  const stopListening = useCallback(() => {
+    if (mediaRecorderRef.current?.state === 'recording') {
+      mediaRecorderRef.current.stop();
+      streamRef.current?.getTracks().forEach(t => t.stop());
+      setIsListening(false);
+      updateStatus('processing');
+    }
+  }, [updateStatus]);
+
+  const confirmAction = useCallback(async () => {
+    if (!transactionIdRef.current) return;
+    try {
+      updateStatus('processing');
+      const headers: any = { 'Content-Type': 'application/json' };
+      if (tokenRef.current) headers['Authorization'] = `Bearer ${tokenRef.current}`;
       const response = await fetch(`${nlpApiUrl}/api/confirm`, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ transaction_id: txId }),
+        body: JSON.stringify({ transaction_id: transactionIdRef.current }),
       });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Erreur confirmation: ${response.status} - ${errorText}`);
-      }
-
       const result = await response.json();
-      console.log('📱 [BACKEND] Réponse confirmation:', result);
-
-      const backendMsg = result.message || 'Transaction confirmée';
-      const moneyIntents = new Set(['transfer', 'deposit', 'momo_send', 'momo_deposit']);
-      const targetIntent = (result.intent || parsedIntent?.intent || '') as string;
-
-      let ussdResult: { success: boolean; message: string; dialerFallback?: boolean } = {
-        success: true,
-        message: '',
-      };
-
-      if (result.success) {
-        console.log(`✅ Confirmation réussie, déclenchement USSD pour: ${targetIntent}`);
-        ussdResult = await triggerUSSD(targetIntent, result.data || result);
-      } else {
-        const err = result.message || 'Erreur serveur';
-        alert(`Le backend a retourné une erreur: ${err}`);
-        setFeedback(err);
-        speakFeedback(err);
-        setStatus('error');
-        transactionIdRef.current = null;
-        setParsedIntent(null);
-        setTimeout(() => {
-          if (statusRef.current === 'error') setStatus('idle');
-        }, 5000);
+      if (!result.success) {
+        updateStatus('error');
+        setFeedback(result.message || 'Erreur confirmation');
+        setTimeout(() => { if (statusRef.current === 'error') updateStatus('idle'); }, 5000);
         return;
       }
-
-      if (!ussdResult.success) {
-        setFeedback(ussdResult.message);
-        speakFeedback(ussdResult.message);
-        setStatus('error');
-        transactionIdRef.current = null;
-        setParsedIntent(null);
-        setTimeout(() => {
-          if (statusRef.current === 'error') setStatus('idle');
-        }, 5000);
-        return;
+      const ussdRes = await triggerUSSD(result.intent || parsedIntent?.intent, result.data || result);
+      if (ussdRes.success) {
+        updateStatus('success');
+        setFeedback(ussdRes.message);
+        speakFeedback(ussdRes.message);
+        setTimeout(() => { if (statusRef.current === 'success') updateStatus('idle'); }, 5000);
+      } else if (!(ussdRes as any).isAwaiting) {
+        updateStatus('error');
+        setFeedback(ussdRes.message || 'Échec de la transaction');
+        setTimeout(() => { if (statusRef.current === 'error') updateStatus('idle'); }, 5000);
       }
-
-      if (result.success && moneyIntents.has(targetIntent)) {
-        const spoken = ussdResult.dialerFallback
-          ? ussdResult.message
-          : ussdResult.message ||
-          'Demande envoyée à MTN. Validez avec votre code PIN si une fenêtre apparaît.';
-        setFeedback(spoken);
-        speakFeedback(spoken);
-      } else if (result.success) {
-        setFeedback(backendMsg);
-        speakFeedback(backendMsg);
-      }
-
-      setStatus('success');
-      transactionIdRef.current = null;
-      setParsedIntent(null);
-      setTimeout(() => {
-        if (statusRef.current === 'success') setStatus('idle');
-      }, 5000);
-
-    } catch (error) {
-      console.error('❌ [ERROR] Erreur lors de la confirmation:', error);
-      const msg = 'Erreur lors du traitement de votre confirmation.';
-      setFeedback(msg);
-      speakFeedback(msg);
-      setStatus('error');
-      transactionIdRef.current = null;
-      setTimeout(() => setStatus('idle'), 3000);
+    } catch (e) {
+      updateStatus('error');
+      setTimeout(() => { if (statusRef.current === 'error') updateStatus('idle'); }, 5000);
     }
-  }, [nlpApiUrl, parsedIntent]);
+  }, [nlpApiUrl, parsedIntent, triggerUSSD, updateStatus]);
 
-  /**
-   * ❌ Annuler une action
-   */
-  const cancelAction = useCallback(async () => {
-    console.log('❌ [CANCEL] Action annulée par l\'utilisateur');
-
-    setFeedback('Action annulée');
-    speakFeedback('Action annulée');
-
-    setStatus('idle');
+  const cancelAction = useCallback(() => {
+    updateStatus('idle');
     setParsedIntent(null);
     setAmbiguityContacts(null);
-    ambiguityContextRef.current = null;
-  }, []);
+    setShowPinModal(false);
+    setFeedback('Action annulée');
+  }, [updateStatus]);
 
-  /**
-   * 🎯 Résoudre l'ambiguïté en fournissant le contact choisi
-   */
-  const resolveAmbiguity = useCallback(async (selectedContact: { name: string; phone: string }) => {
+  const resolveAmbiguity = useCallback(async (contact: { name: string; phone: string }) => {
     const ctx = ambiguityContextRef.current;
+    if (!ctx) return;
     setAmbiguityContacts(null);
-    ambiguityContextRef.current = null;
-
-    if (!ctx) {
-      setStatus('idle');
-      return;
+    updateStatus('processing');
+    const ussdRes = await triggerUSSD(ctx.intent, { ...ctx.data, recipient: contact.phone });
+    if (ussdRes.success) {
+      updateStatus('success');
+      setFeedback(ussdRes.message);
+      speakFeedback(ussdRes.message);
+      setTimeout(() => { if (statusRef.current === 'success') updateStatus('idle'); }, 5000);
+    } else if (!(ussdRes as any).isAwaiting) {
+      updateStatus('error');
+      setFeedback(ussdRes.message || 'Échec de la transaction');
+      setTimeout(() => { if (statusRef.current === 'error') updateStatus('idle'); }, 5000);
     }
+  }, [triggerUSSD, updateStatus]);
 
-    console.log(`✅ [RESOLVE] Contact sélectionné: ${selectedContact.name} (${selectedContact.phone})`);
-    setStatus('processing');
-    setFeedback(`Contact sélectionné. Je lance l'opération pour ${selectedContact.name}...`);
-
-    // Injecter le numéro exact et forcer le passage sans ambiguïté
-    const updatedData = {
-      ...ctx.data,
-      recipient: selectedContact.phone,
-    };
-
-    const ussdResult = await triggerUSSD(ctx.intent, updatedData);
-
-    if (!ussdResult.success) {
-      if (ussdResult.ambiguity) {
-        // Ne devrait plus arriver car on a mis un numéro exact
-        return;
-      }
-      setStatus('error');
-      speakFeedback(ussdResult.message);
-    } else {
-      const moneyIntents = new Set(['transfer', 'deposit', 'momo_send', 'momo_deposit']);
-      if (moneyIntents.has(ctx.intent)) {
-        const spoken = ussdResult.dialerFallback
-          ? ussdResult.message
-          : ussdResult.message || 'Demande envoyée à MTN. Validez avec votre code PIN si une fenêtre apparaît.';
-        setFeedback(spoken);
-        speakFeedback(spoken);
+  const executeTransferWithPin = useCallback(async (pin: string) => {
+    if (!pinContext) return;
+    try {
+      updateStatus('processing');
+      const { MoMoTransactionEngine } = await import('../services/ussd_engine/MoMoTransactionEngine');
+      const engine = new MoMoTransactionEngine();
+      const res = await engine.confirmWithPin(pin, { phone: pinContext.data?.phone, amount: pinContext.data?.amount });
+      setShowPinModal(false);
+      if (res.status === 'success') {
+        updateStatus('success');
+        setFeedback(res.message);
+        speakFeedback(res.message);
+        setTimeout(() => { if (statusRef.current === 'success') updateStatus('idle'); }, 5000);
       } else {
-        speakFeedback(ussdResult.message);
+        updateStatus('error');
+        setFeedback(res.message);
+        speakFeedback(res.message);
+        setTimeout(() => { if (statusRef.current === 'error') updateStatus('idle'); }, 5000);
       }
-      setStatus('success');
-      setTimeout(() => {
-        if (statusRef.current === 'success') setStatus('idle');
-      }, 5000);
+    } catch (e) {
+      updateStatus('error');
+      setTimeout(() => { if (statusRef.current === 'error') updateStatus('idle'); }, 5000);
     }
-  }, []);
+  }, [pinContext, updateStatus]);
 
   return {
-    status,
-    transcript,
-    feedback,
-    parsedIntent,
-    startListening,
-    stopListening,
-    confirmAction,
-    cancelAction,
-    isListening,
-    ambiguityContacts,
-    ambiguityQuery,
-    resolveAmbiguity,
-    showPinModal,
-    executeTransferWithPin,
-    cancelPinModal,
+    status, transcript, feedback, parsedIntent, isListening, ambiguityContacts, ambiguityQuery, showPinModal,
+    startListening, stopListening, confirmAction, cancelAction,
+    resolveAmbiguity, executeTransferWithPin, cancelPinModal: cancelAction
   };
 }

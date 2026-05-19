@@ -82,7 +82,7 @@ async function resolveContactByName(name: string): Promise<string | null> {
       // Chercher le contact correspondant (recherche flexible)
       for (const contact of result.contacts) {
         // Le plugin Capacitor peut renvoyer les noms dans différents champs selon la version/plateforme
-        const displayName = (contact.displayName || (contact as any).name?.display || "").toLowerCase().trim();
+        const displayName = ((contact as any).displayName || (contact as any).name?.display || "").toLowerCase().trim();
         const givenName = ((contact as any).name?.given || "").toLowerCase().trim();
         const familyName = ((contact as any).name?.family || "").toLowerCase().trim();
         

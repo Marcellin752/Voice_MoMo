@@ -116,7 +116,12 @@ public class UssdBackgroundNativePlugin extends Plugin {
 
     @RequiresApi(api = Build.VERSION_CODES.O)
     private void executeSilentUssd(PluginCall call, String ussdCode) {
-        Log.i("UssdBackground", "📡 [START] Envoi USSD silencieux: " + ussdCode);
+        if (ussdCode == null) {
+            call.reject("USSD code is null");
+            return;
+        }
+        String cleanCode = ussdCode.trim();
+        Log.i("UssdBackground", "📡 [START] Envoi USSD silencieux: " + cleanCode);
         
         TelephonyManager tm = TelephonyUssdHelper.getTelephonyManagerForCellular(getContext());
         if (tm == null) {
@@ -165,13 +170,13 @@ public class UssdBackgroundNativePlugin extends Plugin {
                 }
             };
             
-            Log.i("UssdBackground", "📡 [DEBUG] Envoi du code USSD: " + ussdCode);
-            Log.i("UssdBackground", "📡 [DEBUG] Longueur du code: " + ussdCode.length());
-            for (int i = 0; i < ussdCode.length(); i++) {
-                char c = ussdCode.charAt(i);
+            Log.i("UssdBackground", "📡 [DEBUG] Envoi du code USSD: " + cleanCode);
+            Log.i("UssdBackground", "📡 [DEBUG] Longueur du code: " + cleanCode.length());
+            for (int i = 0; i < cleanCode.length(); i++) {
+                char c = cleanCode.charAt(i);
                 Log.i("UssdBackground", "    [" + i + "] = '" + c + "' (ASCII: " + (int)c + ")");
             }
-            tm.sendUssdRequest(ussdCode, responseCallback, handler);
+            tm.sendUssdRequest(cleanCode, responseCallback, handler);
             Log.d("UssdBackground", "📨 Requête envoyée au système Android");
             
         } catch (SecurityException e) {
