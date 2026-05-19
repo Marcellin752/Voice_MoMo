@@ -34,6 +34,10 @@ interface VoiceHookReturn {
   ambiguityContacts: any[] | null;
   ambiguityQuery: string;
   resolveAmbiguity: (contact: { name: string; phone: string }) => void;
+  // PIN modal
+  showPinModal: boolean;
+  executeTransferWithPin: (pin: string) => Promise<void>;
+  cancelPinModal: () => void;
 }
 
 export function useVoiceAssistantNLP(
@@ -314,10 +318,14 @@ export function useVoiceAssistantNLP(
   /**
    * 🚀 Déclencher l'exécution USSD locale
    */
+  // État pour la modal PIN
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [pinContext, setPinContext] = useState<{ intent: string; data: any } | null>(null);
+
   const triggerUSSD = async (
     intent: string,
     data: any
-  ): Promise<{ success: boolean; message: string; dialerFallback?: boolean; ambiguity?: any[] }> => {
+  ): Promise<{ success: boolean; message: string; dialerFallback?: boolean; ambiguity?: any[]; promptPin?: boolean; context?: any }> => {
     if (!intent || intent === 'unknown' || intent === 'confirm' || intent === 'cancel') {
       console.log(`ℹ️ [USSD] Intent ignoré: ${intent}`);
       return { success: true, message: '' };
@@ -337,15 +345,27 @@ export function useVoiceAssistantNLP(
         return ussdResult;
       }
 
+      const ussdResultAny = ussdResult as any;
+
       // Gestion spécifique de l'ambiguïté des contacts
-      if ((ussdResult as any).ambiguity) {
+      if (ussdResultAny.ambiguity) {
         console.log('🤔 [USSD] Ambiguïté détectée pour:', data?.recipient);
-        setAmbiguityContacts((ussdResult as any).ambiguity);
+        setAmbiguityContacts(ussdResultAny.ambiguity);
         setAmbiguityQuery(data?.recipient || 'Contact');
         ambiguityContextRef.current = { intent, data };
         setStatus('awaiting_disambiguation');
         setFeedback('Plusieurs contacts correspondent. Veuillez choisir.');
         speakFeedback('Plusieurs contacts correspondent. Veuillez en choisir un sur l\'écran.');
+        return { ...ussdResult, success: false };
+      }
+
+      // Gestion de la demande de PIN
+      if (ussdResultAny.promptPin) {
+        console.log('🔐 [USSD] Demande de PIN détectée');
+        setPinContext({ intent, data: ussdResultAny.context });
+        setShowPinModal(true);
+        setFeedback('Veuillez entrer votre code PIN pour confirmer la transaction.');
+        speakFeedback('Veuillez entrer votre code PIN.');
         return { ...ussdResult, success: false };
       }
 
@@ -360,6 +380,56 @@ export function useVoiceAssistantNLP(
       return { success: false, message: msg };
     }
   };
+
+  // Fonction pour exécuter le transfert avec PIN
+  const executeTransferWithPin = useCallback(async (pin: string) => {
+    const ctx = pinContext;
+    if (!ctx) {
+      console.error('❌ [PIN] Pas de contexte PIN');
+      return;
+    }
+
+    try {
+      console.log('🔐 [PIN] Exécution du transfert avec PIN');
+      const { MoMoTransactionEngine } = await import('../services/ussd_engine/MoMoTransactionEngine');
+      const engine = new MoMoTransactionEngine();
+      
+      const result = await engine.confirmWithPin(pin, {
+        phone: ctx.data?.phone,
+        amount: ctx.data?.amount,
+      });
+
+      setShowPinModal(false);
+      setPinContext(null);
+
+      const resultAny = result as any;
+      if (resultAny?.status === 'success') {
+        setFeedback('Transaction confirmée avec succès !');
+        speakFeedback('Transaction confirmée avec succès !');
+        setStatus('success');
+      } else {
+        setFeedback(resultAny?.message || 'Échec de la transaction');
+        speakFeedback(resultAny?.message || 'Échec de la transaction');
+        setStatus('error');
+      }
+    } catch (error: any) {
+      console.error('❌ [PIN] Erreur lors de la confirmation avec PIN:', error);
+      setShowPinModal(false);
+      setPinContext(null);
+      setFeedback('Erreur lors de la confirmation');
+      speakFeedback('Erreur lors de la confirmation');
+      setStatus('error');
+    }
+  }, [pinContext]);
+
+  // Annuler la demande de PIN
+  const cancelPinModal = useCallback(() => {
+    setShowPinModal(false);
+    setPinContext(null);
+    setFeedback('Transaction annulée');
+    speakFeedback('Transaction annulée');
+    setStatus('idle');
+  }, []);
 
   /**
    * 📤 Envoyer l'audio au backend
@@ -751,5 +821,8 @@ export function useVoiceAssistantNLP(
     ambiguityContacts,
     ambiguityQuery,
     resolveAmbiguity,
+    showPinModal,
+    executeTransferWithPin,
+    cancelPinModal,
   };
 }
