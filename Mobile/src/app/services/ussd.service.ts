@@ -313,7 +313,15 @@ export async function executeVoiceCommand(
     amount?: number;
     recipient?: string;
   }
-): Promise<{ success: boolean; message: string; action: string; dialerFallback?: boolean }> {
+): Promise<{ 
+  success: boolean; 
+  message: string; 
+  action: string; 
+  dialerFallback?: boolean;
+  ambiguity?: any[];
+  promptPin?: boolean;
+  context?: { phone: string; amount: number; recipientName?: string };
+}> {
   console.log('🎙️ [LOG] [START] executeVoiceCommand:', { intent, data });
 
   // PRIORITÉ ABSOLUE : RESTAURATION DU FLOW FONCTIONNEL
@@ -360,6 +368,17 @@ export async function executeVoiceCommand(
         success: false,
         ambiguity: (result as any).ambiguity,  // Tableau des contacts possibles
         message: (result as any).message || 'Plusieurs contacts possibles',
+        action: intent,
+      };
+    }
+
+    // Gestion de la demande de PIN
+    if (result && (result as any).promptPin) {
+      return {
+        success: false,
+        promptPin: true,
+        context: (result as any).context,
+        message: (result as any).message || 'Veuillez entrer votre code PIN.',
         action: intent,
       };
     }
