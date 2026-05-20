@@ -29,7 +29,7 @@ export interface CountryUssdConfig {
 export const USSD_CODES: Record<SupportedCountry, CountryUssdConfig> = {
   BJ: {
     root: "*880#",
-    transfer: "*880*1*1*{to}*{amount}#",
+    transfer: "*880*1*1*{to}*{to}*{amount}#",
     withdraw: "*880*2#",
     balance: "*880*9#",
     billPayment: "*880*5#",
