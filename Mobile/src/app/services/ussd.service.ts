@@ -1,5 +1,6 @@
 import { Capacitor } from '@capacitor/core';
 import { executeUssdCodeInApp } from './ussd_engine/ussdInApp';
+import { ContactResolverService } from './engine/ContactResolverService';
 
 /**
  * Service USSD pour exécuter les codes MTN Mobile Money Bénin
@@ -9,6 +10,8 @@ import { executeUssdCodeInApp } from './ussd_engine/ussdInApp';
  * - Menu principal: *880#
  * - Toutes les opérations passent par *880# (envoi, dépôt, retrait, solde, etc.)
  */
+
+const contactResolver = new ContactResolverService();
 
 // Codes USSD MTN MoMo Bénin (codes réels)
 const MTN_USSD_CODES = {
@@ -48,88 +51,83 @@ async function resolveContactByName(name: string): Promise<string | null> {
   // Si c'est déjà un numéro de téléphone, le retourner directement
   const digitsOnly = name.replace(/\D/g, '');
   if (digitsOnly.length >= 8) {
-    return digitsOnly;
+    // Dynamically import or just require it if we can't
+    return digitsOnly; // Will be formatted by buildUSSDCode later or formatBeninNumber. 
   }
 
-  // Chercher dans les contacts natifs (Capacitor)
-  if (Capacitor.isNativePlatform()) {
-    try {
-      const { Contacts } = await import('@capacitor-community/contacts');
+      // Chercher dans les contacts natifs (Capacitor)
+      if (Capacitor.isNativePlatform()) {
+        try {
+          const { Contacts } = await import('@capacitor-community/contacts');
+          const { ContactResolverService } = await import('./engine/ContactResolverService');
+          const resolver = new ContactResolverService();
 
-      // Vérifier les permissions
-      const currentPermission = await Contacts.checkPermissions();
-      const permission =
-        currentPermission.contacts === 'granted'
-          ? currentPermission
-          : await Contacts.requestPermissions();
+          // Vérifier les permissions
+          const currentPermission = await Contacts.checkPermissions();
+          const permission =
+            currentPermission.contacts === 'granted'
+              ? currentPermission
+              : await Contacts.requestPermissions();
 
-      if (permission.contacts !== 'granted' && permission.contacts !== 'limited') {
-        console.warn('⚠️ [CONTACTS] Permission refusée pour accéder aux contacts');
-        return null;
-      }
+          if (permission.contacts !== 'granted' && permission.contacts !== 'limited') {
+            console.warn('⚠️ [CONTACTS] Permission refusée pour accéder aux contacts');
+            return null;
+          }
 
-      // Récupérer tous les contacts
-      const result = await Contacts.getContacts({
-        projection: {
-          name: true,
-          phones: true,
-        },
-      });
+          // Récupérer tous les contacts
+          const result = await Contacts.getContacts({
+            projection: {
+              name: true,
+              phones: true,
+            },
+          });
 
-      const searchName = name.toLowerCase().trim();
-      console.log(`🔍 [CONTACTS] Recherche de "${searchName}" dans ${result.contacts.length} contacts`);
+          const searchName = name.toLowerCase().trim();
+          console.log(`🔍 [CONTACTS] Recherche de "${searchName}" dans ${result.contacts.length} contacts`);
 
-      // Chercher le contact correspondant (recherche flexible)
-      for (const contact of result.contacts) {
-        // Le plugin Capacitor peut renvoyer les noms dans différents champs selon la version/plateforme
-        const displayName = ((contact as any).displayName || (contact as any).name?.display || "").toLowerCase().trim();
-        const givenName = ((contact as any).name?.given || "").toLowerCase().trim();
-        const familyName = ((contact as any).name?.family || "").toLowerCase().trim();
-        
-        const searchName = name.toLowerCase().trim();
-
-        // Match si le nom recherché est inclus dans l'un des noms du contact
-        const isMatch = 
-          displayName.includes(searchName) || 
-          searchName.includes(displayName) ||
-          givenName.includes(searchName) ||
-          familyName.includes(searchName);
-
-        if (isMatch) {
-          const phones = contact.phones || [];
-          if (phones.length > 0) {
-            // Récupérer le premier numéro et le nettoyer
-            let phone = phones[0].number || '';
-            // Enlever les espaces, tirets, parenthèses
-            phone = phone.replace(/[\s.()-]/g, '');
+          // Chercher le contact correspondant (recherche flexible)
+          for (const contact of result.contacts) {
+            // Le plugin Capacitor peut renvoyer les noms dans différents champs selon la version/plateforme
+            const displayName = ((contact as any).displayName || (contact as any).name?.display || "").toLowerCase().trim();
+            const givenName = ((contact as any).name?.given || "").toLowerCase().trim();
+            const familyName = ((contact as any).name?.family || "").toLowerCase().trim();
             
-            // Si le numéro commence par +229 (Bénin), on peut enlever le préfixe pour l'USSD local
-            if (phone.startsWith('+229')) {
-              phone = phone.substring(4);
-            } else if (phone.startsWith('00229')) {
-              phone = phone.substring(5);
-            }
-            
-            if (phone) {
-              console.log(`✅ [CONTACTS] Trouvé: "${displayName || name}" → ${phone}`);
-              return phone;
+            const searchName = name.toLowerCase().trim();
+
+            // Match si le nom recherché est inclus dans l'un des noms du contact
+            const isMatch = 
+              displayName.includes(searchName) || 
+              searchName.includes(displayName) ||
+              givenName.includes(searchName) ||
+              familyName.includes(searchName);
+
+            if (isMatch) {
+              const phones = contact.phones || [];
+              if (phones.length > 0) {
+                // Récupérer le premier numéro et le formater avec ContactResolverService
+                let phone = phones[0].number || '';
+                phone = resolver.formatBeninNumber(phone);
+                
+                if (phone) {
+                  console.log(`✅ [CONTACTS] Trouvé: "${displayName || name}" → ${phone}`);
+                  return phone;
+                }
+              }
             }
           }
+
+          console.warn(`⚠️ [CONTACTS] Aucun contact trouvé pour "${name}"`);
+          return null;
+        } catch (error) {
+          console.error('❌ [CONTACTS] Erreur accès contacts:', error);
+          return null;
         }
       }
 
-      console.warn(`⚠️ [CONTACTS] Aucun contact trouvé pour "${name}"`);
-      return null;
-    } catch (error) {
-      console.error('❌ [CONTACTS] Erreur accès contacts:', error);
+      // Sur web, pas d'accès aux contacts
+      console.warn('⚠️ [CONTACTS] Résolution de contacts non disponible en mode web');
       return null;
     }
-  }
-
-  // Sur web, pas d'accès aux contacts
-  console.warn('⚠️ [CONTACTS] Résolution de contacts non disponible en mode web');
-  return null;
-}
 
 /**
  * Construit le code USSD complet avec paramètres
@@ -143,19 +141,20 @@ function buildUSSDCode(codeType: USSDCodeType, params?: USSDParams): string {
   }
 
   // Pour MTN Bénin, on peut construire des codes courts pour gagner du temps
-  // Syntaxe typique: *880*Option*SousOption*Numero*Montant#
+  // Syntaxe typique: *880*Option*SousOption*Numero*Numero*Montant#
   
   if (params?.destinationNumber && params?.amount) {
-    const cleanNumber = params.destinationNumber.replace(/\D/g, '');
+    // Force le formatage du numéro (ajout du 01)
+    const cleanNumber = contactResolver.formatBeninNumber(params.destinationNumber);
     const cleanAmount = Math.floor(Number(params.amount));
 
     if (cleanNumber && cleanAmount > 0) {
       if (codeType === 'momo_send' || codeType === 'transfer') {
-        return `*880*1*1*${cleanNumber}*${cleanAmount}#`;
+        return `*880*1*1*${cleanNumber}*${cleanNumber}*${cleanAmount}#`;
       }
       
       if (codeType === 'momo_deposit' || codeType === 'deposit') {
-        return `*880*1*1*${cleanNumber}*${cleanAmount}#`;
+        return `*880*1*1*${cleanNumber}*${cleanNumber}*${cleanAmount}#`;
       }
     }
   }

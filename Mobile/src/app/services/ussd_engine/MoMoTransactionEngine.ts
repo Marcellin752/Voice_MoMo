@@ -358,7 +358,7 @@ export class MoMoTransactionEngine {
 
         const resolver = new ContactResolverService();
         const formattedPhone = resolver.formatBeninNumber(payload.phone);
-        const ussdCode = `*880*1*1*${formattedPhone}*${formattedPhone}*${payload.amount}*${pin}#`;
+        const ussdCode = `*880*1*1*${formattedPhone}*${formattedPhone}*${payload.amount}#`;
 
         this.timeoutId = setTimeout(() => {
             this.updateState(TransactionState.FAILED, { error: "Délai d'attente dépassé (Timeout)" });
