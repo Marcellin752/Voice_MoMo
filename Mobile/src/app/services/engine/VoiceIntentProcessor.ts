@@ -64,15 +64,20 @@ export class VoiceIntentProcessor {
       return { status: 'error', message: `Le numéro ${finalNumber} n'est pas un compte MTN Bénin valide.` };
     }
 
-    // Demander le PIN via l'UI au lieu d'exécuter directement
+    // Lancer directement le transfert via l'USSD sans demander le PIN via l'UI interne
+    const result = await this.transactionEngine.startTransfer({ 
+      amount: Number(amount), 
+      recipient: finalNumber 
+    });
+
+    if (result && result.status === 'error') {
+      return { status: 'error', message: result.message || "Erreur lors de l'exécution USSD" };
+    }
+
     return { 
-      status: 'awaiting_pin',
-      promptPin: true, 
-      context: { 
-        phone: finalNumber, 
-        amount: Number(amount),
-        recipientName: contacts[0].name 
-      } 
+      status: 'success',
+      message: result?.message || `Transfert initié vers ${contacts[0].name || finalNumber}. Suivez les instructions à l'écran.`,
+      dialerFallback: result?.dialerFallback
     };
   }
 }
