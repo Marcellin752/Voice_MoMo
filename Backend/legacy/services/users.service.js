@@ -180,6 +180,36 @@ async function getBalance(userId) {
   return { balance: u.balance, currency: u.currency };
 }
 
+async function updateBalance(userId, newBalance) {
+  if (typeof newBalance !== 'number' || isNaN(newBalance) || newBalance < 0) {
+    const err = new Error("Solde invalide.");
+    err.status = 400;
+    throw err;
+  }
+
+  if (await _useDb()) {
+    const result = await db.query(
+      "UPDATE users SET balance = $1 WHERE id = $2 RETURNING balance, currency",
+      [newBalance, userId]
+    );
+    if (result.rows.length === 0) {
+      const err = new Error("Utilisateur introuvable.");
+      err.status = 404;
+      throw err;
+    }
+    return { message: "Solde mis à jour.", balance: parseFloat(result.rows[0].balance) };
+  }
+
+  const u = authService._getInMemoryUserById(userId);
+  if (!u) {
+    const err = new Error("Utilisateur introuvable.");
+    err.status = 404;
+    throw err;
+  }
+  u.balance = newBalance;
+  return { message: "Solde mis à jour.", balance: u.balance };
+}
+
 module.exports = {
   getProfile,
   updateProfile,
@@ -189,4 +219,5 @@ module.exports = {
   getSecurityState,
   getNotifications,
   getBalance,
+  updateBalance,
 };

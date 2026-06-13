@@ -67,8 +67,20 @@ export class SmsListenerService {
   }
 
   static async readBalanceFromSmsHistory(limit: number = 150): Promise<number | null> {
+    const hit = await this.readLatestBalanceWithDate(limit);
+    return hit?.value ?? null;
+  }
+
+  /**
+   * Lit le solde le plus récent depuis l'historique SMS MTN, en conservant la
+   * date du SMS source. La date permet à l'appelant de décider si ce solde est
+   * encore « récent » (sinon : déclencher une vérification USSD live).
+   */
+  static async readLatestBalanceWithDate(
+    limit: number = 150
+  ): Promise<{ value: number; date: number } | null> {
     console.log("🔍 [SMS] Reading balance from SMS history (limit:", limit, ")");
-    
+
     if (!Capacitor.isNativePlatform()) {
       console.warn("SMS reading is only supported on native devices.");
       return null;
@@ -77,7 +89,7 @@ export class SmsListenerService {
     try {
       const result = await SmsReader.getSmsHistory({ limit });
       console.log(`📥 [SMS] Found ${result.count} messages`);
-      
+
       const pickLatest = (messages: typeof result.messages) => {
         let best: { date: number; priority: number; value: number } | null = null;
         for (const sms of messages) {
@@ -94,22 +106,22 @@ export class SmsListenerService {
             );
           }
         }
-        return best?.value ?? null;
+        return best;
       };
 
       const mtnRelated = result.messages.filter((m) => this.isLikelyMtnMomoMessage(m.address, m.body));
-      let latestBalance = pickLatest(mtnRelated.length > 0 ? mtnRelated : result.messages);
-      if (latestBalance === null && mtnRelated.length > 0) {
-        latestBalance = pickLatest(result.messages);
+      let best = pickLatest(mtnRelated.length > 0 ? mtnRelated : result.messages);
+      if (best === null && mtnRelated.length > 0) {
+        best = pickLatest(result.messages);
       }
 
-      if (latestBalance !== null) {
-        console.log("✅ [SMS] Latest balance found:", latestBalance, "FCFA");
-      } else {
-        console.log("⚠️ [SMS] No balance found in SMS history");
+      if (best !== null) {
+        console.log("✅ [SMS] Latest balance found:", best.value, "FCFA (date", new Date(best.date).toISOString(), ")");
+        return { value: best.value, date: best.date };
       }
 
-      return latestBalance;
+      console.log("⚠️ [SMS] No balance found in SMS history");
+      return null;
     } catch (e) {
       console.error("❌ [SMS] Error reading SMS history:", e);
       return null;

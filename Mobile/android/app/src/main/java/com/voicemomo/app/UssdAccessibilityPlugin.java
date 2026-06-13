@@ -103,6 +103,14 @@ public class UssdAccessibilityPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void cacheRecipient(PluginCall call) {
+        String recipient = call.getString("recipient");
+        UssdAccessibilityService.pendingRecipient = recipient;
+        Log.d("UssdAccessibilityPlugin", "Cached recipient for auto-fill: " + recipient);
+        call.resolve();
+    }
+
+    @PluginMethod
     public void executeUssd(PluginCall call) {
         String code = call.getString("code");
         Integer simIndex = call.getInt("simIndex"); // 0 for SIM1, 1 for SIM2

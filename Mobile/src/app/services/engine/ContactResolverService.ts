@@ -2,33 +2,48 @@ import { Capacitor } from '@capacitor/core';
 
 export class ContactResolverService {
   /**
+   * Similarité minimale pour PROPOSER un contact comme candidat. Volontairement
+   * basse : si l'IA a mal transcrit le nom dicté, le bon contact doit quand même
+   * remonter dans la liste de suggestions plutôt que disparaître ("introuvable").
+   */
+  static readonly CANDIDATE_THRESHOLD = 0.4;
+  /**
+   * Au-dessus de ce score, un contact est assez sûr pour être exécuté
+   * directement (sans demander de confirmer) — à condition d'être nettement
+   * devant le 2e candidat (cf. CLEAR_WINNER_GAP).
+   */
+  static readonly AUTO_ACCEPT_THRESHOLD = 0.85;
+  /** Écart de confiance minimal avec le 2e candidat pour trancher sans demander. */
+  static readonly CLEAR_WINNER_GAP = 0.15;
+
+  /**
    * Normalise un numéro pour le plan de numérotation du Bénin (10 chiffres).
    * Ajoute '01' si le numéro est à 8 chiffres ou si l'indicatif +229 est présent sans le 01.
    */
   public formatBeninNumber(phone: string): string {
-    let cleaned = phone.replace(/[\s.()-]/g, '');
+    // 1. Nettoyage complet : ne garder que les chiffres
+    const digits = phone.replace(/\D/g, '');
+    console.log(`[FORMAT] Raw digits from "${phone}": ${digits}`);
 
-    // Supprimer l'indicatif international pour travailler sur la base
-    if (cleaned.startsWith('+229')) cleaned = cleaned.substring(4);
-    else if (cleaned.startsWith('229')) cleaned = cleaned.substring(3);
-    else if (cleaned.startsWith('00229')) cleaned = cleaned.substring(5);
-
-    // Si le numéro commence par 01 et fait 10 chiffres, il est déjà correct
-    if (cleaned.length === 10 && cleaned.startsWith('01')) {
-      return cleaned;
+    // 2. Si le numéro commence par 229 (indicatif Bénin), le retirer
+    let cleaned = digits;
+    if (cleaned.startsWith('229')) {
+      console.log(`[FORMAT] Removing Benin country code 229 from: ${cleaned}`);
+      cleaned = cleaned.substring(3);
     }
 
-    // Si le numéro fait 8 chiffres (ancien format), on ajoute 01
-    if (cleaned.length === 8) {
-      return '01' + cleaned;
+    // 3. Extraire la base de 8 chiffres (les 8 derniers chiffres du numéro)
+    if (cleaned.length < 8) {
+      console.error(`[FORMAT] Number too short (${cleaned.length} digits): ${cleaned}`);
+      // UX Fix #2: Message humain avec exemple
+      throw new Error(`Le numéro que j'ai compris est incomplet (${cleaned}). Pouvez-vous répéter le numéro complet, par exemple 9-5-1-2-3-4-5-6 ?`);
     }
 
-    // Si le numéro fait 9 chiffres et commence par 0, c'est peut-être une saisie hybride
-    if (cleaned.length === 9 && cleaned.startsWith('0')) {
-      return '01' + cleaned.substring(1);
-    }
+    const base8 = cleaned.slice(-8);
+    const formatted = '01' + base8;
+    console.log(`[FORMAT] Result: ${formatted}`);
 
-    return cleaned;
+    return formatted;
   }
 
   /**
@@ -148,8 +163,10 @@ export class ContactResolverService {
             }
           }
 
-          // Seuil de tolérance: 0.7 (70% de similarité)
-          if (confidence >= 0.7) {
+          // Seuil bas : on garde tout candidat « proche » pour pouvoir le proposer
+          // en cas de transcription imparfaite (la décision auto/suggestion se
+          // fait plus haut, dans VoiceIntentProcessor).
+          if (confidence >= ContactResolverService.CANDIDATE_THRESHOLD) {
             const phones = contact.phones ?? [];
             if (phones.length === 0) continue;
 

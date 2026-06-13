@@ -88,24 +88,43 @@ export default function HomeScreen() {
     const onTransactionComplete = (e: Event) => {
       const { success, message, balance: newBalance } = (e as CustomEvent).detail || {};
       if (success) {
-        toast.success(message || 'Transaction confirmée par MTN. 🎉');
+        // UX Fix #16: Message de succès clair et distinct
+        toast.success(message || '✅ Transaction réussie !', { 
+          duration: 6000,
+          style: { background: '#059669', color: 'white', fontWeight: 'bold' }
+        });
         if (typeof newBalance === 'number') {
           setIsUpdating(true);
           setBalance(newBalance);
           setTimeout(() => setIsUpdating(false), 2000);
         }
       } else {
-        // balanceUnknown = USSD envoyé mais pas de SMS reçu dans les temps
-        toast.info(message || 'Transaction envoyée. Consultez vos SMS MTN pour confirmation.');
+        // UX Fix #16: Message d'avertissement distinct
+        toast.warning(message || '⚠️ Transaction en attente de confirmation. Vérifiez vos SMS MTN.', {
+          duration: 8000,
+          style: { background: '#d97706', color: 'white' }
+        });
       }
     };
 
     window.addEventListener('momo:transaction-complete', onTransactionComplete);
 
+    // Mise à jour du solde affiché après une vérification USSD live (vocale ou bouton 🔄)
+    const onBalanceUpdated = (e: Event) => {
+      const { balance: newBalance } = (e as CustomEvent).detail || {};
+      if (typeof newBalance === 'number') {
+        setIsUpdating(true);
+        setBalance(newBalance);
+        setTimeout(() => setIsUpdating(false), 2000);
+      }
+    };
+    window.addEventListener('momo:balance-updated', onBalanceUpdated);
+
     return () => {
       SmsListenerService.stopListening();
       window.removeEventListener(PROFILE_UPDATED_EVENT, onProfileUpdated);
       window.removeEventListener('momo:transaction-complete', onTransactionComplete);
+      window.removeEventListener('momo:balance-updated', onBalanceUpdated);
     };
 
   }, []);
@@ -217,12 +236,23 @@ export default function HomeScreen() {
               </button>
             </div>
           </div>
-          <div className="flex items-baseline space-x-2">
+          {/* UX Fix #15: Le montant lui-même est touchable pour afficher/masquer */}
+          <button
+            type="button"
+            onClick={() => setShowBalance(!showBalance)}
+            aria-label={showBalance ? "Masquer le solde" : "Afficher le solde"}
+            className="flex items-baseline space-x-2 text-left cursor-pointer bg-transparent border-none p-0"
+          >
             <h3 className="text-4xl font-black text-slate-900 dark:text-white tracking-tighter">
               {showBalance ? formattedBalance : "••••••"}
             </h3>
             <span className="text-lg font-bold text-slate-500 dark:text-zinc-500">FCFA</span>
-          </div>
+          </button>
+          {!showBalance && (
+            <p className="text-xs font-medium text-slate-400 dark:text-zinc-500 mt-1.5">
+              👆 Touchez pour afficher votre solde
+            </p>
+          )}
         </motion.div>
       </div>
       {/* Spacer to separate sections cleanly */}
