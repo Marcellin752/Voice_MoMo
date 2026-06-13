@@ -79,6 +79,21 @@ async function getBalance(req, res, next) {
   }
 }
 
+async function updateBalance(req, res, next) {
+  try {
+    const { balance } = req.body || {};
+    if (typeof balance !== 'number') {
+      const error = new Error("Le solde doit être un nombre.");
+      error.status = 400;
+      return next(error);
+    }
+    const result = await usersService.updateBalance(req.user.userId, balance);
+    return res.json(result);
+  } catch (err) {
+    return next(err);
+  }
+}
+
 module.exports = {
   getProfile,
   updateProfile,
@@ -88,4 +103,5 @@ module.exports = {
   getSecurity,
   getNotifications,
   getBalance,
+  updateBalance,
 };

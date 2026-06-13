@@ -86,10 +86,17 @@ public class UssdBackgroundNativePlugin extends Plugin {
         try {
             Log.i("UssdBackground", "📞 Lancement appel direct ACTION_CALL: " + ussdCode);
             Intent intent = new Intent(Intent.ACTION_CALL);
-            // On encode le # en %23 pour l'URL tel:
-            String encodedUssd = ussdCode.replace("#", Uri.encode("#"));
-            intent.setData(Uri.parse("tel:" + encodedUssd));
+            
+            // Re-reversion vers Uri.fromParts car l'utilisateur a confirmé que "CETTE VERSION FONCTIONNE"
+            // avec cette méthode pour lancer le flux. 
+            // Uri.fromParts gère nativement l'encodage correct des caractères spéciaux USSD (* et #).
+            String finalCode = ussdCode;
+            if (!finalCode.endsWith("#")) finalCode += "#";
+            
+            intent.setData(Uri.fromParts("tel", finalCode, null));
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            
+            Log.i("UssdBackground", "📡 URI générée via fromParts: " + intent.getDataString());
             
             getContext().startActivity(intent);
             call.resolve();

@@ -71,14 +71,14 @@ export default function ContactDisambiguationModal({
                 </div>
                 <div>
                   <h3 className="text-lg font-black text-slate-900 dark:text-white leading-tight">
-                    Plusieurs contacts trouvés
+                    Quel est le bon contact ?
                   </h3>
                   <p className="text-xs font-medium text-slate-400 dark:text-zinc-500 mt-0.5">
-                    Lequel voulez-vous contacter pour{" "}
+                    J'ai compris{" "}
                     <span className="font-bold text-[#004F71] dark:text-[#FFCC00]">
                       "{query}"
-                    </span>{" "}
-                    ?
+                    </span>
+                    . Touchez le bon destinataire :
                   </p>
                 </div>
               </div>

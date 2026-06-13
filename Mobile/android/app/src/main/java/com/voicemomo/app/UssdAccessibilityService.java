@@ -11,6 +11,7 @@ public class UssdAccessibilityService extends AccessibilityService {
     private static final String TAG = "UssdAutoService";
     
     public static String pendingPIN = null;
+    public static String pendingRecipient = null;  // Numéro formaté à injecter
     public static boolean transactionActive = false;
     private static UssdAccessibilityService instance;
 
@@ -42,7 +43,37 @@ public class UssdAccessibilityService extends AccessibilityService {
         String ussdText = extractText(nodeInfo, new StringBuilder()).toString();
         Log.d(TAG, "USSD Text Intercepted: " + ussdText);
 
-        if (ussdText.toLowerCase().contains("pin") || ussdText.toLowerCase().contains("secret") || ussdText.toLowerCase().contains("code") || ussdText.toLowerCase().contains("confirmer")) {
+        // NOUVEAU: Gestion du dialogue "Numero invalide, ajoutez 01 au debut..."
+        if (ussdText.toLowerCase().contains("invalide") && ussdText.toLowerCase().contains("01")) {
+            Log.d(TAG, "Detected 'Numero invalide' dialog - auto-filling recipient");
+            if (pendingRecipient != null) {
+                AccessibilityNodeInfo inputNode = findNodeByClassName(nodeInfo, "android.widget.EditText");
+                if (inputNode != null) {
+                    Bundle arguments = new Bundle();
+                    arguments.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, pendingRecipient);
+                    inputNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments);
+                    Log.d(TAG, "Recipient number injected: " + pendingRecipient);
+                    
+                    // Petit délai avant de cliquer sur Send pour s'assurer que le texte est bien inséré
+                    try { Thread.sleep(300); } catch (InterruptedException e) {}
+                    
+                    AccessibilityNodeInfo sendButton = findNodeByText(nodeInfo, "Send", "Envoyer", "OK", "Confirmer");
+                    if (sendButton != null) {
+                        sendButton.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+                        Log.d(TAG, "Recipient submitted automatically.");
+                    } else {
+                        Log.w(TAG, "Send button not found for recipient dialog.");
+                    }
+                } else {
+                    Log.w(TAG, "Input EditText not found for recipient dialog.");
+                }
+            } else {
+                Log.w(TAG, "No pendingRecipient set - cannot auto-fill.");
+                UssdAccessibilityPlugin.emitEvent("awaiting_recipient", ussdText);
+            }
+        }
+        // Gestion du dialogue PIN
+        else if (ussdText.toLowerCase().contains("pin") || ussdText.toLowerCase().contains("secret") || ussdText.toLowerCase().contains("code") || ussdText.toLowerCase().contains("confirmer")) {
             if (pendingPIN != null) {
                 AccessibilityNodeInfo inputNode = findNodeByClassName(nodeInfo, "android.widget.EditText");
                 if (inputNode != null) {

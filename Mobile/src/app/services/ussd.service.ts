@@ -1,6 +1,7 @@
 import { Capacitor } from '@capacitor/core';
 import { executeUssdCodeInApp } from './ussd_engine/ussdInApp';
 import { ContactResolverService } from './engine/ContactResolverService';
+import { MoMoTransactionEngine } from './ussd_engine/MoMoTransactionEngine';
 
 /**
  * Service USSD pour exécuter les codes MTN Mobile Money Bénin
@@ -371,7 +372,49 @@ export async function executeVoiceCommand(
       };
     }
 
-    // Gestion de la demande de PIN
+    // Gestion de l'exécution directe (pour les transferts interactifs)
+    if (result && (result as any).status === 'execute') {
+      const execData = (result as any).data;
+      const intentName = (result as any).intent || intent;
+      
+      console.log('🚀 [USSD_SERVICE] Executing direct transfer flow');
+      console.log('🚀 [USSD_SERVICE] Recipient Phone:', execData.phone);
+      console.log('🚀 [USSD_SERVICE] Amount:', execData.amount);
+      
+      // BUG #5 FIX: Ajouter try-catch pour éviter les crashes
+      try {
+        // On utilise le moteur pour lancer le transfert interactif
+        const engine = new MoMoTransactionEngine();
+        const res = await engine.startTransfer({
+          amount: execData.amount,
+          recipient: execData.phone
+        });
+
+        if (!res) {
+          return {
+            success: false,
+            message: 'Erreur lors de l\'initialisation du transfert.',
+            action: intentName
+          };
+        }
+
+        return {
+          success: res.status === 'initiated' || res.status === 'success',
+          message: res.message || 'Transaction initiée.',
+          action: intentName,
+          dialerFallback: !!res.dialerFallback
+        };
+      } catch (error) {
+        console.error('🔥 [USSD_SERVICE] Erreur lors du transfert:', error);
+        return {
+          success: false,
+          message: `Erreur: ${error instanceof Error ? error.message : String(error)}`,
+          action: intentName
+        };
+      }
+    }
+
+    // Gestion de la demande de PIN (Legacy/Autres)
     if (result && (result as any).promptPin) {
       return {
         success: false,

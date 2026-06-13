@@ -335,24 +335,21 @@ class ActionExecutor:
     def _handle_balance(self, user_id: str) -> ActionResult:
         """Consulter le solde"""
         logger.info(f"💰 BALANCE CHECK pour user_id={user_id}")
-        
-        user = self.users_db.get(user_id)
-        logger.info(f"   User trouvé: {user is not None}")
-        
-        if not user:
-            logger.info(f"   → Fallback à user par défaut")
-            user = self.users_db["default"]
-        
-        balance = user.get("balance", 0)
-        logger.info(f"   ✅ Balance: {format_amount_for_tts(balance)} XOF")
-        
-        message = f"Votre solde actuel est de {format_amount_for_tts(balance)} francs CFA."
-        
+
+        # Tenter le backend (USSD réel ou mock) en priorité, comme les autres actions
+        backend_result = self._execute_via_backend(Intent.BALANCE, None, None, None)
+        if backend_result:
+            return backend_result
+
+        # Backend indisponible : ne JAMAIS annoncer la balance simulée (users_db)
+        # comme si c'était le vrai solde. C'est l'app mobile qui détient la vraie
+        # donnée (lecture des SMS MTN) et qui vocalise le résultat final.
+        logger.info("   → Backend indisponible, délégation de la lecture du solde à l'app mobile")
         return ActionResult(
             success=True,
             intent=Intent.BALANCE.value,
-            message=message,
-            data={"balance": balance}
+            message="Je consulte votre solde MoMo...",
+            data={}
         )
     
     def _handle_transfer(

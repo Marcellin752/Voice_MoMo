@@ -10,6 +10,8 @@ import {
   sendVoiceToOrchestrator,
   playAudioResponse,
 } from '../services/voiceAI';
+import { startProgressiveFeedback, NLP_PROCESSING_STEPS } from '../utils/progressiveFeedback';
+import { playListeningStartCue } from '../utils/audioCues';
 
 type AssistantStatus = 'idle' | 'listening' | 'processing' | 'success' | 'error';
 
@@ -33,6 +35,10 @@ export function useVoiceAssistant() {
   const [recognition, setRecognition] = useState<any>(null);
   const statusRef = useRef<AssistantStatus>('idle');
   const voiceSessionRef = useRef('');
+  // UX Fix #9: Reprise automatique après échec de reconnaissance (1 tentative max)
+  const retryCountRef = useRef(0);
+  const retryPendingRef = useRef(false);
+  const startListeningRef = useRef<((isAutoRetry?: unknown) => void) | null>(null);
   const isNative = Capacitor.isNativePlatform();
   const voiceAi = isVoiceAiEnabled();
 
@@ -52,12 +58,16 @@ export function useVoiceAssistant() {
       rec.lang = 'fr-FR';
 
       rec.onstart = () => {
+        retryPendingRef.current = false;
         setStatus('listening');
         setTranscript('');
+        // UX Fix #14: Bip + vibration pour confirmer que le micro est actif
+        playListeningStartCue();
         setFeedback('Je vous écoute...');
       };
 
       rec.onresult = (event: any) => {
+        retryCountRef.current = 0;
         const text = event.results[0][0].transcript;
         setTranscript(text);
         setStatus('processing');
@@ -66,16 +76,31 @@ export function useVoiceAssistant() {
 
       rec.onerror = (event: any) => {
         console.error('Speech recognition error', event.error);
-        setStatus('error');
         if (event.error === 'not-allowed') {
-          setFeedback('Veuillez autoriser le microphone.');
-        } else {
-          setFeedback("Je n'ai pas bien entendu. Veuillez réessayer.");
+          // UX: Message clair pour les permissions
+          setStatus('error');
+          setFeedback('Voice MoMo a besoin du microphone pour vous écouter. Veuillez l\'autoriser dans les paramètres.');
+          return;
         }
-        speakFeedback("Je n'ai pas bien entendu. Veuillez réessayer.");
+        // UX Fix #9: Relancer automatiquement l'écoute au lieu de retourner à idle
+        if (retryCountRef.current < 1) {
+          retryCountRef.current += 1;
+          retryPendingRef.current = true;
+          setFeedback("Je n'ai pas bien compris. J'écoute à nouveau...");
+          speakFeedback("Je n'ai pas bien compris. J'écoute à nouveau.");
+          setTimeout(() => {
+            try { rec.start(); } catch { /* reconnaissance déjà active */ }
+          }, 2500);
+          return;
+        }
+        setStatus('error');
+        setFeedback("Je n'ai pas bien compris. Parlez plus près du micro et réessayez.");
+        speakFeedback("Je n'ai pas bien compris. Parlez plus près du micro.");
       };
 
       rec.onend = () => {
+        // UX Fix #9: Ne pas retomber à idle si une relance automatique est imminente
+        if (retryPendingRef.current) return;
         if (statusRef.current === 'listening' || statusRef.current === 'processing') {
           setStatus('idle');
         }
@@ -116,12 +141,37 @@ export function useVoiceAssistant() {
         speakFeedback(msg);
         setStatus('error');
       }
-      setTimeout(() => setStatus('idle'), 5000);
+      // UX Fix #13: Délai plus long pour lire le message (8 secondes)
+      setTimeout(() => setStatus('idle'), 8000);
     },
     [speakFeedback]
   );
 
-  const startListening = useCallback(async () => {
+  // UX Fix #9: Échec de reconnaissance native → relance automatique (1 tentative)
+  const handleNativeSrFailure = useCallback((e: any) => {
+    console.error('Capacitor SR error', e);
+    const errMsg = (e?.message || String(e)).toLowerCase();
+    if (errMsg.includes('denied') || errMsg.includes('permission')) {
+      setFeedback('Veuillez autoriser le microphone dans les paramètres.');
+      setStatus('error');
+      return;
+    }
+    if (retryCountRef.current < 1) {
+      retryCountRef.current += 1;
+      setFeedback("Je n'ai pas bien compris. J'écoute à nouveau...");
+      speakFeedback("Je n'ai pas bien compris. J'écoute à nouveau.");
+      setTimeout(() => startListeningRef.current?.(true), 2500);
+      return;
+    }
+    setStatus('error');
+    setFeedback("Je n'ai pas bien compris. Parlez clairement près du microphone.");
+    setTimeout(() => setStatus('idle'), 8000);
+  }, [speakFeedback]);
+
+  // UX Fix #9: `isAutoRetry === true` uniquement lors d'une relance automatique
+  // (un clic utilisateur passe un event en premier argument → compteur remis à zéro)
+  const startListening = useCallback(async (isAutoRetry?: unknown) => {
+    if (isAutoRetry !== true) retryCountRef.current = 0;
     if (voiceAi) {
       if (!user?.id) {
         setFeedback('Connectez-vous pour utiliser la voix.');
@@ -133,7 +183,10 @@ export function useVoiceAssistant() {
         await startVoiceRecording();
         setStatus('listening');
         setTranscript('');
-        setFeedback('Parlez. Touchez à nouveau le micro pour envoyer.');
+        // UX Fix #14: Bip + vibration pour confirmer que le micro est actif
+        playListeningStartCue();
+        // UX: Instructions claires
+        setFeedback('Je vous écoute... Touchez le micro quand vous avez fini de parler.');
       } catch (e) {
         console.error(e);
         setFeedback("Microphone indisponible ou refusé.");
@@ -167,18 +220,27 @@ export function useVoiceAssistant() {
 
         setStatus('listening');
         setTranscript('');
-        setFeedback('Je vous écoute...');
+        // UX Fix #14: Bip + vibration pour confirmer que le micro est actif
+        playListeningStartCue();
+        // UX Fix #12: Feedback avec exemple de commande
+        setFeedback('Je vous écoute... Dites par exemple: "Envoie 5000 à Maman"');
 
-        SR.start({
+        const startPromise: any = SR.start({
           language: 'fr-FR',
           maxResults: 1,
           prompt: 'Parlez maintenant...',
           partialResults: false,
           popup: false,
         });
+        // UX Fix #9: Un "no match" Android rejette la promesse de start() sans
+        // passer par le catch ci-dessous → relance automatique de l'écoute
+        if (startPromise?.catch) {
+          startPromise.catch((err: any) => handleNativeSrFailure(err));
+        }
 
         SR.addListener('partialResults', (data: any) => {
           if (data.matches && data.matches.length > 0) {
+            retryCountRef.current = 0;
             const text = data.matches[0];
             setTranscript(text);
             setStatus('processing');
@@ -187,13 +249,7 @@ export function useVoiceAssistant() {
           }
         });
       } catch (e: any) {
-        console.error('Capacitor SR error', e);
-        if (e.message?.includes('denied')) {
-          setFeedback('Veuillez autoriser le microphone dans les paramètres.');
-        } else {
-          setFeedback("Je n'ai pas bien entendu. Veuillez réessayer.");
-        }
-        setStatus('error');
+        handleNativeSrFailure(e);
       }
       return;
     }
@@ -215,7 +271,11 @@ export function useVoiceAssistant() {
         processCommand(randomCommand);
       }, 2000);
     }
-  }, [voiceAi, user?.id, isNative, recognition, processCommand]);
+  }, [voiceAi, user?.id, isNative, recognition, processCommand, handleNativeSrFailure]);
+
+  useEffect(() => {
+    startListeningRef.current = startListening;
+  }, [startListening]);
 
   const stopListening = useCallback(async () => {
     if (voiceAi) {
@@ -224,7 +284,8 @@ export function useVoiceAssistant() {
         return;
       }
       setStatus('processing');
-      setFeedback('Traitement en cours...');
+      // UX Fix #3: Messages d'attente échelonnés au lieu d'un "Traitement en cours..." figé
+      const stopProgressive = startProgressiveFeedback(setFeedback, NLP_PROCESSING_STEPS);
       try {
         const blob = await stopVoiceRecording();
         const token = getToken();
@@ -234,6 +295,7 @@ export function useVoiceAssistant() {
           voiceSessionRef.current,
           token
         );
+        stopProgressive();
 
         // NLP Module response handling (intent-based)
         if (res.transaction_id) {
@@ -262,8 +324,10 @@ export function useVoiceAssistant() {
 
         setStatus(res.error ? 'error' : 'success');
       } catch (e) {
+        stopProgressive();
         console.error(e);
-        setFeedback("Serveur vocal injoignable. Vérifiez VITE_VOICE_AI_URL et le NLP Module (port 8000).");
+        // UX Fix #8: Message humain sans termes techniques
+        setFeedback("Le service vocal est temporairement indisponible. Veuillez réessayer dans quelques instants.");
         setStatus('error');
         voiceSessionRef.current = '';
       }

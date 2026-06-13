@@ -13,5 +13,6 @@ router.put("/pin", usersController.updatePin);
 router.get("/security", usersController.getSecurity);
 router.get("/notifications", usersController.getNotifications);
 router.get("/balance", usersController.getBalance);
+router.post("/balance", usersController.updateBalance);
 
 module.exports = router;

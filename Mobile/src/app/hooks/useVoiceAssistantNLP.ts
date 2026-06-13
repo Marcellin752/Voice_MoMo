@@ -1,5 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { executeVoiceCommand } from '../services/ussd.service';
+import {
+  startProgressiveFeedback,
+  NLP_PROCESSING_STEPS,
+  USSD_PROCESSING_STEPS,
+  type ProgressiveStep,
+} from '../utils/progressiveFeedback';
+import { playListeningStartCue } from '../utils/audioCues';
 
 type AssistantStatus = 'idle' | 'listening' | 'processing' | 'success' | 'error' | 'awaiting_confirmation' | 'awaiting_disambiguation' | 'awaiting_pin';
 
@@ -35,6 +42,7 @@ interface VoiceHookReturn {
   ambiguityQuery: string;
   resolveAmbiguity: (contact: { name: string; phone: string }) => void;
   showPinModal: boolean;
+  pinPrompt: string;
   executeTransferWithPin: (pin: string) => Promise<void>;
   cancelPinModal: () => void;
 }
@@ -57,6 +65,8 @@ export function useVoiceAssistantNLP(
 
   const [showPinModal, setShowPinModal] = useState(false);
   const [pinContext, setPinContext] = useState<{ intent: string; data: any } | null>(null);
+  // Message contextuel affiché dans la modale PIN (transfert vs consultation solde)
+  const [pinPrompt, setPinPrompt] = useState('Entrez votre code PIN MTN pour confirmer.');
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -78,6 +88,31 @@ export function useVoiceAssistantNLP(
     console.log(`[STATUS] ${statusRef.current} -> ${newStatus}`);
     setStatus(newStatus);
     statusRef.current = newStatus;
+  }, []);
+
+  // UX Fix #9: Reprise automatique après échec de compréhension (1 tentative max)
+  const autoRetryRef = useRef(0);
+  const startListeningRef = useRef<((isAutoRetry?: boolean) => void) | null>(null);
+
+  // UX Fix #11: Epoch d'annulation — toute réponse arrivée après un "Annuler"
+  // est ignorée pour ne pas déclencher l'USSD d'une transaction annulée
+  const cancelEpochRef = useRef(0);
+
+  // UX Fix #3: Feedback progressif pendant les traitements longs
+  const stopProgressiveRef = useRef<(() => void) | null>(null);
+
+  const beginProcessingFeedback = useCallback((steps: ProgressiveStep[] = NLP_PROCESSING_STEPS) => {
+    stopProgressiveRef.current?.();
+    stopProgressiveRef.current = startProgressiveFeedback(setFeedback, steps);
+  }, []);
+
+  const endProcessingFeedback = useCallback(() => {
+    stopProgressiveRef.current?.();
+    stopProgressiveRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    return () => { stopProgressiveRef.current?.(); };
   }, []);
 
   const speakFeedback = async (text: string) => {
@@ -130,11 +165,14 @@ export function useVoiceAssistantNLP(
     if (!intent || ['unknown', 'confirm', 'cancel'].includes(intent)) return { success: true, message: '' };
     
     console.log(`📱 [USSD] Intent: ${intent}`, data);
+    // UX Fix #3: Messages d'attente échelonnés pendant l'exécution USSD
+    beginProcessingFeedback(USSD_PROCESSING_STEPS);
     try {
       const ussdResult = await executeVoiceCommand(intent, {
         amount: data?.amount,
         recipient: data?.recipient,
       });
+      endProcessingFeedback();
 
       if (ussdResult.success) {
         return { success: true, message: ussdResult.message };
@@ -148,7 +186,8 @@ export function useVoiceAssistantNLP(
         setAmbiguityQuery(data?.recipient || 'Contact');
         ambiguityContextRef.current = { intent, data };
         updateStatus('awaiting_disambiguation');
-        const msg = `Plusieurs contacts trouvés pour '${data?.recipient || 'ce nom'}'. Veuillez choisir sur l'écran.`;
+        // UX Fix #7: Guidance vocale — couvre les homonymes ET la transcription imparfaite
+        const msg = `Je ne suis pas sûr d'avoir bien compris "${data?.recipient || 'ce nom'}". Choisissez le bon contact sur l'écran, ou dites le nom complet.`;
         setFeedback(msg);
         speakFeedback(msg);
         return { success: false, isAwaiting: true };
@@ -159,9 +198,22 @@ export function useVoiceAssistantNLP(
         setPinContext({ intent, data: resultAny.context });
         setShowPinModal(true);
         updateStatus('awaiting_pin');
+
+        // Consultation de solde live : PIN requis pour interroger le réseau MTN
+        if (resultAny.context?.mode === 'balance') {
+          const pinMsg = 'Pour consulter votre solde à jour, entrez votre code PIN MTN.';
+          setPinPrompt(pinMsg);
+          setFeedback(pinMsg);
+          speakFeedback(pinMsg);
+          return { success: false, isAwaiting: true };
+        }
+
+        // UX Fix #10: Contexte complet pour le PIN (transfert)
         const amount = resultAny.context?.amount || '...';
         const recipient = resultAny.context?.recipientName || resultAny.context?.phone || '...';
-        const pinMsg = `Transfert de ${amount} FCFA à ${recipient}. Veuillez entrer votre code PIN.`;
+        const phone = resultAny.context?.phone || '';
+        const pinMsg = `Transfert de ${Number(amount).toLocaleString('fr-FR')} francs à ${recipient}${phone ? ` (${phone})` : ''}. Entrez votre code PIN MTN pour confirmer.`;
+        setPinPrompt(pinMsg);
         setFeedback(pinMsg);
         speakFeedback(`Veuillez entrer votre code PIN pour confirmer le transfert.`);
         return { success: false, isAwaiting: true };
@@ -169,14 +221,18 @@ export function useVoiceAssistantNLP(
 
       return { success: false, message: ussdResult.message || 'Échec de l\'opération' };
     } catch (e: any) {
+      endProcessingFeedback();
       console.error('❌ [USSD] Erreur:', e);
       return { success: false, message: e.message || 'Erreur USSD' };
     }
-  }, [updateStatus]);
+  }, [updateStatus, beginProcessingFeedback, endProcessingFeedback]);
 
   const sendAudioToBackend = async (audioBlob: Blob, filename: string = 'audio.webm') => {
+    const epoch = cancelEpochRef.current;
     try {
       updateStatus('processing');
+      // UX Fix #3: Messages d'attente échelonnés pendant l'analyse vocale
+      beginProcessingFeedback(NLP_PROCESSING_STEPS);
       const formData = new FormData();
       formData.append('audio_file', audioBlob, filename);
       const headers: any = {};
@@ -186,6 +242,14 @@ export function useVoiceAssistantNLP(
       if (!response.ok) throw new Error(`Erreur backend: ${response.status}`);
 
       const result: ParsedResponse = await response.json();
+      endProcessingFeedback();
+
+      // UX Fix #11: L'utilisateur a annulé pendant l'analyse → ne rien exécuter
+      if (epoch !== cancelEpochRef.current) {
+        console.log('🛑 [NLP] Réponse ignorée : annulée par l\'utilisateur');
+        return;
+      }
+
       setParsedIntent(result);
       setTranscript(result.understood_text || '');
       if (result.transaction_id) transactionIdRef.current = result.transaction_id;
@@ -193,42 +257,82 @@ export function useVoiceAssistantNLP(
       const feedbackMsg = result.message || result.confirmation_message || 'Action exécutée';
       setFeedback(feedbackMsg);
 
+      // UX Fix #11: Commande vocale "stop" / "annule" → annuler la transaction active
+      if (result.intent === 'cancel') {
+        autoRetryRef.current = 0;
+        const { cancelActiveTransaction } = await import('../services/ussd_engine/MoMoTransactionEngine');
+        const cancelRes = cancelActiveTransaction();
+        const msg = cancelRes.cancelled ? cancelRes.message : (result.message || 'Action annulée.');
+        updateStatus('success');
+        setFeedback(msg);
+        speakFeedback(msg);
+        setParsedIntent(null);
+        setTimeout(() => { if (statusRef.current === 'success') updateStatus('idle'); }, 8000);
+        return;
+      }
+
       if (result.needs_confirmation || result.requires_confirmation) {
+        autoRetryRef.current = 0;
         if (result.audio_base64) await playAudioResponse(result.audio_base64);
         else speakFeedback(feedbackMsg);
         updateStatus('awaiting_confirmation');
       } else {
         if (result.success && result.intent !== 'help') {
+          autoRetryRef.current = 0;
           const ussdRes = await triggerUSSD(result.intent, result.data || result);
           if (ussdRes.success) {
             updateStatus('success');
             const spoken = ussdRes.message || 'Opération réussie.';
             setFeedback(spoken);
             speakFeedback(spoken);
-            setTimeout(() => { if (statusRef.current === 'success') updateStatus('idle'); }, 5000);
+            // UX Fix #13: Délai plus long pour lire le message
+        setTimeout(() => { if (statusRef.current === 'success') updateStatus('idle'); }, 8000);
           } else if (!(ussdRes as any).isAwaiting) {
             updateStatus('error');
             const spoken = ussdRes.message || 'Une erreur est survenue.';
             setFeedback(spoken);
             speakFeedback(spoken);
-            setTimeout(() => { if (statusRef.current === 'error') updateStatus('idle'); }, 5000);
+            // UX Fix #13: Délai plus long pour lire le message
+        setTimeout(() => { if (statusRef.current === 'error') updateStatus('idle'); }, 8000);
           }
         } else {
-          updateStatus('success');
+          const notUnderstood = !result.success || result.intent === 'unknown';
+
+          // UX Fix #9: Reprise automatique de l'écoute après échec de compréhension
+          if (notUnderstood && autoRetryRef.current < 1) {
+            autoRetryRef.current += 1;
+            updateStatus('error');
+            if (result.audio_base64) await playAudioResponse(result.audio_base64);
+            else await speakFeedback(feedbackMsg);
+            if (epoch !== cancelEpochRef.current) return;
+            setFeedback("J'écoute à nouveau...");
+            startListeningRef.current?.(true);
+            return;
+          }
+
+          if (!notUnderstood) autoRetryRef.current = 0;
+          updateStatus(notUnderstood ? 'error' : 'success');
           if (result.audio_base64) await playAudioResponse(result.audio_base64);
           else speakFeedback(feedbackMsg);
-          setTimeout(() => { if (statusRef.current === 'success') updateStatus('idle'); }, 5000);
+          // UX Fix #13: Délai plus long pour lire le message
+          setTimeout(() => { if (statusRef.current === 'success' || statusRef.current === 'error') updateStatus('idle'); }, 8000);
         }
       }
     } catch (error: any) {
+      endProcessingFeedback();
       console.error('❌ Erreur audio:', error);
       updateStatus('error');
-      setFeedback(error.message || 'Erreur de traitement');
-      setTimeout(() => updateStatus('idle'), 5000);
+      // UX: Message humain, pas de code d'erreur technique
+      setFeedback("Je n'ai pas pu traiter votre demande. Vérifiez votre connexion internet et réessayez.");
+      // UX Fix #13: Délai plus long
+      setTimeout(() => updateStatus('idle'), 8000);
     }
   };
 
-  const startListening = useCallback(async () => {
+  // UX Fix #9: `isAutoRetry === true` uniquement lors d'une relance automatique
+  // (un clic utilisateur passe un event en premier argument → compteur remis à zéro)
+  const startListening = useCallback(async (isAutoRetry?: unknown) => {
+    if (isAutoRetry !== true) autoRetryRef.current = 0;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
@@ -243,12 +347,19 @@ export function useVoiceAssistantNLP(
       mediaRecorder.start();
       updateStatus('listening');
       setIsListening(true);
-      setFeedback('Je vous écoute...');
+      // UX Fix #14: Bip + vibration pour confirmer que le micro est actif
+      playListeningStartCue();
+      // UX Fix #12: Feedback avec exemple
+      setFeedback('Je vous écoute... Dites par exemple: "Envoie 5000 à Maman"');
     } catch (e: any) {
       updateStatus('error');
       setFeedback('Microphone inaccessible');
     }
   }, [updateStatus]);
+
+  useEffect(() => {
+    startListeningRef.current = startListening;
+  }, [startListening]);
 
   const stopListening = useCallback(() => {
     if (mediaRecorderRef.current?.state === 'recording') {
@@ -261,8 +372,11 @@ export function useVoiceAssistantNLP(
 
   const confirmAction = useCallback(async () => {
     if (!transactionIdRef.current) return;
+    const epoch = cancelEpochRef.current;
     try {
       updateStatus('processing');
+      // UX Fix #3: Messages d'attente échelonnés pendant la confirmation
+      beginProcessingFeedback(NLP_PROCESSING_STEPS);
       const headers: any = { 'Content-Type': 'application/json' };
       if (tokenRef.current) headers['Authorization'] = `Bearer ${tokenRef.current}`;
       const response = await fetch(`${nlpApiUrl}/api/confirm`, {
@@ -271,10 +385,19 @@ export function useVoiceAssistantNLP(
         body: JSON.stringify({ transaction_id: transactionIdRef.current }),
       });
       const result = await response.json();
+      endProcessingFeedback();
+
+      // UX Fix #11: L'utilisateur a annulé pendant la confirmation → ne pas lancer l'USSD
+      if (epoch !== cancelEpochRef.current) {
+        console.log('🛑 [NLP] Confirmation ignorée : annulée par l\'utilisateur');
+        return;
+      }
+
       if (!result.success) {
         updateStatus('error');
         setFeedback(result.message || 'Erreur confirmation');
-        setTimeout(() => { if (statusRef.current === 'error') updateStatus('idle'); }, 5000);
+        // UX Fix #13: Délai plus long pour lire le message
+        setTimeout(() => { if (statusRef.current === 'error') updateStatus('idle'); }, 8000);
         return;
       }
       const ussdRes = await triggerUSSD(result.intent || parsedIntent?.intent, result.data || result);
@@ -282,25 +405,50 @@ export function useVoiceAssistantNLP(
         updateStatus('success');
         setFeedback(ussdRes.message);
         speakFeedback(ussdRes.message);
-        setTimeout(() => { if (statusRef.current === 'success') updateStatus('idle'); }, 5000);
+        // UX Fix #13: Délai plus long pour lire le message
+        setTimeout(() => { if (statusRef.current === 'success') updateStatus('idle'); }, 8000);
       } else if (!(ussdRes as any).isAwaiting) {
         updateStatus('error');
         setFeedback(ussdRes.message || 'Échec de la transaction');
-        setTimeout(() => { if (statusRef.current === 'error') updateStatus('idle'); }, 5000);
+        // UX Fix #13: Délai plus long pour lire le message
+        setTimeout(() => { if (statusRef.current === 'error') updateStatus('idle'); }, 8000);
       }
     } catch (e) {
+      endProcessingFeedback();
       updateStatus('error');
+      // UX: Toujours expliquer ce qui s'est passé, même sur erreur inattendue
+      setFeedback("La confirmation n'a pas abouti. Veuillez réessayer.");
       setTimeout(() => { if (statusRef.current === 'error') updateStatus('idle'); }, 5000);
     }
-  }, [nlpApiUrl, parsedIntent, triggerUSSD, updateStatus]);
+  }, [nlpApiUrl, parsedIntent, triggerUSSD, updateStatus, beginProcessingFeedback, endProcessingFeedback]);
 
-  const cancelAction = useCallback(() => {
-    updateStatus('idle');
+  const cancelAction = useCallback(async () => {
+    // UX Fix #11: Invalider le pipeline en cours (une réponse NLP tardive sera ignorée)
+    cancelEpochRef.current += 1;
+    endProcessingFeedback();
+    autoRetryRef.current = 0;
     setParsedIntent(null);
     setAmbiguityContacts(null);
     setShowPinModal(false);
-    setFeedback('Action annulée');
-  }, [updateStatus]);
+    try {
+      const { cancelActiveTransaction } = await import('../services/ussd_engine/MoMoTransactionEngine');
+      const res = cancelActiveTransaction();
+      if (res.cancelled) {
+        // Une transaction USSD était en cours : informer clairement l'utilisateur
+        updateStatus('success');
+        setFeedback(res.message);
+        speakFeedback(res.message);
+        setTimeout(() => { if (statusRef.current === 'success') updateStatus('idle'); }, 8000);
+      } else {
+        updateStatus('idle');
+        setFeedback('Action annulée');
+      }
+    } catch (e) {
+      console.warn('⚠️ [NLP] Annulation moteur impossible:', e);
+      updateStatus('idle');
+      setFeedback('Action annulée');
+    }
+  }, [updateStatus, endProcessingFeedback]);
 
   const resolveAmbiguity = useCallback(async (contact: { name: string; phone: string }) => {
     const ctx = ambiguityContextRef.current;
@@ -324,29 +472,52 @@ export function useVoiceAssistantNLP(
     if (!pinContext) return;
     try {
       updateStatus('processing');
+      // UX Fix #3: Messages d'attente échelonnés pendant le transfert USSD
+      beginProcessingFeedback(USSD_PROCESSING_STEPS);
       const { MoMoTransactionEngine } = await import('../services/ussd_engine/MoMoTransactionEngine');
       const engine = new MoMoTransactionEngine();
+
+      // Consultation de solde live : USSD *880*4*PIN# au lieu d'un transfert
+      if (pinContext.data?.mode === 'balance') {
+        const res = await engine.checkBalanceWithPin(pin);
+        endProcessingFeedback();
+        setShowPinModal(false);
+        updateStatus(res.status === 'success' ? 'success' : 'error');
+        setFeedback(res.message);
+        speakFeedback(res.message);
+        setTimeout(() => {
+          if (statusRef.current === 'success' || statusRef.current === 'error') updateStatus('idle');
+        }, 8000);
+        return;
+      }
+
       const res = await engine.confirmWithPin(pin, { phone: pinContext.data?.phone, amount: pinContext.data?.amount });
+      endProcessingFeedback();
       setShowPinModal(false);
       if (res.status === 'success') {
         updateStatus('success');
         setFeedback(res.message);
         speakFeedback(res.message);
-        setTimeout(() => { if (statusRef.current === 'success') updateStatus('idle'); }, 5000);
+        // UX Fix #13: Délai plus long pour lire le message
+        setTimeout(() => { if (statusRef.current === 'success') updateStatus('idle'); }, 8000);
       } else {
         updateStatus('error');
         setFeedback(res.message);
         speakFeedback(res.message);
-        setTimeout(() => { if (statusRef.current === 'error') updateStatus('idle'); }, 5000);
+        // UX Fix #13: Délai plus long pour lire le message
+        setTimeout(() => { if (statusRef.current === 'error') updateStatus('idle'); }, 8000);
       }
     } catch (e) {
+      endProcessingFeedback();
       updateStatus('error');
+      // UX: Toujours expliquer ce qui s'est passé, même sur erreur inattendue
+      setFeedback("Le transfert n'a pas pu être lancé. Votre argent n'a pas été débité. Veuillez réessayer.");
       setTimeout(() => { if (statusRef.current === 'error') updateStatus('idle'); }, 5000);
     }
-  }, [pinContext, updateStatus]);
+  }, [pinContext, updateStatus, beginProcessingFeedback, endProcessingFeedback]);
 
   return {
-    status, transcript, feedback, parsedIntent, isListening, ambiguityContacts, ambiguityQuery, showPinModal,
+    status, transcript, feedback, parsedIntent, isListening, ambiguityContacts, ambiguityQuery, showPinModal, pinPrompt,
     startListening, stopListening, confirmAction, cancelAction,
     resolveAmbiguity, executeTransferWithPin, cancelPinModal: cancelAction
   };

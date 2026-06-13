@@ -25,6 +25,7 @@ export default function Layout() {
     ambiguityQuery,
     resolveAmbiguity,
     showPinModal,
+    pinPrompt,
     executeTransferWithPin,
     cancelPinModal,
   } = useVoiceAssistantNLP();
@@ -109,7 +110,7 @@ export default function Layout() {
           </motion.button>
 
           {/* Boutons Confirmer/Annuler en dessous du bouton */}
-          {parsedIntent?.needs_confirmation && (
+          {status === 'awaiting_confirmation' && parsedIntent?.needs_confirmation && (
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -121,6 +122,22 @@ export default function Layout() {
               >
                 Confirmer
               </button>
+              <button
+                onClick={cancelAction}
+                className="bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded-xl font-bold shadow-lg transition-colors text-[10px] cursor-pointer"
+              >
+                Annuler
+              </button>
+            </motion.div>
+          )}
+
+          {/* UX Fix #11: Annulation possible pendant le traitement */}
+          {status === 'processing' && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex mt-3 justify-center"
+            >
               <button
                 onClick={cancelAction}
                 className="bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded-xl font-bold shadow-lg transition-colors text-[10px] cursor-pointer"
@@ -171,7 +188,7 @@ export default function Layout() {
                 🔐 Code PIN Requis
               </h3>
               <p className="text-sm text-slate-500 dark:text-zinc-400 mb-6">
-                Veuillez entrer votre PIN MTN pour confirmer la transaction.
+                {pinPrompt}
               </p>
 
               <input
