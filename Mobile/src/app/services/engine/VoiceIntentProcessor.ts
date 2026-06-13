@@ -81,21 +81,21 @@ export class VoiceIntentProcessor {
     // Vérification réseau MTN
     if (!this.contactResolver.isMtnBeninNumber(finalNumber)) {
       // UX Fix: Message humain pour numéro non-MTN
-      return { 
-        status: 'error', 
-        message: `Ce numéro (${finalNumber}) n'est pas un compte MTN MoMo. Voice MoMo ne fonctionne qu'avec les numéros MTN Bénin.` 
+      return {
+        status: 'error',
+        message: `Ce numéro (${finalNumber}) n'est pas un compte MTN MoMo. Voice MoMo ne fonctionne qu'avec les numéros MTN Bénin.`
       };
     }
 
     // Exécution directe du transfert (sans demander le PIN en interne)
-    return { 
+    return {
       status: 'execute',
       intent: intent,
-      data: { 
-        phone: finalNumber, 
+      data: {
+        phone: finalNumber,
         amount: Number(amount),
-        recipientName: contacts[0].name 
-      } 
+        recipientName: contacts[0].name
+      }
     };
   }
 }
