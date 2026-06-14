@@ -293,8 +293,9 @@ export class MoMoTransactionEngine {
                 console.warn(`⚠️ [ENGINE] Amount rounded down from ${data.amount} to ${finalAmount}`);
             }
             
-            // Pour MTN Bénin, le transfert interactif utilise *880*1*1*NUMERO*MONTANT#
-            const ussdCode = `*880*1*1*${formattedRecipient}*${finalAmount}#`;
+            // Pour MTN Bénin, le transfert interactif utilise *880*1*1*NUMERO*NUMERO*MONTANT#
+            // (le numéro doit être dupliqué selon le format MTN Bénin)
+            const ussdCode = `*880*1*1*${formattedRecipient}*${formattedRecipient}*${finalAmount}#`;
 
             console.log('⚙️ [ENGINE] [TRANSFER] USSD Final String:', ussdCode);
             console.log('⚙️ [ENGINE] [TRANSFER] Formatted Recipient:', formattedRecipient);
