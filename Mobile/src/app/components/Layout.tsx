@@ -24,6 +24,7 @@ export default function Layout() {
     ambiguityContacts,
     ambiguityQuery,
     resolveAmbiguity,
+    closeAmbiguityModal,
     showPinModal,
     pinPrompt,
     executeTransferWithPin,
@@ -165,7 +166,7 @@ export default function Layout() {
           resolveAmbiguity(contact);
         }}
         onClose={() => {
-          cancelAction();
+          closeAmbiguityModal();
         }}
       />
 

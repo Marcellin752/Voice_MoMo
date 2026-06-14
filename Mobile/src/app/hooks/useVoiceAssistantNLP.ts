@@ -41,6 +41,7 @@ interface VoiceHookReturn {
   ambiguityContacts: any[] | null;
   ambiguityQuery: string;
   resolveAmbiguity: (contact: { name: string; phone: string }) => void;
+  closeAmbiguityModal: () => void;
   showPinModal: boolean;
   pinPrompt: string;
   executeTransferWithPin: (pin: string) => Promise<void>;
@@ -450,23 +451,30 @@ export function useVoiceAssistantNLP(
     }
   }, [updateStatus, endProcessingFeedback]);
 
+  const closeAmbiguityModal = useCallback(() => {
+    setAmbiguityContacts(null);
+  }, []);
+
   const resolveAmbiguity = useCallback(async (contact: { name: string; phone: string }) => {
     const ctx = ambiguityContextRef.current;
     if (!ctx) return;
-    setAmbiguityContacts(null);
+    closeAmbiguityModal(); // Fermer la modale sans annuler
     updateStatus('processing');
+    beginProcessingFeedback(USSD_PROCESSING_STEPS);
     const ussdRes = await triggerUSSD(ctx.intent, { ...ctx.data, recipient: contact.phone });
+    endProcessingFeedback();
     if (ussdRes.success) {
       updateStatus('success');
       setFeedback(ussdRes.message);
       speakFeedback(ussdRes.message);
-      setTimeout(() => { if (statusRef.current === 'success') updateStatus('idle'); }, 5000);
+      setTimeout(() => { if (statusRef.current === 'success') updateStatus('idle'); }, 8000);
     } else if (!(ussdRes as any).isAwaiting) {
       updateStatus('error');
       setFeedback(ussdRes.message || 'Échec de la transaction');
-      setTimeout(() => { if (statusRef.current === 'error') updateStatus('idle'); }, 5000);
+      speakFeedback(ussdRes.message);
+      setTimeout(() => { if (statusRef.current === 'error') updateStatus('idle'); }, 8000);
     }
-  }, [triggerUSSD, updateStatus]);
+  }, [closeAmbiguityModal, triggerUSSD, updateStatus, beginProcessingFeedback, endProcessingFeedback, speakFeedback]);
 
   const executeTransferWithPin = useCallback(async (pin: string) => {
     if (!pinContext) return;
@@ -519,6 +527,6 @@ export function useVoiceAssistantNLP(
   return {
     status, transcript, feedback, parsedIntent, isListening, ambiguityContacts, ambiguityQuery, showPinModal, pinPrompt,
     startListening, stopListening, confirmAction, cancelAction,
-    resolveAmbiguity, executeTransferWithPin, cancelPinModal: cancelAction
+    resolveAmbiguity, closeAmbiguityModal, executeTransferWithPin, cancelPinModal: cancelAction
   };
 }
