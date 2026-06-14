@@ -117,11 +117,16 @@ export class ContactResolverService {
   }
 
   async resolve(nameQuery: string): Promise<any> {
-    if (!nameQuery) return null;
+    console.log('🔍 [CRS] resolve() called with query:', nameQuery);
+    if (!nameQuery) {
+      console.log('🔍 [CRS] Query is empty, returning null');
+      return null;
+    }
 
     // Si c'est déjà un numéro
     const digitsOnly = nameQuery.replace(/\D/g, '');
     if (digitsOnly.length >= 8) {
+      console.log('🔍 [CRS] Query looks like a number, formatting:', digitsOnly);
       const formatted = this.formatBeninNumber(digitsOnly);
       return [{ name: "Numéro saisi", phone: formatted, confidence: 1.0 }];
     }
