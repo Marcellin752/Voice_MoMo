@@ -107,9 +107,16 @@ export class VoiceIntentProcessor {
 
     // 🆕 FEATURE: Détection inter-réseau
     try {
-      // Récupérer le numéro de l'utilisateur (MoMo MTN)
-      // TODO: À adapter selon la source réelle du numéro utilisateur
-      const userPhone = localStorage.getItem('momo.user.phone') || '01XXXXXXXX';
+      // Récupérer le numéro de l'utilisateur (supposé DÉJÀ validé/formaté au login)
+      const userPhone = localStorage.getItem('momo.user.phone');
+
+      if (!userPhone) {
+        console.error('❌ [VIP] User phone not found in localStorage');
+        return {
+          status: 'error',
+          message: 'Numéro utilisateur non configuré. Veuillez vous reconnecter.'
+        };
+      }
 
       console.log('🔄 [VIP] Initializing inter-network engine');
       const interNetworkEngine = new InterNetworkTransferEngine(userPhone, finalNumber);
