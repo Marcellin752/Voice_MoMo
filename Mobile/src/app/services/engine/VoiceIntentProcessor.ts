@@ -2,7 +2,8 @@ import { ContactResolverService } from './ContactResolverService';
 import { MoMoTransactionEngine } from '../ussd_engine/MoMoTransactionEngine';
 import { InterNetworkTransferEngine } from '../ussd_engine/InterNetworkTransferEngine';
 import { NetworkDetector, MobileNetwork } from './NetworkDetector';
-import { getProfile } from '../../utils/localData';
+import { StorageService } from '../storage.service';
+import type { ApiUser } from '../../utils/api';
 
 /** Intents qui envoient un USSD *880*… vers un numéro (transfert / dépôt wallet-to-wallet). */
 const WALLET_TRANSFER_INTENTS = new Set([
@@ -108,11 +109,12 @@ export class VoiceIntentProcessor {
 
     // 🆕 FEATURE: Détection inter-réseau
     try {
-      // Récupérer le numéro de l'utilisateur depuis le profil
-      const userPhone = getProfile().phone;
+      // Récupérer le numéro de l'utilisateur depuis le stockage de l'authentification
+      const authUser = await StorageService.get<ApiUser>('momo.auth.user');
+      const userPhone = authUser?.phone;
 
       if (!userPhone || userPhone.trim() === '') {
-        console.error('❌ [VIP] User phone not found in profile');
+        console.error('❌ [VIP] User phone not found in auth storage');
         return {
           status: 'error',
           message: 'Numéro utilisateur non configuré. Veuillez vous reconnecter.'
