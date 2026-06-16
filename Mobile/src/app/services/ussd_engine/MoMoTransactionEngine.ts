@@ -2,9 +2,10 @@ import { registerPlugin, PluginListenerHandle } from '@capacitor/core';
 import { ContactResolverService } from '../engine/ContactResolverService';
 import { SmsListenerService } from '../sms.service';
 import { InterNetworkTransferEngine } from './InterNetworkTransferEngine';
-import { getProfile } from '../../utils/localData';
+import { StorageService } from '../storage.service';
 import type { AccessibilityPluginInterface } from './AccessibilityPlugin.types';
 import type { UssdBackgroundPlugin } from './UssdBackgroundPlugin.types';
+import type { ApiUser } from '../../utils/api';
 
 function formatUssdFailureMessage(e: unknown, e2: unknown): string {
     const parts = [e, e2].map((x) => (x instanceof Error ? x.message : String(x)));
@@ -296,8 +297,9 @@ export class MoMoTransactionEngine {
             }
 
             // 🆕 FEATURE: Utiliser InterNetworkTransferEngine pour support inter-réseau
-            // Récupère le numéro utilisateur depuis le profil
-            const userPhone = getProfile().phone;
+            // Récupère le numéro utilisateur depuis le stockage de l'authentification
+            const authUser = await StorageService.get<ApiUser>('momo.auth.user');
+            const userPhone = authUser?.phone;
             if (!userPhone || userPhone.trim() === '') {
               throw new Error('Numéro utilisateur non configuré. Veuillez vous reconnecter.');
             }

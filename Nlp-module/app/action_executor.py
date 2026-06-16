@@ -98,25 +98,19 @@ class ActionExecutor:
         if not recipient:
             return None
         cleaned = recipient.strip()
-        
-        # Résolution via le carnet d'adresse synchronisé par l'utilisateur
-        user = self.users_db.get(user_id) or self.users_db["default"]
-        user_contacts = user.get("contacts", {})
-        
-        # Résolution simple de contacts pour la démo / production
-        contacts_mock = {
-            **user_contacts, # Priorité aux contacts synchronisés depuis l'app
-            "maman": "0022961000001",
-            "papa": "0022961000002",
-            "jean": "0022961000003",
-            "aurel": "0022961000004",
-        }
-        if cleaned.lower() in contacts_mock:
-            return contacts_mock[cleaned.lower()]
-            
+
+        # Si le destinataire est DÉJÀ un numéro, on le normalise en chiffres.
         digits = re.sub(r"\D", "", cleaned)
         if 8 <= len(digits) <= 15:
             return digits
+
+        # Sinon c'est un NOM de contact (« papa », « jean »…) : on le renvoie tel
+        # quel, SANS le résoudre en numéro.
+        #
+        # ⚠️ La résolution nom → numéro DOIT se faire sur l'appareil
+        # (ContactResolverService lit le vrai carnet d'adresses). Le serveur n'a pas
+        # accès aux contacts de l'utilisateur : toute table codée en dur ici enverrait
+        # l'argent au mauvais numéro (bug « papa → numéro inconnu »).
         return cleaned
 
     def _execute_via_backend(

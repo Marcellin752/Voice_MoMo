@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
-import { Search, X, UserCircle, Phone, HelpCircle, UserCheck } from "lucide-react";
+import { Search, X, Phone, HelpCircle, UserCheck } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { Capacitor } from "@capacitor/core";
 import { StorageService } from "../services/storage.service";
 
 type Contact = {
@@ -8,15 +9,6 @@ type Contact = {
   tel: string[];
   email?: string[];
 };
-
-// Contacts par défaut de démonstration pour assurer un fonctionnement immédiat (web/tests)
-const DEMO_CONTACTS: Contact[] = [
-  { name: ["Satignon Marcellin"], tel: ["22961000001"] },
-  { name: ["Edwin Sat"], tel: ["22962000002"] },
-  { name: ["Rayann Bch"], tel: ["22963000003"] },
-  { name: ["MTN Support"], tel: ["22997000000"] },
-  { name: ["Moov Benin Service"], tel: ["22995000000"] },
-];
 
 interface ContactSelectorModalProps {
   isOpen: boolean;
@@ -42,9 +34,32 @@ export default function ContactSelectorModal({ isOpen, onClose, onSelect }: Cont
         const cached = await StorageService.get<Contact[]>('momo.contacts');
         if (cached && cached.length > 0) {
           setContacts(cached);
+        } else if (Capacitor.isNativePlatform()) {
+          // Pas de cache : on lit le VRAI carnet d'adresses de l'appareil.
+          // (Aucun contact factice — on n'invente jamais de numéro.)
+          try {
+            const { Contacts } = await import("@capacitor-community/contacts");
+            const permission = await Contacts.requestPermissions();
+            if (permission.contacts === "granted" || permission.contacts === "limited") {
+              const result = await Contacts.getContacts({ projection: { name: true, phones: true } });
+              const native: Contact[] = result.contacts
+                .map((c: any) => ({
+                  name: [c.name?.display || c.displayName || ""],
+                  tel: (c.phones ?? []).map((p: any) => p.number).filter(Boolean),
+                }))
+                .filter((c) => c.name[0] && c.tel.length > 0);
+              setContacts(native);
+              if (native.length > 0) await StorageService.set('momo.contacts', native);
+            } else {
+              setContacts([]);
+            }
+          } catch (e) {
+            console.error("[ContactSelector] Lecture contacts natifs échouée:", e);
+            setContacts([]);
+          }
         } else {
-          // Fallback sur les contacts démo pour garantir que la recherche fonctionne toujours
-          setContacts(DEMO_CONTACTS);
+          // Web/tests : pas d'accès au carnet natif, liste vide (recherche manuelle).
+          setContacts([]);
         }
         setLoading(false);
         
