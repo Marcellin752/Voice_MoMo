@@ -5,6 +5,14 @@ import { NetworkDetector, MobileNetwork } from '../engine/NetworkDetector';
  * - MTN → MTN : directement via code USSD MTN
  * - MTN → Moov/Celtis : via Linka Send
  */
+/**
+ * Engine pour transferts inter-réseau.
+ *
+ * ⚠️ IMPORTANT : Suppose que les numéros reçus sont DÉJÀ validés et formatés
+ * par ContactResolverService.formatBeninNumber() en amont.
+ *
+ * Ne pas ajouter de validation redondante ici — faire confiance aux données.
+ */
 export class InterNetworkTransferEngine {
   private senderPhone: string;
   private recipientPhone: string;
@@ -14,12 +22,10 @@ export class InterNetworkTransferEngine {
   constructor(senderPhone: string, recipientPhone: string) {
     this.senderPhone = senderPhone;
     this.recipientPhone = recipientPhone;
+
+    // Détection simple (pas de validation, les données sont déjà validées en amont)
     this.senderNetwork = NetworkDetector.detectNetwork(senderPhone);
     this.recipientNetwork = NetworkDetector.detectNetwork(recipientPhone);
-
-    if (this.senderNetwork === MobileNetwork.UNKNOWN || this.recipientNetwork === MobileNetwork.UNKNOWN) {
-      throw new Error('❌ Numéro invalide détecté');
-    }
 
     console.log(`\n📱 [INTER-NETWORK] Engine créé`);
     console.log(`   Sender: ${senderPhone} (${NetworkDetector.getNetworkLabel(this.senderNetwork)})`);

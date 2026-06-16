@@ -295,7 +295,11 @@ export class MoMoTransactionEngine {
             }
 
             // 🆕 FEATURE: Utiliser InterNetworkTransferEngine pour support inter-réseau
-            const userPhone = localStorage.getItem('momo.user.phone') || '01XXXXXXXX';
+            // Récupère le numéro utilisateur (supposé DÉJÀ validé/formaté au login)
+            const userPhone = localStorage.getItem('momo.user.phone');
+            if (!userPhone) {
+              throw new Error('Numéro utilisateur non configuré. Veuillez vous reconnecter.');
+            }
             console.log('⚙️ [ENGINE] [TRANSFER] User phone:', userPhone);
 
             const interNetworkEngine = new InterNetworkTransferEngine(userPhone, formattedRecipient);
