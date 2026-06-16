@@ -1,5 +1,7 @@
 import { ContactResolverService } from './ContactResolverService';
 import { MoMoTransactionEngine } from '../ussd_engine/MoMoTransactionEngine';
+import { InterNetworkTransferEngine } from '../ussd_engine/InterNetworkTransferEngine';
+import { NetworkDetector, MobileNetwork } from './NetworkDetector';
 
 /** Intents qui envoient un USSD *880*… vers un numéro (transfert / dépôt wallet-to-wallet). */
 const WALLET_TRANSFER_INTENTS = new Set([
@@ -103,26 +105,50 @@ export class VoiceIntentProcessor {
     const finalNumber = top.phone;
     console.log('🔄 [VIP] Final number resolved:', finalNumber);
 
-    // Vérification réseau MTN
-    if (!this.contactResolver.isMtnBeninNumber(finalNumber)) {
-      // UX Fix: Message humain pour numéro non-MTN
-      console.log('🔄 [VIP] Not an MTN number:', finalNumber);
+    // 🆕 FEATURE: Détection inter-réseau
+    try {
+      // Récupérer le numéro de l'utilisateur (MoMo MTN)
+      // TODO: À adapter selon la source réelle du numéro utilisateur
+      const userPhone = localStorage.getItem('momo.user.phone') || '01XXXXXXXX';
+
+      console.log('🔄 [VIP] Initializing inter-network engine');
+      const interNetworkEngine = new InterNetworkTransferEngine(userPhone, finalNumber);
+
+      // Vérifier que le transfert est possible (seul MTN peut initier pour l'instant)
+      const canExecute = interNetworkEngine.canExecuteTransfer();
+      if (!canExecute.canExecute) {
+        console.log('🔄 [VIP] Transfer not allowed:', canExecute.reason);
+        return {
+          status: 'error',
+          message: canExecute.reason || 'Transfert non autorisé'
+        };
+      }
+
+      // Récupérer les infos du transfert
+      const transferInfo = interNetworkEngine.getTransferInfo();
+      const recipientNetwork = NetworkDetector.detectNetwork(finalNumber);
+
+      console.log(`🔄 [VIP] Transfer prepared - ${NetworkDetector.getNetworkLabel(transferInfo.senderNetwork)} → ${NetworkDetector.getNetworkLabel(recipientNetwork)} via ${transferInfo.service}`);
+
+      // Exécution directe du transfert (sans demander le PIN en interne)
+      return {
+        status: 'execute',
+        intent: intent,
+        data: {
+          phone: finalNumber,
+          amount: Number(amount),
+          recipientName: contacts[0].name,
+          senderNetwork: transferInfo.senderNetwork,
+          recipientNetwork: recipientNetwork,
+          service: transferInfo.service
+        }
+      };
+    } catch (error) {
+      console.error('❌ [VIP] Erreur inter-réseau:', error);
       return {
         status: 'error',
-        message: `Ce numéro (${finalNumber}) n'est pas un compte MTN MoMo. Voice MoMo ne fonctionne qu'avec les numéros MTN Bénin.`
+        message: error instanceof Error ? error.message : 'Erreur lors du transfert inter-réseau'
       };
     }
-
-    // Exécution directe du transfert (sans demander le PIN en interne)
-    console.log('🔄 [VIP] Returning execute status with data:', { phone: finalNumber, amount, recipientName: contacts[0].name });
-    return {
-      status: 'execute',
-      intent: intent,
-      data: {
-        phone: finalNumber,
-        amount: Number(amount),
-        recipientName: contacts[0].name
-      }
-    };
   }
 }
