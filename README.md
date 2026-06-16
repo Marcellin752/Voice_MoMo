@@ -1,0 +1,193 @@
+# 🎤 Voice MoMo — Mobile Money par Commandes Vocales
+
+**Application de transfert d'argent vocale pour Bénin**
+
+![Status](https://img.shields.io/badge/Status-MVP%20In%20Progress-orange)
+![Platform](https://img.shields.io/badge/Platform-Android-brightgreen)
+![Language](https://img.shields.io/badge/Language-French-blue)
+
+---
+
+## 📖 Documentation Principale
+
+👉 **[CAHIER_DES_CHARGES.md](./CAHIER_DES_CHARGES.md)** — *Lire en premier*
+- Vue complète du projet
+- Fonctionnalités détaillées
+- Architecture technique
+- Codes USSD Bénin
+- Préfixes des réseaux
+
+👉 **[LAUNCH_GUIDE.md](./LAUNCH_GUIDE.md)** — *Pour lancer localement*
+- Setup environnement
+- Lancer l'app
+- Scripts de test
+
+---
+
+## 🚀 Fonctionnalités (MVP)
+
+### ✅ Implémentées
+
+| Feature | Statut | Notes |
+|---------|--------|-------|
+| **Transfert MTN→MTN** | ✅ | Code USSD direct |
+| **Transfert MTN→Moov/Celtis** | ✅ | Via Linka Send |
+| **Consultation solde** | ✅ | SMS puis USSD live |
+| **Reconnaissance vocale FR** | ✅ | Google Cloud Speech API |
+| **Gestion contacts** | ✅ | Avec suggestions proches |
+| **Confirmation vocale** | ✅ | Text-to-Speech |
+| **Auto-retry SR** | ✅ | Max 1 tentative |
+| **Annulation transactions** | ✅ | Bouton + commande vocale |
+
+### 🟡 Planifiées (Phase 2)
+
+- Authentification biométrique
+- Paiement de factures
+- Achat de crédit/forfaits
+- Transactions programmées
+- Multilinguisme
+
+---
+
+## 🏗️ Structure du Projet
+
+```
+Voice_MoMo/
+├── Mobile/                    # App React Native
+│   ├── src/app/
+│   │   ├── services/
+│   │   │   ├── engine/
+│   │   │   │   ├── NetworkDetector.ts       # Détection réseau MTN/Moov/Celtis
+│   │   │   │   ├── VoiceIntentProcessor.ts  # Pipeline de transfert
+│   │   │   │   └── ContactResolverService.ts # Suggestions de contacts
+│   │   │   ├── ussd_engine/
+│   │   │   │   ├── MoMoTransactionEngine.ts # Exécution USSD
+│   │   │   │   └── InterNetworkTransferEngine.ts # Logic inter-réseau
+│   │   │   └── sms.service.ts               # Lecture SMS balance
+│   │   ├── hooks/
+│   │   │   ├── useVoiceAssistant.ts         # SR natif + Web fallback
+│   │   │   └── useVoiceAssistantNLP.ts      # Pipeline complet NLP
+│   │   └── components/
+│   │       └── ContactDisambiguationModal.tsx # Modale suggestions
+│   └── android/                # Configuration Android
+├── Backend/                   # API FastAPI (Python)
+│   └── app/
+│       └── action_executor.py # Exécution des intentions
+├── Nlp-module/               # Module NLP (Python)
+│   └── app/
+│       └── action_executor.py # Intégration Gemini 2.0
+├── CAHIER_DES_CHARGES.md    # 👈 Vue complète du projet
+├── LAUNCH_GUIDE.md          # Instructions de lancement
+└── README.md                # Ce fichier
+```
+
+---
+
+## 🔧 Technologies
+
+### Frontend
+- **React Native** via Expo
+- **TypeScript** pour type safety
+- **Capacitor** pour accès aux plugins natifs
+
+### Backend
+- **FastAPI** (Python)
+- **PostgreSQL** pour données utilisateur
+
+### NLP
+- **Google Cloud Speech-to-Text**
+- **Google Gemini 2.0 Flash** pour compréhension
+- **Google Cloud Text-to-Speech** pour réponses
+
+### Plugins Android
+- `@capacitor-community/speech-recognition` — SR natif
+- `@capacitor-community/text-to-speech` — TTS
+- `@capacitor-community/contacts` — Accès contacts
+- `cordova-plugin-sms-receive` — Lecture SMS
+- Plugins custom pour USSD
+
+---
+
+## 📱 Codes USSD Bénin
+
+### Transfert MTN→MTN (Direct)
+```
+*880*1*1*{RECIPIENT}*{RECIPIENT}*{AMOUNT}#
+```
+
+### Transfert Inter-réseau via Linka
+```
+*601*16*{RECIPIENT}*{NETWORK_CODE}*{AMOUNT}#
+Network codes: 1=MTN, 2=Moov, 3=Celtis
+```
+
+### Consultation Solde (Live)
+```
+*880*4*{PIN}#
+```
+
+### Détection Réseau
+```
+01{prefix} où prefix:
+- MTN: 42, 46, 50-54, 56-57, 59, 61-62, 66-67, 69, 90-91, 96-97
+- Moov: 45, 55, 58, 60, 63-65, 68, 94-95, 98-99
+- Celtis: 20-24, 28-29, 40-41, 43-44, 47-49, 92-93
+```
+
+---
+
+## 🧪 Tester l'App
+
+### Scénario 1 : Transfert MTN→MTN
+```
+Utilisateur: "Envoie 5000 à Jean"
+App: "Transférer 5000 francs à Jean ?"
+Utilisateur: "Oui"
+→ Affiche modale PIN
+→ Lance USSD *880*1*1*01...#
+```
+
+### Scénario 2 : Transfert MTN→Moov
+```
+Utilisateur: "Envoie 5000 à Pierre"  (contact Moov)
+App: "Transférer 5000 francs à Pierre via Linka Send ?"
+Utilisateur: "Oui"
+→ Lance USSD *601*16*01...#
+```
+
+### Scénario 3 : Consultation Solde
+```
+Utilisateur: "Quel est mon solde ?"
+App: "Vérification via SMS... (gratuit)"
+→ Affiche solde du dernier SMS reçu
+Si SMS non trouvé:
+→ Demande PIN
+→ Lance USSD *880*4*PIN#
+```
+
+---
+
+## 📋 Équipe
+
+- **Backend & USSD** : Marcellin Sambieni, AGANI Laurince
+- **NLP & IA** : Fresnel Satignon
+- **Mobile Frontend** : [À définir]
+
+---
+
+## 📞 Support
+
+Pour questions ou issues:
+1. Consulter [CAHIER_DES_CHARGES.md](./CAHIER_DES_CHARGES.md)
+2. Consulter [LAUNCH_GUIDE.md](./LAUNCH_GUIDE.md)
+3. Vérifier les logs (surtout `[NETWORK]`, `[INTER-NETWORK]`, `[ENGINE]`)
+
+---
+
+## 📄 Licence
+
+Projet Bénin - MTN MoMo Integration
+
+---
+
+**Dernière mise à jour:** 2026-06-16
