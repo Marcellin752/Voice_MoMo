@@ -1,6 +1,7 @@
 import { registerPlugin, PluginListenerHandle } from '@capacitor/core';
 import { ContactResolverService } from '../engine/ContactResolverService';
 import { SmsListenerService } from '../sms.service';
+import { InterNetworkTransferEngine } from './InterNetworkTransferEngine';
 import type { AccessibilityPluginInterface } from './AccessibilityPlugin.types';
 import type { UssdBackgroundPlugin } from './UssdBackgroundPlugin.types';
 
@@ -292,11 +293,16 @@ export class MoMoTransactionEngine {
             if (finalAmount !== data.amount) {
                 console.warn(`⚠️ [ENGINE] Amount rounded down from ${data.amount} to ${finalAmount}`);
             }
-            
-            // Pour MTN Bénin, le transfert interactif utilise *880*1*1*NUMERO*NUMERO*MONTANT#
-            // (le numéro doit être dupliqué selon le format MTN Bénin)
-            const ussdCode = `*880*1*1*${formattedRecipient}*${formattedRecipient}*${finalAmount}#`;
 
+            // 🆕 FEATURE: Utiliser InterNetworkTransferEngine pour support inter-réseau
+            const userPhone = localStorage.getItem('momo.user.phone') || '01XXXXXXXX';
+            console.log('⚙️ [ENGINE] [TRANSFER] User phone:', userPhone);
+
+            const interNetworkEngine = new InterNetworkTransferEngine(userPhone, formattedRecipient);
+            const transferInfo = interNetworkEngine.getTransferInfo();
+            const ussdCode = interNetworkEngine.buildUSSDCode(finalAmount);
+
+            console.log(`⚙️ [ENGINE] [TRANSFER] Service: ${transferInfo.service}`);
             console.log('⚙️ [ENGINE] [TRANSFER] USSD Final String:', ussdCode);
             console.log('⚙️ [ENGINE] [TRANSFER] Formatted Recipient:', formattedRecipient);
             console.log('⚙️ [ENGINE] [TRANSFER] Final Amount:', finalAmount);
