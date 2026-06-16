@@ -2,6 +2,7 @@ import { registerPlugin, PluginListenerHandle } from '@capacitor/core';
 import { ContactResolverService } from '../engine/ContactResolverService';
 import { SmsListenerService } from '../sms.service';
 import { InterNetworkTransferEngine } from './InterNetworkTransferEngine';
+import { getProfile } from '../../utils/localData';
 import type { AccessibilityPluginInterface } from './AccessibilityPlugin.types';
 import type { UssdBackgroundPlugin } from './UssdBackgroundPlugin.types';
 
@@ -295,9 +296,9 @@ export class MoMoTransactionEngine {
             }
 
             // 🆕 FEATURE: Utiliser InterNetworkTransferEngine pour support inter-réseau
-            // Récupère le numéro utilisateur (supposé DÉJÀ validé/formaté au login)
-            const userPhone = localStorage.getItem('momo.user.phone');
-            if (!userPhone) {
+            // Récupère le numéro utilisateur depuis le profil
+            const userPhone = getProfile().phone;
+            if (!userPhone || userPhone.trim() === '') {
               throw new Error('Numéro utilisateur non configuré. Veuillez vous reconnecter.');
             }
             console.log('⚙️ [ENGINE] [TRANSFER] User phone:', userPhone);
