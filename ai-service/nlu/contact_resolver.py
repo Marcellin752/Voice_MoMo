@@ -31,6 +31,16 @@ def _looks_like_number(value: str) -> bool:
 
 
 def resolve(alias: str | None) -> str | None:
+    """Résout un alias en identifiant.
+
+    - Si l'alias est déjà un numéro : on le normalise.
+    - Sinon (nom de contact) : renvoie None si l'alias n'est pas dans la map.
+      La résolution nom -> numéro doit se faire sur l'appareil (vrai carnet
+      d'adresses), JAMAIS via une table de numéros personnels codée en dur côté
+      serveur — sous peine d'envoyer l'argent au mauvais numéro. `contacts.json`
+      reste vide par défaut (réservé aux éventuels alias de facturiers via
+      CONTACTS_JSON_PATH).
+    """
     if not alias or not str(alias).strip():
         return None
     s = str(alias).strip()

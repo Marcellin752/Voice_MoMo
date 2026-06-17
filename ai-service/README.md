@@ -43,7 +43,10 @@ docker exec -it ai-service-ollama-1 ollama pull mistral
 | `WHISPER_MODEL` | Surcharge du modèle faster-whisper |
 | `OLLAMA_MODEL` | Modèle Ollama (défaut `mistral`) |
 
-Contacts vocaux : éditer `data/contacts.json` (alias → numéro).
+Contacts vocaux : la résolution nom → numéro se fait **sur l'appareil** (vrai
+carnet d'adresses). Ne PAS coder de numéros personnels en dur ici — `data/contacts.json`
+reste vide par défaut (`{}`). À réserver, le cas échéant, aux alias de facturiers
+(ex. SBEE), via la variable `CONTACTS_JSON_PATH`.
 
 ## Application mobile
 
