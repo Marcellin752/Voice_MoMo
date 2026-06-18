@@ -26,5 +26,5 @@ echo "   REQUESTS_CA_BUNDLE=$REQUESTS_CA_BUNDLE"
 echo "   CURL_CA_BUNDLE=$CURL_CA_BUNDLE"
 echo ""
 
-cd Nlp-module
+cd apps/nlp
 python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload

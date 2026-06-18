@@ -20,14 +20,14 @@ jobs:
         with:
           node-version: '22'
           cache: 'npm'
-          cache-dependency-path: Mobile/package-lock.json
+          cache-dependency-path: apps/mobile/package-lock.json
 
-      - name: Install Mobile dependencies
-        working-directory: Mobile
+      - name: Install mobile dependencies
+        working-directory: apps/mobile
         run: npm ci
 
       - name: Build React app (production)
-        working-directory: Mobile
+        working-directory: apps/mobile
         env:
           VITE_API_BASE_URL: https://voice-momo-backend.onrender.com
         run: npm run build
@@ -42,22 +42,22 @@ jobs:
         uses: android-actions/setup-android@v3
 
       - name: Install Capacitor CLI
-        working-directory: Mobile
+        working-directory: apps/mobile
         run: npx cap sync android
 
       - name: Make gradlew executable
-        working-directory: Mobile/android
+        working-directory: apps/mobile/android
         run: chmod +x gradlew
 
       - name: Build Debug APK
-        working-directory: Mobile/android
+        working-directory: apps/mobile/android
         run: ./gradlew assembleDebug --no-daemon
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: voice-momo-debug
-          path: Mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          path: apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
 
       - name: Create GitHub Release
@@ -68,7 +68,7 @@ jobs:
           body: |
             APK de test généré automatiquement.
             **Installation** : télécharge `app-debug.apk`, active "Sources inconnues" dans les paramètres Android, puis installe.
-          files: Mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          files: apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
           prerelease: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

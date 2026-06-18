@@ -53,33 +53,34 @@
 
 ```
 Voice_MoMo/
-├── Mobile/                       # App React + Capacitor (TypeScript)
-│   ├── src/app/
-│   │   ├── services/
-│   │   │   ├── engine/
-│   │   │   │   ├── NetworkDetector.ts          # Détection réseau MTN/Moov/Celtis
-│   │   │   │   ├── VoiceIntentProcessor.ts     # Pipeline de transfert
-│   │   │   │   └── ContactResolverService.ts   # Résolution contacts (device)
-│   │   │   ├── ussd_engine/
-│   │   │   │   ├── MoMoTransactionEngine.ts     # Exécution USSD
-│   │   │   │   └── InterNetworkTransferEngine.ts # Logique inter-réseau
-│   │   │   └── sms.service.ts                   # Lecture SMS solde
-│   │   ├── hooks/
-│   │   │   ├── useVoiceAssistant.ts            # SR natif + fallback Web
-│   │   │   └── useVoiceAssistantNLP.ts         # Pipeline complet NLP
-│   │   └── components/
-│   │       └── ContactDisambiguationModal.tsx  # Modale de désambiguïsation
-│   └── android/                  # Projet Android (Capacitor)
-├── Backend/                      # API Node.js / TypeScript (Express + USSD v1)
-│   ├── src/                      # API active (HTTP + WebSocket + queue)
-│   └── legacy/                   # Routes legacy encore montées par src/index.ts
-├── Nlp-module/                   # Module NLP — FastAPI (Python) — déployé sur Render
-│   ├── app/action_executor.py    # Exécution des intentions (Gemini)
-│   └── tests/                    # Smoke-test du pipeline vocal
-├── docs/                         # Documentation projet
+├── apps/
+│   ├── mobile/                   # App React + Capacitor (TypeScript)
+│   │   ├── src/app/
+│   │   │   ├── services/
+│   │   │   │   ├── engine/
+│   │   │   │   │   ├── NetworkDetector.ts          # Détection réseau MTN/Moov/Celtis
+│   │   │   │   │   ├── VoiceIntentProcessor.ts     # Pipeline de transfert
+│   │   │   │   │   └── ContactResolverService.ts   # Résolution contacts (device)
+│   │   │   │   ├── ussd_engine/
+│   │   │   │   │   ├── MoMoTransactionEngine.ts     # Exécution USSD
+│   │   │   │   │   └── InterNetworkTransferEngine.ts # Logique inter-réseau
+│   │   │   │   └── sms.service.ts                   # Lecture SMS solde
+│   │   │   ├── hooks/
+│   │   │   │   ├── useVoiceAssistant.ts            # SR natif + fallback Web
+│   │   │   │   └── useVoiceAssistantNLP.ts         # Pipeline complet NLP
+│   │   │   └── components/
+│   │   │       └── ContactDisambiguationModal.tsx  # Modale de désambiguïsation
+│   │   └── android/              # Projet Android (Capacitor)
+│   ├── backend/                  # API Node.js / TypeScript (Express + USSD v1)
+│   │   ├── src/                  # API active (HTTP + WebSocket + queue)
+│   │   └── legacy/               # Routes legacy encore montées par src/index.ts
+│   └── nlp/                      # Module NLP — FastAPI (Python) — déployé sur Render
+│       ├── app/action_executor.py # Exécution des intentions (Gemini)
+│       └── tests/                # Smoke-test du pipeline vocal
+├── docs/                         # Documentation projet (+ docs/nlp/)
 │   ├── CAHIER_DES_CHARGES.md     # 👈 Vue complète du projet
 │   └── LAUNCH_GUIDE.md           # Instructions de lancement
-├── render.yaml                   # Déploiement Render (backend + nlp)
+├── render.yaml                   # Déploiement Render (rootDir: apps/backend, apps/nlp)
 └── README.md                     # Ce fichier
 ```
 
