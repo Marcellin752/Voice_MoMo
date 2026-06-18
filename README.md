@@ -10,14 +10,14 @@
 
 ## 📖 Documentation Principale
 
-👉 **[CAHIER_DES_CHARGES.md](./CAHIER_DES_CHARGES.md)** — *Lire en premier*
+👉 **[CAHIER_DES_CHARGES.md](./docs/CAHIER_DES_CHARGES.md)** — *Lire en premier*
 - Vue complète du projet
 - Fonctionnalités détaillées
 - Architecture technique
 - Codes USSD Bénin
 - Préfixes des réseaux
 
-👉 **[LAUNCH_GUIDE.md](./LAUNCH_GUIDE.md)** — *Pour lancer localement*
+👉 **[LAUNCH_GUIDE.md](./docs/LAUNCH_GUIDE.md)** — *Pour lancer localement*
 - Setup environnement
 - Lancer l'app
 - Scripts de test
@@ -53,32 +53,34 @@
 
 ```
 Voice_MoMo/
-├── Mobile/                    # App React Native
+├── Mobile/                       # App React + Capacitor (TypeScript)
 │   ├── src/app/
 │   │   ├── services/
 │   │   │   ├── engine/
-│   │   │   │   ├── NetworkDetector.ts       # Détection réseau MTN/Moov/Celtis
-│   │   │   │   ├── VoiceIntentProcessor.ts  # Pipeline de transfert
-│   │   │   │   └── ContactResolverService.ts # Suggestions de contacts
+│   │   │   │   ├── NetworkDetector.ts          # Détection réseau MTN/Moov/Celtis
+│   │   │   │   ├── VoiceIntentProcessor.ts     # Pipeline de transfert
+│   │   │   │   └── ContactResolverService.ts   # Résolution contacts (device)
 │   │   │   ├── ussd_engine/
-│   │   │   │   ├── MoMoTransactionEngine.ts # Exécution USSD
-│   │   │   │   └── InterNetworkTransferEngine.ts # Logic inter-réseau
-│   │   │   └── sms.service.ts               # Lecture SMS balance
+│   │   │   │   ├── MoMoTransactionEngine.ts     # Exécution USSD
+│   │   │   │   └── InterNetworkTransferEngine.ts # Logique inter-réseau
+│   │   │   └── sms.service.ts                   # Lecture SMS solde
 │   │   ├── hooks/
-│   │   │   ├── useVoiceAssistant.ts         # SR natif + Web fallback
-│   │   │   └── useVoiceAssistantNLP.ts      # Pipeline complet NLP
+│   │   │   ├── useVoiceAssistant.ts            # SR natif + fallback Web
+│   │   │   └── useVoiceAssistantNLP.ts         # Pipeline complet NLP
 │   │   └── components/
-│   │       └── ContactDisambiguationModal.tsx # Modale suggestions
-│   └── android/                # Configuration Android
-├── Backend/                   # API FastAPI (Python)
-│   └── app/
-│       └── action_executor.py # Exécution des intentions
-├── Nlp-module/               # Module NLP (Python)
-│   └── app/
-│       └── action_executor.py # Intégration Gemini 2.0
-├── CAHIER_DES_CHARGES.md    # 👈 Vue complète du projet
-├── LAUNCH_GUIDE.md          # Instructions de lancement
-└── README.md                # Ce fichier
+│   │       └── ContactDisambiguationModal.tsx  # Modale de désambiguïsation
+│   └── android/                  # Projet Android (Capacitor)
+├── Backend/                      # API Node.js / TypeScript (Express + USSD v1)
+│   ├── src/                      # API active (HTTP + WebSocket + queue)
+│   └── legacy/                   # Routes legacy encore montées par src/index.ts
+├── Nlp-module/                   # Module NLP — FastAPI (Python) — déployé sur Render
+│   ├── app/action_executor.py    # Exécution des intentions (Gemini)
+│   └── tests/                    # Smoke-test du pipeline vocal
+├── docs/                         # Documentation projet
+│   ├── CAHIER_DES_CHARGES.md     # 👈 Vue complète du projet
+│   └── LAUNCH_GUIDE.md           # Instructions de lancement
+├── render.yaml                   # Déploiement Render (backend + nlp)
+└── README.md                     # Ce fichier
 ```
 
 ---
@@ -86,13 +88,12 @@ Voice_MoMo/
 ## 🔧 Technologies
 
 ### Frontend
-- **React Native** via Expo
-- **TypeScript** pour type safety
-- **Capacitor** pour accès aux plugins natifs
+- **React + Vite** (TypeScript)
+- **Capacitor** pour accès aux plugins natifs Android
 
 ### Backend
-- **FastAPI** (Python)
-- **PostgreSQL** pour données utilisateur
+- **Node.js + TypeScript** (Express, HTTP + WebSocket, USSD v1)
+- **PostgreSQL** via Prisma + **Redis/BullMQ** pour la file de jobs
 
 ### NLP
 - **Google Cloud Speech-to-Text**
@@ -178,8 +179,8 @@ Si SMS non trouvé:
 ## 📞 Support
 
 Pour questions ou issues:
-1. Consulter [CAHIER_DES_CHARGES.md](./CAHIER_DES_CHARGES.md)
-2. Consulter [LAUNCH_GUIDE.md](./LAUNCH_GUIDE.md)
+1. Consulter [CAHIER_DES_CHARGES.md](./docs/CAHIER_DES_CHARGES.md)
+2. Consulter [LAUNCH_GUIDE.md](./docs/LAUNCH_GUIDE.md)
 3. Vérifier les logs (surtout `[NETWORK]`, `[INTER-NETWORK]`, `[ENGINE]`)
 
 ---

@@ -6,6 +6,12 @@ dist/
 .env
 *.apk
 
+# Python virtualenvs (locaux)
+.venv/
+.venv-1/
+**/__pycache__/
+**/*.pyc
+
 # Android build outputs
 Mobile/android/app/build/
 Mobile/android/.gradle/
@@ -13,15 +19,6 @@ Mobile/android/app/src/main/assets/public/
 
 # Claude
 .claude/
-
-# AI local service artifacts
-ai-service/**/.venv/
-ai-service/**/__pycache__/
-ai-service/**/*.pyc
-ai-service/.pytest_cache/
-ai-service/.mypy_cache/
-ai-service/.ruff_cache/
-ai-service/.cache/
 
 # NLP Module artifacts
 Nlp-module/venv/
