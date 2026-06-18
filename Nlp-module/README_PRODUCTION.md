@@ -237,7 +237,7 @@ TOKEN=$(curl -s http://localhost:8000/api/auth/token?user_id=test | jq -r '.acce
 
 # 2. Envoyer une commande vocale
 curl -H "Authorization: Bearer $TOKEN" \
-     -F "audio_file=@test_audio.wav" \
+     -F "audio_file=@tests/test_audio.wav" \
      http://localhost:8000/api/voice-command
 
 # 3. Confirmer une action
