@@ -3,7 +3,7 @@ services:
   - type: web
     name: voice-momo-backend
     runtime: node
-    rootDir: Backend
+    rootDir: apps/backend
     buildCommand: npm install && npx prisma generate
     startCommand: npm start
     envVars:
@@ -28,7 +28,7 @@ services:
   - type: web
     name: voice-momo-nlp
     runtime: python
-    rootDir: Nlp-module
+    rootDir: apps/nlp
     buildCommand: pip install -r requirements.txt
     startCommand: python run_server.py
     envVars:
