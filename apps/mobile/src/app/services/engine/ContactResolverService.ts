@@ -1,4 +1,5 @@
 import { Capacitor } from '@capacitor/core';
+import { MobileNetwork, NetworkDetector } from './NetworkDetector';
 
 export class ContactResolverService {
   /**
@@ -47,23 +48,11 @@ export class ContactResolverService {
   }
 
   /**
-   * Vérifie formellement si le numéro de téléphone appartient au réseau MTN Bénin
-   * en se basant sur les préfixes du plan de numérotation.
+   * Vérifie si le numéro appartient au réseau MTN Bénin (même logique que NetworkDetector).
    */
   public isMtnBeninNumber(phone: string): boolean {
     const formatted = this.formatBeninNumber(phone);
-    if (formatted.length !== 10 || !formatted.startsWith('01')) return false;
-
-    const prefix = formatted.substring(2, 4);
-
-    // Préfixes connus de Moov et Celtis pour exclusion
-    const moovPrefixes = ['95', '94', '60', '64', '65', '55', '58'];
-    const celtisPrefixes = ['40', '41', '42', '43', '44'];
-
-    if (moovPrefixes.includes(prefix) || celtisPrefixes.includes(prefix)) {
-      return false;
-    }
-    return true;
+    return NetworkDetector.detectNetwork(formatted) === MobileNetwork.MTN;
   }
 
   /**
