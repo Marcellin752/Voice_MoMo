@@ -30,6 +30,7 @@ jobs:
         working-directory: apps/mobile
         env:
           VITE_API_BASE_URL: https://voice-momo-backend.onrender.com
+          VITE_VOICE_AI_URL: https://voice-momo-nlp.onrender.com
         run: npm run build
 
       - name: Set up Java 21
