@@ -4,11 +4,13 @@ services:
     name: voice-momo-backend
     runtime: node
     rootDir: apps/backend
-    buildCommand: npm install && npx prisma generate
-    startCommand: npm start
+    buildCommand: npm install && npm run build
+    startCommand: npm run migrate && npm start
     envVars:
       - key: PORT
         value: 3001
+      - key: NODE_ENV
+        value: production
       - key: DATABASE_URL
         fromDatabase:
           name: voice-momo-db
@@ -23,6 +25,12 @@ services:
           type: web
           name: voice-momo-nlp
           property: host
+      - key: JWT_SECRET
+        generateValue: true
+      - key: PIN_ENCRYPTION_KEY
+        generateValue: true
+      - key: USE_MOCK_MODEM
+        value: "true"
 
   # NLP Module (FastAPI)
   - type: web
@@ -34,6 +42,13 @@ services:
     envVars:
       - key: PORT
         value: 8000
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: JWT_SECRET
+        fromService:
+          type: web
+          name: voice-momo-backend
+          envVarKey: JWT_SECRET
 
   # Redis Instance
   - type: keyvalue
