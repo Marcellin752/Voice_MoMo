@@ -1,5 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { executeVoiceCommand } from '../services/ussd.service';
+import { useAuth } from '../contexts/AuthContext';
+import {
+  formatAmbiguityVoicePrompt,
+  isCancelSpeech,
+  isConfirmSpeech,
+  matchContactFromSpeech,
+  parsePinFromSpeech,
+} from '../utils/voiceSelection';
 import {
   startProgressiveFeedback,
   NLP_PROCESSING_STEPS,
@@ -63,6 +71,9 @@ export function useVoiceAssistantNLP(
   const [ambiguityContacts, setAmbiguityContacts] = useState<any[] | null>(null);
   const [ambiguityQuery, setAmbiguityQuery] = useState('');
   const ambiguityContextRef = useRef<{ intent: string; data: any } | null>(null);
+  const ambiguityContactsRef = useRef<any[] | null>(null);
+
+  const { resetSessionActivity } = useAuth();
 
   const [showPinModal, setShowPinModal] = useState(false);
   const [pinContext, setPinContext] = useState<{ intent: string; data: any } | null>(null);
@@ -115,6 +126,24 @@ export function useVoiceAssistantNLP(
   useEffect(() => {
     return () => { stopProgressiveRef.current?.(); };
   }, []);
+
+  useEffect(() => {
+    if (status !== 'awaiting_confirmation' && status !== 'awaiting_disambiguation' && status !== 'awaiting_pin') {
+      return;
+    }
+    const prompts: Record<string, string> = {
+      awaiting_confirmation: 'Dites oui pour confirmer, ou non pour annuler.',
+      awaiting_disambiguation: 'Dites le numéro ou le nom du contact.',
+      awaiting_pin: 'Dictez votre code PIN MTN à voix haute, chiffre par chiffre.',
+    };
+    const delay = setTimeout(() => {
+      const msg = prompts[status];
+      setFeedback(msg);
+      speakFeedback(msg);
+      startListeningRef.current?.(true);
+    }, 1200);
+    return () => clearTimeout(delay);
+  }, [status]);
 
   const speakFeedback = async (text: string) => {
     try {
@@ -187,36 +216,32 @@ export function useVoiceAssistantNLP(
         setAmbiguityQuery(data?.recipient || 'Contact');
         ambiguityContextRef.current = { intent, data };
         updateStatus('awaiting_disambiguation');
-        // UX Fix #7: Guidance vocale — couvre les homonymes ET la transcription imparfaite
-        const msg = `Je ne suis pas sûr d'avoir bien compris "${data?.recipient || 'ce nom'}". Choisissez le bon contact sur l'écran, ou dites le nom complet.`;
+        const msg = formatAmbiguityVoicePrompt(resultAny.ambiguity, data?.recipient || 'ce nom');
         setFeedback(msg);
         speakFeedback(msg);
         return { success: false, isAwaiting: true };
       }
 
-      if (resultAny.promptPin) {
-        console.log('🔐 [USSD] PIN prompt required');
-        setPinContext({ intent, data: resultAny.context });
-        setShowPinModal(true);
+      if (resultAny.promptPin || resultAny.context?.mode === 'balance') {
+        console.log('🔐 [USSD] PIN vocal requis');
+        setPinContext({ intent, data: resultAny.context || { mode: 'balance' } });
+        setShowPinModal(false);
         updateStatus('awaiting_pin');
 
-        // Consultation de solde live : PIN requis pour interroger le réseau MTN
         if (resultAny.context?.mode === 'balance') {
-          const pinMsg = 'Pour consulter votre solde à jour, entrez votre code PIN MTN.';
+          const pinMsg = 'Pour consulter votre solde à jour, dictez votre code PIN MTN.';
           setPinPrompt(pinMsg);
           setFeedback(pinMsg);
           speakFeedback(pinMsg);
           return { success: false, isAwaiting: true };
         }
 
-        // UX Fix #10: Contexte complet pour le PIN (transfert)
         const amount = resultAny.context?.amount || '...';
         const recipient = resultAny.context?.recipientName || resultAny.context?.phone || '...';
-        const phone = resultAny.context?.phone || '';
-        const pinMsg = `Transfert de ${Number(amount).toLocaleString('fr-FR')} francs à ${recipient}${phone ? ` (${phone})` : ''}. Entrez votre code PIN MTN pour confirmer.`;
+        const pinMsg = `Transfert de ${Number(amount).toLocaleString('fr-FR')} francs à ${recipient}. Dictez votre code PIN MTN pour confirmer.`;
         setPinPrompt(pinMsg);
         setFeedback(pinMsg);
-        speakFeedback(`Veuillez entrer votre code PIN pour confirmer le transfert.`);
+        speakFeedback(pinMsg);
         return { success: false, isAwaiting: true };
       }
 
@@ -230,6 +255,8 @@ export function useVoiceAssistantNLP(
 
   const sendAudioToBackend = async (audioBlob: Blob, filename: string = 'audio.webm') => {
     const epoch = cancelEpochRef.current;
+    const captureStatus = statusRef.current;
+    resetSessionActivity();
     try {
       updateStatus('processing');
       // UX Fix #3: Messages d'attente échelonnés pendant l'analyse vocale
@@ -244,6 +271,50 @@ export function useVoiceAssistantNLP(
 
       const result: ParsedResponse = await response.json();
       endProcessingFeedback();
+
+      const understood = result.understood_text || '';
+
+      if (captureStatus === 'awaiting_pin') {
+        const pin = parsePinFromSpeech(understood);
+        if (pin) {
+          await executeTransferWithPin(pin);
+          return;
+        }
+        updateStatus('error');
+        setFeedback('Je n\'ai pas compris le PIN. Répétez les 4 chiffres de votre code MTN.');
+        speakFeedback('Je n\'ai pas compris le PIN. Répétez les 4 chiffres.');
+        setTimeout(() => updateStatus('awaiting_pin'), 2000);
+        return;
+      }
+
+      if (captureStatus === 'awaiting_disambiguation' && ambiguityContactsRef.current?.length) {
+        const match = matchContactFromSpeech(understood, ambiguityContactsRef.current);
+        if (match) {
+          await resolveAmbiguity(match);
+          return;
+        }
+        const msg = formatAmbiguityVoicePrompt(ambiguityContactsRef.current, ambiguityQuery);
+        updateStatus('awaiting_disambiguation');
+        setFeedback(msg);
+        speakFeedback('Je n\'ai pas reconnu ce contact. ' + msg);
+        return;
+      }
+
+      if (captureStatus === 'awaiting_confirmation') {
+        if (result.intent === 'confirm' || isConfirmSpeech(understood)) {
+          await confirmAction();
+          return;
+        }
+        if (result.intent === 'cancel' || isCancelSpeech(understood)) {
+          await cancelAction();
+          return;
+        }
+        const msg = 'Dites oui pour confirmer, ou non pour annuler.';
+        updateStatus('awaiting_confirmation');
+        setFeedback(msg);
+        speakFeedback(msg);
+        return;
+      }
 
       // UX Fix #11: L'utilisateur a annulé pendant l'analyse → ne rien exécuter
       if (epoch !== cancelEpochRef.current) {
@@ -334,6 +405,7 @@ export function useVoiceAssistantNLP(
   // (un clic utilisateur passe un event en premier argument → compteur remis à zéro)
   const startListening = useCallback(async (isAutoRetry?: unknown) => {
     if (isAutoRetry !== true) autoRetryRef.current = 0;
+    resetSessionActivity();
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;

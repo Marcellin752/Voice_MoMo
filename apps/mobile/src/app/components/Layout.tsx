@@ -1,18 +1,14 @@
-import { Outlet, NavLink, useLocation } from "react-router";
+import { Outlet, NavLink } from "react-router";
 import { Home, ArrowLeftRight, Settings, Users, Mic } from "lucide-react";
 import { useLanguage } from "../contexts/LanguageContext";
 import { useAuth } from "../contexts/AuthContext";
 import { motion, AnimatePresence } from "motion/react";
-import { useState, useRef } from "react";
 import { useVoiceAssistantNLP } from "../hooks/useVoiceAssistantNLP";
 import ContactDisambiguationModal from "./ContactDisambiguationModal";
 
 export default function Layout() {
   const { t } = useLanguage();
   const { token } = useAuth();
-  const location = useLocation();
-  const isHome = location.pathname === "/app" || location.pathname === "/app/";
-  const pinInputRef = useRef<HTMLInputElement>(null);
 
   const {
     status,
@@ -20,23 +16,18 @@ export default function Layout() {
     feedback,
     startListening,
     stopListening,
-    confirmAction,
     cancelAction,
-    parsedIntent,
     ambiguityContacts,
     ambiguityQuery,
-    resolveAmbiguity,
-    closeAmbiguityModal,
-    showPinModal,
-    pinPrompt,
-    executeTransferWithPin,
-    cancelPinModal,
   } = useVoiceAssistantNLP(undefined, token ?? undefined);
 
-  const handlePinSubmit = () => {
-    const pin = pinInputRef.current?.value || '';
-    if (pin.length >= 4) {
-      executeTransferWithPin(pin);
+  const handleMicClick = () => {
+    if (status === 'idle') {
+      startListening();
+    } else if (status === 'listening') {
+      stopListening();
+    } else if (status === 'processing' || status === 'awaiting_confirmation' || status === 'awaiting_pin' || status === 'awaiting_disambiguation') {
+      cancelAction();
     }
   };
 
@@ -46,8 +37,6 @@ export default function Layout() {
         <Outlet />
       </div>
 
-      {/* Floating Voice Assistant - Fixed just above bottom nav and slightly right of center */}
-      {/* Assistant Vocal Flottant - Positionné en bas à droite, disponible globalement sur toutes les pages */}
       <div className="absolute bottom-[92px] right-6 z-40 flex flex-col items-end gap-3 pointer-events-none max-w-[280px]">
         <AnimatePresence>
           {status !== 'idle' && (
@@ -63,13 +52,18 @@ export default function Layout() {
                   {feedback}
                 </p>
               )}
+              {(status === 'awaiting_confirmation' || status === 'awaiting_pin' || status === 'awaiting_disambiguation') && (
+                <p className="text-[10px] mt-2 text-slate-400 dark:text-zinc-500 font-medium">
+                  Répondez à voix haute ou dites « annule ».
+                </p>
+              )}
             </motion.div>
           )}
         </AnimatePresence>
 
         <div className="flex flex-col items-center pointer-events-auto shrink-0">
           <motion.button
-            onClick={status === 'idle' ? startListening : stopListening}
+            onClick={handleMicClick}
             whileTap={{ scale: 0.92 }}
             whileHover={{ scale: 1.05 }}
             className={`relative w-14 h-14 rounded-full flex items-center justify-center shadow-2xl border-[3px] border-white dark:border-[#1A1A1A] cursor-pointer transition-colors duration-300 ${
@@ -81,26 +75,19 @@ export default function Layout() {
           >
             {status === 'listening' ? (
               <>
-                {/* Ondes radar multiples pour un effet d'enregistrement audio hyper qualitatif */}
                 <motion.div
-                  animate={{
-                    scale: [1, 1.8],
-                    opacity: [0.4, 0]
-                  }}
+                  animate={{ scale: [1, 1.8], opacity: [0.4, 0] }}
                   transition={{ repeat: Infinity, duration: 1.6, ease: "easeOut" }}
                   className="absolute inset-0 rounded-full bg-red-500/40"
                 />
                 <motion.div
-                  animate={{
-                    scale: [1, 2.3],
-                    opacity: [0.2, 0]
-                  }}
+                  animate={{ scale: [1, 2.3], opacity: [0.2, 0] }}
                   transition={{ repeat: Infinity, duration: 1.6, delay: 0.4, ease: "easeOut" }}
                   className="absolute inset-0 rounded-full bg-red-500/25"
                 />
               </>
             ) : null}
-            
+
             {status === 'processing' ? (
               <motion.div
                 animate={{ rotate: 360 }}
@@ -111,44 +98,6 @@ export default function Layout() {
               <Mic size={22} className={status === 'listening' ? 'animate-pulse' : ''} />
             )}
           </motion.button>
-
-          {/* Boutons Confirmer/Annuler en dessous du bouton */}
-          {status === 'awaiting_confirmation' && parsedIntent?.needs_confirmation && (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="flex gap-2 mt-3 justify-center"
-            >
-              <button
-                onClick={confirmAction}
-                className="bg-green-500 hover:bg-green-600 text-white px-3 py-1.5 rounded-xl font-bold shadow-lg transition-colors text-[10px] cursor-pointer"
-              >
-                Confirmer
-              </button>
-              <button
-                onClick={cancelAction}
-                className="bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded-xl font-bold shadow-lg transition-colors text-[10px] cursor-pointer"
-              >
-                Annuler
-              </button>
-            </motion.div>
-          )}
-
-          {/* UX Fix #11: Annulation possible pendant le traitement */}
-          {status === 'processing' && (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="flex mt-3 justify-center"
-            >
-              <button
-                onClick={cancelAction}
-                className="bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded-xl font-bold shadow-lg transition-colors text-[10px] cursor-pointer"
-              >
-                Annuler
-              </button>
-            </motion.div>
-          )}
         </div>
       </div>
 
@@ -159,73 +108,11 @@ export default function Layout() {
         <NavItem to="/app/settings" icon={<Settings size={22} />} label={t("nav_settings")} />
       </nav>
 
-      {/* Modale de désambiguïsation vocale (Globale) */}
       <ContactDisambiguationModal
         isOpen={status === 'awaiting_disambiguation'}
         contacts={ambiguityContacts || []}
         query={ambiguityQuery}
-        onSelect={(contact) => {
-          resolveAmbiguity(contact);
-        }}
-        onClose={() => {
-          closeAmbiguityModal();
-        }}
       />
-
-      {/* Modale de saisie du PIN (Globale) */}
-      <AnimatePresence>
-        {showPinModal && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
-          >
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="bg-white dark:bg-[#1A1A1A] rounded-3xl p-6 w-full max-w-sm shadow-2xl border border-slate-100 dark:border-white/5 mx-4"
-            >
-              <h3 className="text-xl font-black text-slate-900 dark:text-white mb-2">
-                🔐 Code PIN Requis
-              </h3>
-              <p className="text-sm text-slate-500 dark:text-zinc-400 mb-6">
-                {pinPrompt}
-              </p>
-
-              <input
-                ref={pinInputRef}
-                type="password"
-                maxLength={5}
-                placeholder="••••"
-                autoFocus
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    handlePinSubmit();
-                  }
-                }}
-                className="w-full bg-slate-50 dark:bg-black/20 text-center text-3xl font-black tracking-widest text-[#004F71] dark:text-[#FFCC00] p-4 rounded-2xl border-2 border-transparent focus:border-[#FFCC00] focus:ring-0 outline-none transition-colors mb-6"
-              />
-
-              <div className="flex gap-3">
-                <button
-                  onClick={cancelPinModal}
-                  className="flex-1 py-3.5 bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 text-slate-600 dark:text-zinc-300 font-bold rounded-xl transition-colors cursor-pointer"
-                >
-                  Annuler
-                </button>
-                <button
-                  onClick={handlePinSubmit}
-                  className="flex-1 py-3.5 bg-[#004F71] dark:bg-[#FFCC00] hover:bg-[#003B5C] dark:hover:bg-[#E6B800] text-white dark:text-slate-900 font-black rounded-xl transition-colors cursor-pointer"
-                >
-                  Valider
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }
