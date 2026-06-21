@@ -22,6 +22,12 @@
 - Lancer l'app
 - Scripts de test
 
+👉 **[BUILD_APK.md](./docs/BUILD_APK.md)** — *Compiler l'APK Android*
+- Build local (`scripts/build-apk.sh`)
+- Ou APK automatique via GitHub Actions / Releases
+
+> **Monorepo :** le code est dans `apps/mobile`, `apps/backend`, `apps/nlp`. Les anciens dossiers `Mobile/`, `Backend/`, `NLP/` à la racine n'existent plus — faire `git pull` et supprimer ces dossiers s'ils restent en local.
+
 ---
 
 ## 🚀 Fonctionnalités (MVP)

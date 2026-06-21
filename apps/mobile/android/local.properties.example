@@ -1,0 +1,3 @@
+# Copier vers local.properties (non versionné) ou laisser scripts/build-apk.sh le générer.
+# Linux / macOS typique après Android Studio :
+sdk.dir=/home/VOTRE_USER/Android/Sdk
