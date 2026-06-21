@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useEffect, ReactNode } from 'react
 import type { ApiUser } from '../utils/api';
 import { StorageService } from '../services/storage.service';
 import { setApiToken } from '../utils/api';
+import { normalizeSenderUser } from '../utils/authUser';
 import { motion, AnimatePresence } from 'motion/react';
 import { Mic } from 'lucide-react';
 
@@ -33,10 +34,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const storedUser = await StorageService.get<ApiUser>('momo.auth.user');
         
         if (storedToken && storedUser) {
+          let normalizedUser: ApiUser;
+          try {
+            normalizedUser = normalizeSenderUser(storedUser);
+          } catch (err) {
+            console.warn('⚠️ [AUTH] Session invalide (numéro non MTN ou mal formaté), déconnexion.', err);
+            await StorageService.remove('momo.auth.token');
+            await StorageService.remove('momo.auth.user');
+            setApiToken(null);
+            return;
+          }
+
+          if (normalizedUser.phone !== storedUser.phone) {
+            await StorageService.set('momo.auth.user', normalizedUser);
+          }
+
           setToken(storedToken);
-          setUser(storedUser);
+          setUser(normalizedUser);
           setApiToken(storedToken); // Enregistrement synchrone pour les appels HTTP
-          console.log(`✅ [AUTH] Session restaurée avec succès pour le numéro : ${storedUser.phone}`);
+          console.log(`✅ [AUTH] Session restaurée avec succès pour le numéro : ${normalizedUser.phone}`);
         } else {
           console.log('ℹ️ [AUTH] Aucune session active trouvée.');
         }
@@ -51,16 +67,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const setAuth = async (newToken: string, newUser: ApiUser) => {
-    try {
-      await StorageService.set('momo.auth.token', newToken);
-      await StorageService.set('momo.auth.user', newUser);
-      setApiToken(newToken);
-      setToken(newToken);
-      setUser(newUser);
-      console.log('💾 [AUTH] Session utilisateur enregistrée de manière permanente.');
-    } catch (err) {
-      console.error('[AUTH] Erreur sauvegarde session:', err);
-    }
+    const normalizedUser = normalizeSenderUser(newUser);
+    await StorageService.set('momo.auth.token', newToken);
+    await StorageService.set('momo.auth.user', normalizedUser);
+    setApiToken(newToken);
+    setToken(newToken);
+    setUser(normalizedUser);
+    console.log(`💾 [AUTH] Session enregistrée pour ${normalizedUser.phone}.`);
   };
 
   const logout = async () => {
