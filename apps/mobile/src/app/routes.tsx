@@ -10,8 +10,7 @@ import ProfileScreen from "./pages/ProfileScreen";
 import LanguageScreen from "./pages/LanguageScreen";
 import PinScreen from "./pages/PinScreen";
 import NotificationsScreen from "./pages/NotificationsScreen";
-import ServicesHubScreen from "./pages/ServicesHubScreen";
-import ServiceActionScreen from "./pages/ServiceActionScreen";
+import VoiceOnlyRedirect from "./components/VoiceOnlyRedirect";
 import ContactsScreen from "./pages/ContactsScreen";
 
 export const router = createBrowserRouter([
@@ -42,8 +41,8 @@ export const router = createBrowserRouter([
       { path: "settings/language", Component: LanguageScreen },
       { path: "settings/pin", Component: PinScreen },
       { path: "notifications", Component: NotificationsScreen },
-      { path: "services", Component: ServicesHubScreen },
-      { path: "services/:serviceId", Component: ServiceActionScreen },
+      { path: "services", Component: VoiceOnlyRedirect },
+      { path: "services/:serviceId", Component: VoiceOnlyRedirect },
       { path: "contacts", Component: ContactsScreen },
     ],
   },
