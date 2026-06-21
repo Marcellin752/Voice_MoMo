@@ -1,9 +1,8 @@
 import { SmsListenerService } from '../services/sms.service';
-import { MoMoTransactionEngine } from '../services/ussd_engine/MoMoTransactionEngine';
 import { useState, useEffect, SetStateAction } from "react";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import { Eye, EyeOff, Bell, ArrowDownLeft, ArrowUpRight } from "lucide-react";
-import { motion, AnimatePresence } from "motion/react";
+import { motion } from "motion/react";
 import { useNavigate } from "react-router";
 import * as usersService from "../services/users.service";
 import * as transactionsService from "../services/transactions.service";
@@ -129,48 +128,6 @@ export default function HomeScreen() {
 
   }, []);
 
-  const [showPinPrompt, setShowPinPrompt] = useState(false);
-  const [pinValue, setPinValue] = useState("");
-
-  const handleInitialRefreshClick = () => {
-    // Si on a déjà mis à jour récemment, on ignore ou on force l'USSD.
-    setShowPinPrompt(true);
-  };
-
-  const executeLiveRefresh = async () => {
-    if (!pinValue || pinValue.length < 4) {
-      toast.error('Veuillez entrer un PIN valide');
-      return;
-    }
-    setShowPinPrompt(false);
-    setIsUpdating(true);
-    toast.loading("Vérification en cours via le réseau...", { id: 'ussd-refresh' });
-
-    try {
-      const engine = new MoMoTransactionEngine();
-      // On tente d'abord l'USSD Direct
-      const result: any = await engine.refreshBalanceLive(pinValue);
-
-      if (result.status === 'success' || result.balance !== undefined) {
-        if (result.balance !== undefined) {
-          setBalance(result.balance);
-          toast.success(`Solde mis à jour: ${result.balance.toLocaleString('fr-FR')} FCFA`, { id: 'ussd-refresh' });
-        } else {
-          // Si pas de balance extrait
-          toast.success('Le solde n\'a pu être extrait automatiquement. Consultez vos SMS.', { id: 'ussd-refresh' });
-        }
-      } else {
-        toast.error(result.error || result.message || 'Impossible de récupérer le solde', { id: 'ussd-refresh' });
-      }
-    } catch (error) {
-      console.error('Error refreshing balance:', error);
-      toast.error('Échec de la mise à jour du solde', { id: 'ussd-refresh' });
-    } finally {
-      setIsUpdating(false);
-      setPinValue("");
-    }
-  };
-
   const formattedBalance = balance !== null
     ? balance.toLocaleString("fr-FR")
     : "••••••";
@@ -219,16 +176,6 @@ export default function HomeScreen() {
             <p className="text-sm font-bold text-slate-500 dark:text-zinc-400">{t("home_balance_title")}</p>
             <div className="flex space-x-2">
               <button
-                onClick={handleInitialRefreshClick}
-                disabled={isUpdating}
-                className="p-2 bg-slate-50 dark:bg-white/5 rounded-full text-[#004F71] dark:text-[#FFCC00] hover:bg-slate-100 dark:hover:bg-white/10 transition-colors disabled:opacity-50"
-                title="Actualiser le solde"
-              >
-                <motion.div animate={isUpdating ? { rotate: 360 } : {}} transition={{ repeat: isUpdating ? Infinity : 0, duration: 1 }}>
-                  <ArrowDownLeft size={18} className="rotate-45" />
-                </motion.div>
-              </button>
-              <button
                 onClick={() => setShowBalance(!showBalance)}
                 className="p-2 bg-slate-50 dark:bg-white/5 rounded-full text-[#004F71] dark:text-[#FFCC00] hover:bg-slate-100 dark:hover:bg-white/10 transition-colors"
               >
@@ -250,7 +197,7 @@ export default function HomeScreen() {
           </button>
           {!showBalance && (
             <p className="text-xs font-medium text-slate-400 dark:text-zinc-500 mt-1.5">
-              👆 Touchez pour afficher votre solde
+              Touchez pour afficher · Dites « quel est mon solde » pour actualiser
             </p>
           )}
         </motion.div>
@@ -286,51 +233,6 @@ export default function HomeScreen() {
           )}
         </div>
       </div>
-
-      {/* PIN Refresh Modal */}
-      <AnimatePresence>
-        {showPinPrompt && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-6">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="bg-white dark:bg-[#1A1A1A] rounded-3xl p-6 w-full max-w-sm shadow-2xl border border-slate-100 dark:border-white/5"
-            >
-              <h3 className="text-xl font-black text-slate-900 dark:text-white mb-2">Code PIN</h3>
-              <p className="text-sm text-slate-500 dark:text-zinc-400 mb-6">
-                Veuillez entrer votre PIN MTN pour interroger votre solde en temps réel (via USSD).
-              </p>
-
-              <input
-                type="password"
-                maxLength={5}
-                value={pinValue}
-                onChange={(e) => setPinValue(e.target.value.replace(/\D/g, ''))}
-                placeholder="••••"
-                className="w-full bg-slate-50 dark:bg-black/20 text-center text-3xl font-black tracking-widest text-[#004F71] dark:text-[#FFCC00] p-4 rounded-2xl border-2 border-transparent focus:border-[#FFCC00] focus:ring-0 outline-none transition-colors mb-6"
-                autoFocus
-              />
-
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setShowPinPrompt(false)}
-                  className="flex-1 py-3.5 bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 text-slate-600 dark:text-zinc-300 font-bold rounded-xl transition-colors"
-                >
-                  Annuler
-                </button>
-                <button
-                  onClick={executeLiveRefresh}
-                  disabled={pinValue.length < 4}
-                  className="flex-1 py-3.5 bg-[#004F71] dark:bg-[#FFCC00] hover:bg-[#003B5C] dark:hover:bg-[#E6B800] text-white dark:text-slate-900 font-black rounded-xl transition-colors disabled:opacity-50"
-                >
-                  Valider
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
 
     </div>
   );
