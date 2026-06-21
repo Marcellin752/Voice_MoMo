@@ -232,6 +232,35 @@ export class MoMoTransactionEngine {
         return this.checkBalanceWithPin(pin);
     }
 
+    /** Lance un code USSD interactif (retrait, facture, recharge menu, etc.). */
+    async launchSimpleUssd(ussdCode: string, description: string) {
+        if (this.state === TransactionState.USSD_IN_PROGRESS) {
+            return { status: 'error', message: 'Une opération est déjà en cours.' };
+        }
+        this.cancelRequested = false;
+        activeEngine = this;
+        this.updateState(TransactionState.USSD_IN_PROGRESS);
+
+        try {
+            if (this.cancelRequested) {
+                this.cleanup();
+                return { status: 'cancelled', message: "Opération annulée." };
+            }
+            await UssdBackground.executeDirectCall({ code: ussdCode });
+            this.updateState(TransactionState.TRIGGERING_DIALER);
+            return {
+                status: 'initiated',
+                message: description,
+                dialerFallback: true,
+            };
+        } catch (e) {
+            const msg = e instanceof Error ? e.message : 'Impossible de lancer le code USSD.';
+            this.updateState(TransactionState.FAILED, { error: msg });
+            this.cleanup();
+            return { status: 'error', message: msg };
+        }
+    }
+
     async startTransfer(data: { amount: number, recipient: string }) {
         if (this.state === TransactionState.USSD_IN_PROGRESS) return;
         // UX Fix #11: Enregistrer ce moteur comme transaction active (annulable depuis l'UI)
