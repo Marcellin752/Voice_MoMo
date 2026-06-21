@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import type { ApiUser } from '../utils/api';
 import { StorageService } from '../services/storage.service';
 import { setApiToken } from '../utils/api';
@@ -12,7 +12,10 @@ type AuthContextType = {
   loading: boolean;
   setAuth: (token: string, user: ApiUser) => Promise<void>;
   logout: () => Promise<void>;
+  resetSessionActivity: () => void;
 };
+
+const SESSION_TIMEOUT_MS = 5 * 60 * 1000;
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
@@ -20,6 +23,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<ApiUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const sessionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const logout = useCallback(async () => {
+    try {
+      if (sessionTimerRef.current) {
+        clearTimeout(sessionTimerRef.current);
+        sessionTimerRef.current = null;
+      }
+      await StorageService.remove('momo.auth.token');
+      await StorageService.remove('momo.auth.user');
+      setApiToken(null);
+      setToken(null);
+      setUser(null);
+      console.log('🧹 [AUTH] Session fermée et nettoyée.');
+    } catch (err) {
+      console.error('[AUTH] Erreur déconnexion:', err);
+    }
+  }, []);
+
+  const resetSessionActivity = useCallback(() => {
+    if (!token) return;
+    if (sessionTimerRef.current) clearTimeout(sessionTimerRef.current);
+    sessionTimerRef.current = setTimeout(() => {
+      console.log('⏱️ [AUTH] Session expirée après 5 min d\'inactivité.');
+      logout();
+    }, SESSION_TIMEOUT_MS);
+  }, [token, logout]);
+
+  useEffect(() => {
+    if (!token) return;
+    resetSessionActivity();
+    const onActivity = () => resetSessionActivity();
+    window.addEventListener('pointerdown', onActivity);
+    window.addEventListener('keydown', onActivity);
+    window.addEventListener('touchstart', onActivity);
+    return () => {
+      window.removeEventListener('pointerdown', onActivity);
+      window.removeEventListener('keydown', onActivity);
+      window.removeEventListener('touchstart', onActivity);
+      if (sessionTimerRef.current) clearTimeout(sessionTimerRef.current);
+    };
+  }, [token, resetSessionActivity]);
 
   // Initialisation asynchrone sécurisée de la session depuis le stockage natif Android / local
   useEffect(() => {
@@ -76,21 +121,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     console.log(`💾 [AUTH] Session enregistrée pour ${normalizedUser.phone}.`);
   };
 
-  const logout = async () => {
-    try {
-      await StorageService.remove('momo.auth.token');
-      await StorageService.remove('momo.auth.user');
-      setApiToken(null);
-      setToken(null);
-      setUser(null);
-      console.log('🧹 [AUTH] Session fermée et nettoyée.');
-    } catch (err) {
-      console.error('[AUTH] Erreur déconnexion:', err);
-    }
-  };
-
   return (
-    <AuthContext.Provider value={{ token, user, loading, setAuth, logout }}>
+    <AuthContext.Provider value={{ token, user, loading, setAuth, logout, resetSessionActivity }}>
       <AnimatePresence mode="wait">
         {loading ? (
           <motion.div
