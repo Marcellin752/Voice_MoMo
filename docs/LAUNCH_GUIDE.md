@@ -2,10 +2,10 @@
 
 Ce guide détaille les étapes pour faire fonctionner le projet complet sur votre ordinateur et tester l'application sur votre téléphone.
 
-**Architecture actuelle** :
-- **Backend** (Node.js/Prisma) : API principale + MMI/USSD sur port **3001**
-- **NLP Module** (Python/FastAPI) : IA vocale (STT/NLU/TTS) avec Gemini 2.0 Flash sur port **8000**
-- **Mobile** (React/Capacitor) : Application Android native
+**Architecture actuelle (monorepo `apps/`)** :
+- **`apps/backend`** (Node.js/Prisma) : API principale + MMI/USSD sur port **3001**
+- **`apps/nlp`** (Python/FastAPI) : IA vocale (Gemini) sur port **8000**
+- **`apps/mobile`** (React/Capacitor) : Application Android native
 
 ---
 
@@ -15,69 +15,74 @@ Ce guide détaille les étapes pour faire fonctionner le projet complet sur votr
 Pour que votre téléphone puisse communiquer avec votre PC, vous devez connaître l'adresse IP de votre PC sur le réseau Wi-Fi.
 - **Linux/Mac** : `hostname -I` ou `ifconfig`
 - **Windows** : `ipconfig`
-- *IP configurée : `192.168.100.35`*
 
-### Configuration des fichiers .env
+### Configuration des fichiers `.env`
 
-#### Mobile/.env
+#### `apps/mobile/.env`
 ```env
-# Backend API (Voice MoMo)
-VITE_API_BASE_URL=http://192.168.100.35:3001
-
-# NLP Module (Voice AI) - IA Gemini & Traitement Vocal
-VITE_VOICE_AI_URL=http://192.168.100.35:8000
+VITE_API_BASE_URL=http://<VOTRE_IP_LAN>:3001
+VITE_VOICE_AI_URL=http://<VOTRE_IP_LAN>:8000
 ```
 
-#### Nlp-module/.env
+#### `apps/nlp/.env`
 ```env
-# Clé API Google Gemini (obligatoire)
 GEMINI_API_KEY=votre_cle_ici
-
-# Port du service
+JWT_SECRET=meme_secret_que_le_backend
 NLP_API_PORT=8000
+```
+
+#### `apps/backend/.env`
+```env
+PORT=3001
+DATABASE_URL=postgresql://user:password@localhost:5432/mtn_ussd
+JWT_SECRET=your-256-bit-secret-change-me
+SKIP_REDIS=false
+REDIS_HOST=localhost
+USE_MOCK_MODEM=true
 ```
 
 ---
 
 ## 2. Installation & Lancement
 
-### NLP Module (Python)
+### NLP (`apps/nlp`)
 ```bash
-cd Nlp-module
+cd apps/nlp
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
-python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+cp .env.example .env   # puis éditer GEMINI_API_KEY
+python run_server.py
 ```
 
-### Backend (Node.js)
+### Backend (`apps/backend`)
 ```bash
-cd Backend
+cd apps/backend
+cp .env.example .env
 npm install
-npm run migrate # Si première installation
-npm run dev     # Terminal 1 : API
-npm run dev:worker # Terminal 2 : USSD Worker
+npm run migrate
+npm run dev          # Terminal 1 : API
+npm run dev:worker   # Terminal 2 : USSD Worker (optionnel)
 ```
 
 ---
 
 ## 3. Build & Test Mobile (Android)
 
-Pour tester sur un téléphone réel avec les fonctionnalités natives (Micro, Contacts, USSD) :
-
-### Étape 1 : Build de l'APK
 ```bash
-cd Mobile
+cd apps/mobile
 npm install
+cp .env.example .env   # adapter VITE_* avec votre IP LAN
 npm run build
 npx cap sync android
 cd android
 ./gradlew assembleDebug
 ```
-L'APK généré se trouve dans : `Mobile/android/app/build/outputs/apk/debug/app-debug.apk`
 
-### Étape 2 : Installation
-1. Transférez `app-debug.apk` sur votre téléphone.
+APK : `apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk`
+
+### Installation
+1. Transférez l'APK sur votre téléphone.
 2. Installez-le (autorisez les sources inconnues).
 3. Connectez le téléphone au **même réseau Wi-Fi** que le PC.
 
@@ -85,23 +90,14 @@ L'APK généré se trouve dans : `Mobile/android/app/build/outputs/apk/debug/app
 
 ## 4. Fonctionnalités Spécifiques (MTN Bénin)
 
-### Codes USSD réels
-Le projet a été mis à jour pour utiliser les codes réels de **MTN Bénin** :
-- Menu Principal : `*880#`
-- Solde : `*123#`
+### Codes USSD
+- MTN → MTN : `*880*1*1*{tel}*{tel}*{montant}#`
+- MTN → Moov/Celtis (Linka) : `*601*16*{tel}*{code}*{montant}#`
+- Solde live : `*880*4*{PIN}#`
 
 ### Résolution des contacts
-L'application peut maintenant résoudre les noms de contacts.
-- **Commande** : "Fait un dépôt de 2000 à Aurel"
-- **Action** : L'app cherche "Aurel" dans vos contacts Android, récupère son numéro, et lance le code USSD `*880#` avec les paramètres.
-
-### Intentions supportées
-- `balance` : Consulter le solde
-- `transfer` : Envoyer de l'argent
-- `deposit` : Faire un dépôt (Cash-in)
-- `withdraw` : Retirer de l'argent
-- `recharge` : Crédit téléphonique
-- `bill_payment` : Factures (SBEE, SONEB)
+- **Commande** : « Envoie 5000 à Jean »
+- **Action** : l'app cherche « Jean » dans les contacts Android, puis lance le bon code USSD.
 
 ---
 
@@ -109,16 +105,17 @@ L'application peut maintenant résoudre les noms de contacts.
 
 | Problème | Solution |
 |----------|----------|
-| **Erreur de réseau** | Vérifiez que le PC et le téléphone sont sur le même Wi-Fi. Vérifiez l'IP dans `Mobile/.env`. |
-| **Le micro ne répond pas** | Accordez les permissions à l'application. Vérifiez `VITE_VOICE_AI_URL`. |
-| **Contacts non trouvés** | Accordez la permission "Contacts" à l'application lors du premier lancement. |
-| **USSD ne se lance pas** | L'application doit être installée sur un téléphone avec une carte SIM active. |
+| **Erreur de réseau** | Même Wi-Fi PC/téléphone. Vérifier `VITE_API_BASE_URL` et `VITE_VOICE_AI_URL`. |
+| **Le micro ne répond pas** | Permissions micro + `VITE_VOICE_AI_URL` pointant vers le NLP. |
+| **Contacts non trouvés** | Permission Contacts accordée. |
+| **USSD ne se lance pas** | Téléphone physique avec SIM MTN active. |
+| **Numéro utilisateur non configuré** | Se reconnecter (numéro normalisé au login). |
 
 ---
 
 ## 6. Architecture des Flux
 
-1. **Audio** capture par le Mobile.
-2. **Traitement NLP** par Gemini (via FastAPI) : Transcription + Intention + TTS.
-3. **Action** : Si l'intention est validée, le Mobile exécute le code USSD ou appelle le Backend.
-4. **USSD** : Exécution via l'application téléphone native du mobile.
+1. **Audio** capturé par le mobile.
+2. **NLP** (Gemini via FastAPI) : transcription + intention + confirmation.
+3. **Mobile** : résolution contact + construction USSD + exécution sur la SIM.
+4. **Backend** : auth, profil, historique (pas le chemin USSD principal).

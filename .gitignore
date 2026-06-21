@@ -12,20 +12,17 @@ dist/
 **/__pycache__/
 **/*.pyc
 
-# Android build outputs
-Mobile/android/app/build/
-Mobile/android/.gradle/
-Mobile/android/app/src/main/assets/public/
+# Android build outputs (apps/mobile)
+apps/mobile/android/app/build/
+apps/mobile/android/.gradle/
+apps/mobile/android/app/src/main/assets/public/
 
 # Claude
 .claude/
 
-# NLP Module artifacts
-Nlp-module/venv/
-Nlp-module/**/__pycache__/
-Nlp-module/**/*.pyc
-Nlp-module/.pytest_cache/
-Nlp-module/.mypy_cache/
-Nlp-module/.ruff_cache/
-Nlp-module/.cache/
-Nlp-module/.env
+# NLP artifacts (apps/nlp)
+apps/nlp/venv/
+apps/nlp/.pytest_cache/
+apps/nlp/.mypy_cache/
+apps/nlp/.ruff_cache/
+apps/nlp/.cache/
