@@ -29,12 +29,10 @@ if (!userPhone || userPhone.trim() === '') {
 }
 ```
 
-> ⚠️ **NE PAS** utiliser `getProfile()` de `utils/localData.ts` : il lit la clé
-> `momo.profile`, qui n'est **jamais remplie au login** et renvoie `phone: ""`.
-> C'était la cause de l'erreur « Numéro utilisateur non configuré ».
-> La seule source de vérité pour le numéro du sender est `momo.auth.user`.
+> ⚠️ **NE PAS** lire `momo.profile` pour le numéro sender : cette clé n'est pas remplie au login.
+> La seule source de vérité pour le numéro du sender est `momo.auth.user` (normalisé via `utils/authUser.ts` au login).
 
-**À implémenter (TODO — pas encore fait) :**
+**Implémenté ✅** — voir `AuthContext.setAuth` et `utils/authUser.ts` :
 - Au login, normaliser via `ContactResolverService.formatBeninNumber(userPhone)`
   avant de stocker (le serveur n'est pas garanti de renvoyer le format 01XXXXXXXX).
 - Vérifier que le réseau détecté est MTN (seul réseau émetteur supporté).
@@ -108,7 +106,7 @@ export class InterNetworkTransferEngine {
 ### 📋 Checklist Maintenance
 
 - [x] Lire le numéro sender depuis `momo.auth.user` (PAS `getProfile()`)
-- [ ] Formater/valider le numéro utilisateur AU LOGIN (TODO dans AuthContext.setAuth)
+- [x] Formater/valider le numéro utilisateur AU LOGIN (`AuthContext` + `authUser.ts`)
 - [x] ContactResolverService.resolve() retourne toujours des numéros formatés
 - [x] InterNetworkTransferEngine ne valide PAS (fait confiance)
 - [ ] Si nouvelles sources de numéros → valider à la source

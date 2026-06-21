@@ -100,46 +100,6 @@ export class MoMoTransactionEngine {
             : { cancelled: true, message: "Transfert annulé. Aucun argent n'a été envoyé." };
     }
 
-    async initiateVoiceTransfer(nlpIntent: any) {
-        // Validation Anti-Concurrence
-        if (this.state === TransactionState.USSD_IN_PROGRESS) {
-            return { error: "Une transaction est déjà en cours." };
-        }
-
-        // Validation du montant
-        const amount = Number(nlpIntent.amount);
-        if (isNaN(amount) || amount <= 0) {
-            this.updateState(TransactionState.FAILED, { error: `Montant invalide: ${nlpIntent.amount}` });
-            return { error: "Montant invalide." };
-        }
-
-        // 1. Résolution du contact
-        this.updateState(TransactionState.RESOLVING_CONTACT);
-        console.log('⚙️ [ENGINE] [DEBUG] Resolving contact for:', nlpIntent.recipient);
-        const resolver = new ContactResolverService();
-        const contacts = await resolver.resolve(nlpIntent.recipient);
-
-        if (!contacts || contacts.length === 0) {
-            this.updateState(TransactionState.FAILED, { error: `Contact introuvable: ${nlpIntent.recipient}` });
-            return { error: "Contact introuvable." };
-        }
-        if (contacts.length > 1 && contacts[0].confidence < 1.0) {
-            return { ambiguity: contacts.slice(0, 3) };
-        }
-
-        const phone = contacts[0].phone;
-
-        // Vérification de réseau MTN
-        if (!resolver.isMtnBeninNumber(phone)) {
-            this.updateState(TransactionState.FAILED, { error: `Le numéro ${phone} n'est pas reconnu comme un compte MTN Bénin valide.` });
-            return { error: "Destinataire non supporté par MTN." };
-        }
-
-        // 2. Lancement direct du transfert interactif (Motif + PIN gérés par MTN)
-        console.log('⚙️ [ENGINE] [DEBUG] Launching interactive transfer directly');
-        return await this.startTransfer({ amount, recipient: phone });
-    }
-
     /**
      * Consultation du solde.
      * Source prioritaire : le SMS MTN le plus récent (gratuit, sans PIN).
