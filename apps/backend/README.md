@@ -11,7 +11,7 @@ Backend Node.js **TypeScript** : API historique (auth, users, transactions, voic
 ## Installation locale
 
 ```bash
-cd Backend
+cd apps/backend
 cp .env.example .env
 # Éditer .env : DATABASE_URL, JWT_SECRET, PIN_ENCRYPTION_KEY (64 hex), REDIS_*
 npm ci
@@ -22,7 +22,7 @@ npm run dev
 Dans un second terminal :
 
 ```bash
-cd Backend
+cd apps/backend
 npm run dev:worker
 ```
 
@@ -35,7 +35,7 @@ npm run dev:worker
 ## Docker (mode mock modem)
 
 ```bash
-cd Backend
+cd apps/backend
 docker compose up --build
 ```
 
