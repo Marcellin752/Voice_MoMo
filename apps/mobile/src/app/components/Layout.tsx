@@ -1,6 +1,7 @@
 import { Outlet, NavLink, useLocation } from "react-router";
 import { Home, ArrowLeftRight, Settings, Users, Mic } from "lucide-react";
 import { useLanguage } from "../contexts/LanguageContext";
+import { useAuth } from "../contexts/AuthContext";
 import { motion, AnimatePresence } from "motion/react";
 import { useState, useRef } from "react";
 import { useVoiceAssistantNLP } from "../hooks/useVoiceAssistantNLP";
@@ -8,6 +9,7 @@ import ContactDisambiguationModal from "./ContactDisambiguationModal";
 
 export default function Layout() {
   const { t } = useLanguage();
+  const { token } = useAuth();
   const location = useLocation();
   const isHome = location.pathname === "/app" || location.pathname === "/app/";
   const pinInputRef = useRef<HTMLInputElement>(null);
@@ -29,7 +31,7 @@ export default function Layout() {
     pinPrompt,
     executeTransferWithPin,
     cancelPinModal,
-  } = useVoiceAssistantNLP();
+  } = useVoiceAssistantNLP(undefined, token ?? undefined);
 
   const handlePinSubmit = () => {
     const pin = pinInputRef.current?.value || '';
