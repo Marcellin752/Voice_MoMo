@@ -69,6 +69,17 @@ npm run dev:worker   # Terminal 2 : USSD Worker (optionnel)
 
 ## 3. Build & Test Mobile (Android)
 
+**Guide complet :** [BUILD_APK.md](./BUILD_APK.md)
+
+### Rapide (depuis la racine du repo)
+
+```bash
+chmod +x scripts/build-apk.sh
+./scripts/build-apk.sh
+```
+
+### Manuel
+
 ```bash
 cd apps/mobile
 npm install
@@ -76,6 +87,8 @@ cp .env.example .env   # adapter VITE_* avec votre IP LAN
 npm run build
 npx cap sync android
 cd android
+# Prérequis : Android SDK — export ANDROID_HOME="$HOME/Android/Sdk"
+echo "sdk.dir=$ANDROID_HOME" > local.properties   # si ANDROID_HOME est défini
 ./gradlew assembleDebug
 ```
 
@@ -105,6 +118,7 @@ APK : `apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk`
 
 | Problème | Solution |
 |----------|----------|
+| **`SDK location not found`** | Installer Android SDK + `export ANDROID_HOME=~/Android/Sdk` ou utiliser `./scripts/build-apk.sh`. Voir [BUILD_APK.md](./BUILD_APK.md). |
 | **Erreur de réseau** | Même Wi-Fi PC/téléphone. Vérifier `VITE_API_BASE_URL` et `VITE_VOICE_AI_URL`. |
 | **Le micro ne répond pas** | Permissions micro + `VITE_VOICE_AI_URL` pointant vers le NLP. |
 | **Contacts non trouvés** | Permission Contacts accordée. |
