@@ -1,7 +1,7 @@
 # 📋 CAHIER DES CHARGES COMPLET
 **Application Mobile Money - Commandes Vocales en Français**
 
-**Dernière mise à jour:** 2026-06-16 | **Version:** 1.1
+**Dernière mise à jour:** 2026-06-21 | **Version:** 1.2
 
 ---
 
@@ -36,9 +36,11 @@ Développer une application mobile permettant d'effectuer des transactions Mobil
 ## 4. Fonctionnalités Essentielles (MVP)
 
 ### 4.1 Authentification
-- ✅ Connexion par code PIN (4 chiffres)
-- ✅ Session timeout (5 min d'inactivité)
+- ✅ Connexion par numéro MTN + code OTP (6 chiffres, SMS)
+- ✅ Session timeout (5 min d'inactivité → déconnexion automatique)
 - 🟡 Authentification biométrique (phase 2)
+
+> Le PIN MTN (4 chiffres) n'est **pas** utilisé à la connexion : il est dicté **à la voix** uniquement lors des opérations USSD (transfert, solde live).
 
 ### 4.2 Interaction Vocale
 - ✅ Activation du microphone
@@ -55,9 +57,9 @@ Développer une application mobile permettant d'effectuer des transactions Mobil
 ```
 
 ### 4.3 Conversions Voix ↔ Texte
-- ✅ Capture audio via microphone
-- ✅ Speech-to-Text via Google Cloud API
-- ✅ Text-to-Speech pour réponses vocales
+- ✅ Capture audio via microphone (Capacitor / WebRTC)
+- ✅ Speech-to-Text + NLP via **Gemini** (`apps/nlp`)
+- ✅ Text-to-Speech pour réponses vocales (Capacitor TTS)
 - ✅ Support du français avec tolérance aux accents
 
 ### 4.4 Compréhension de l'Intention (NLP)
@@ -76,17 +78,14 @@ Développer une application mobile permettant d'effectuer des transactions Mobil
 
 #### ✅ CONSULTATION DE SOLDE
 - **SMS d'abord** : Lecture gratuite des SMS (fraîcheur : 60 min)
-- **USSD live** : Si SMS non trouvé/expiré (nécessite PIN)
+- **USSD live** : Sur commande vocale « quel est mon solde » (PIN dicté à la voix)
 - Mise à jour automatique après chaque transaction
 
-#### 🟡 ACHAT DE CRÉDIT (Phase 2)
-- Recharge airtime
-- Recharge forfaits internet
+#### ✅ ACHAT DE CRÉDIT / FORFAITS (MVP vocal)
+- Recharge airtime, forfaits internet, Go Pack — via menu USSD `*880#` (commande vocale)
 
-#### 🟡 PAIEMENT DE FACTURES (Phase 2)
-- Électricité
-- Eau
-- Internet
+#### ✅ RETRAIT & PAIEMENT DE FACTURES (MVP vocal)
+- Retrait agent / GAB et factures (électricité, eau, internet) — ouverture menu USSD par la voix
 
 ### 4.6 Sécurité
 - ✅ Chiffrement HTTPS
@@ -145,24 +144,22 @@ Tous les numéros Bénin = 01 + {2 chiffres distinctifs}
 ### Stack Choisi
 
 **Frontend Mobile :**
-- Framework : React Native (Expo/Expo Router)
+- Framework : **React + Vite + Capacitor** (`apps/mobile`)
 - Langage : TypeScript
-- Librairies : Speech-to-Text, Text-to-Speech
+- UI : opérations financières **100 % vocales** (pas de formulaires de transaction)
 
 **Backend API :**
-- Framework : FastAPI (Python)
+- Framework : **Node.js / Express** (`apps/backend`)
 - Base de données : PostgreSQL
 - Authentification : JWT
 
 **Module NLP :**
-- Google Cloud Speech-to-Text API
-- Gemini 2.0 Flash pour compréhension des commandes
-- spaCy pour extraction d'entités
+- **FastAPI** (`apps/nlp`) + **Gemini** pour STT + compréhension des intentions
 
 **Infrastructure :**
-- CI/CD : GitHub Actions
-- Hosting : Google Cloud / Heroku
-- Monitoring : Sentry
+- CI/CD : GitHub Actions (build APK)
+- Hosting backend : Render
+- Déploiement NLP : Render / service dédié
 
 ---
 
@@ -172,29 +169,32 @@ Tous les numéros Bénin = 01 + {2 chiffres distinctifs}
 
 | Fonctionnalité | Statut | Dernière MAJ |
 |---|---|---|
-| **Authentification PIN** | ✅ Complète | 2026-06-12 |
+| **Authentification OTP** | ✅ Complète | 2026-06-21 |
+| **Session timeout 5 min** | ✅ Complète | 2026-06-21 |
 | **Reconnaissance vocale** | ✅ Complète | 2026-06-14 |
-| **NLP basique** | ✅ Complète | 2026-06-14 |
+| **NLP (Gemini)** | ✅ Complète | 2026-06-14 |
 | **Transfert MTN→MTN** | ✅ Complète | 2026-06-14 |
 | **Transfert inter-réseau** | ✅ Complète | 2026-06-16 |
-| **Consultation solde** | ✅ Complète | 2026-06-12 |
+| **Consultation solde** | ✅ Complète | 2026-06-21 |
+| **Recharge / forfaits (vocal)** | ✅ Complète | 2026-06-21 |
+| **Retrait / factures (vocal)** | ✅ Complète | 2026-06-21 |
+| **Confirmation vocale (oui/non)** | ✅ Complète | 2026-06-21 |
+| **PIN dicté à la voix** | ✅ Complète | 2026-06-21 |
+| **Désambiguïsation contacts (vocal)** | ✅ Complète | 2026-06-21 |
 | **Gestion contacts** | ✅ Complète | 2026-06-14 |
-| **Confirmation vocale** | ✅ Complète | 2026-06-12 |
 | **Auto-retry après erreur SR** | ✅ Complète | 2026-06-12 |
 | **Annulation transactions** | ✅ Complète | 2026-06-12 |
-| **Suggestions contacts proches** | ✅ Complète | 2026-06-16 |
-| **Balance freshness** | ✅ Complète | 2026-06-12 |
+| **Balance freshness (SMS)** | ✅ Complète | 2026-06-12 |
 
 ### Phase 2 : Avancée (🟡 PLANIFIÉE)
 
 | Fonctionnalité | Priorité | Estimé |
 |---|---|---|
 | Authentification biométrique | Haute | 2-3j |
-| Paiement de factures | Moyenne | 3-4j |
-| Achat de crédit/forfaits | Moyenne | 2-3j |
 | Transactions programmées | Basse | 3-4j |
 | Mode hors ligne partiel | Basse | 2j |
-| Multilinguisme | Basse | 4-5j |
+| Multilinguisme (Fon, Yoruba) | Basse | 4-5j |
+| iOS | Moyenne | 1-2 sem |
 
 ---
 
@@ -213,10 +213,10 @@ Tous les numéros Bénin = 01 + {2 chiffres distinctifs}
 - ✅ Gestion données minimale (cache local)
 
 ### Accessibilité
-- ✅ Interface minimaliste
+- ✅ Interface minimaliste (navigation + affichage)
 - ✅ Retours vocaux clairs
 - ✅ Gestion d'erreurs explicite
-- ✅ Support de gestes simples
+- ✅ **Aucune saisie tactile** pour transferts, PIN, confirmation ou choix de contact
 
 ---
 
@@ -246,11 +246,10 @@ Tous les numéros Bénin = 01 + {2 chiffres distinctifs}
 ## 11. Contraintes et Limitations
 
 ### Actuelles (Phase 1)
-- 🔴 Seul MTN peut initier (Moov/Celtis: Phase 2)
 - 🔴 Français uniquement (multilangue: Phase 3)
 - 🔴 Android uniquement
-- 🔴 Connexion internet obligatoire
-- 🔴 PIN requis pour certains transferts inter-réseau
+- 🔴 Connexion internet obligatoire (NLP cloud)
+- 🔴 PIN MTN dicté à la voix pour opérations USSD sensibles
 
 ### À adresser
 - Quota Gemini API (rate limiting, fallback)
