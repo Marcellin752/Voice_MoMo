@@ -1,8 +1,8 @@
 import { createBrowserRouter } from "react-router";
-import WelcomeScreen from "./pages/WelcomeScreen";
 import LoginScreen from "./pages/LoginScreen";
 import RegisterScreen from "./pages/RegisterScreen";
 import Layout from "./components/Layout";
+import RequireAuth from "./components/RequireAuth";
 import HomeScreen from "./pages/HomeScreen";
 import TransactionsScreen from "./pages/TransactionsScreen";
 import SettingsScreen from "./pages/SettingsScreen";
@@ -29,7 +29,11 @@ export const router = createBrowserRouter([
   },
   {
     path: "/app",
-    Component: Layout,
+    Component: () => (
+      <RequireAuth>
+        <Layout />
+      </RequireAuth>
+    ),
     children: [
       { index: true, Component: HomeScreen },
       { path: "transactions", Component: TransactionsScreen },
