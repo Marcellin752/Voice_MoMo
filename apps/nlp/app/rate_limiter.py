@@ -8,7 +8,8 @@ import time
 import logging
 from typing import Dict, Tuple
 from functools import wraps
-from fastapi import Request, HTTPException, status
+from fastapi import Request, status
+from fastapi.responses import JSONResponse
 from collections import defaultdict
 
 logger = logging.getLogger(__name__)
@@ -143,9 +144,12 @@ async def rate_limit_middleware(request: Request, call_next):
     
     if is_limited_ip:
         logger.warning(f"🚫 Rate limit exceeded for IP {client_ip}")
-        raise HTTPException(
+        # Note: BaseHTTPMiddleware n'intercepte pas les HTTPException levées ici
+        # (elles remonteraient comme une erreur 500 non gérée) — on doit renvoyer
+        # directement la réponse.
+        return JSONResponse(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many requests",
+            content={"detail": "Too many requests"},
             headers={
                 "Retry-After": "60",
                 "X-RateLimit-Limit": str(RATE_LIMIT_PER_MINUTE),
@@ -171,9 +175,9 @@ async def rate_limit_middleware(request: Request, call_next):
         
         if is_limited_user:
             logger.warning(f"🚫 Rate limit exceeded for user {user_id}")
-            raise HTTPException(
+            return JSONResponse(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="User rate limit exceeded",
+                content={"detail": "User rate limit exceeded"},
                 headers={
                     "Retry-After": "60",
                     "X-RateLimit-Limit": str(RATE_LIMIT_USER_PER_MINUTE),

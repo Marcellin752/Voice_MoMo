@@ -29,6 +29,23 @@ client = TestClient(app)
 # FIXTURES
 # ===============================================
 
+@pytest.fixture(autouse=True)
+def _reset_rate_limiter():
+    """Isole chaque test du compteur global de rate limiting.
+
+    Sans ça, test_rate_limit_excessive_requests() épuise le quota de l'IP
+    "testclient" et fait échouer en cascade tous les tests suivants (429).
+    """
+    from app.rate_limiter import get_rate_limiter
+
+    limiter = get_rate_limiter()
+    limiter.ip_requests.clear()
+    limiter.user_requests.clear()
+    yield
+    limiter.ip_requests.clear()
+    limiter.user_requests.clear()
+
+
 @pytest.fixture
 def jwt_token():
     """Générer un token JWT pour les tests"""
@@ -265,21 +282,26 @@ def test_action_help():
 # ===============================================
 
 def test_empty_audio_file():
-    """Test: Fichier audio vide"""
+    """Test: Fichier audio vide -> dégradation gracieuse (200, intent unknown)"""
     response = client.post(
         "/api/voice-command",
         files={"audio_file": ("empty.wav", b"", "audio/wav")}
     )
-    assert response.status_code in [400, 500]
+    # /api/voice-command ne renvoie jamais d'erreur HTTP sur un échec de
+    # traitement : il répond 200 avec intent="unknown" pour que l'app mobile
+    # puisse toujours donner un retour vocal à l'utilisateur.
+    assert response.status_code == 200
+    assert response.json()["intent"] == "unknown"
 
 
 def test_invalid_audio_format():
-    """Test: Format audio invalide"""
+    """Test: Format audio invalide -> dégradation gracieuse (200, intent unknown)"""
     response = client.post(
         "/api/voice-command",
         files={"audio_file": ("test.txt", b"not audio", "text/plain")}
     )
-    assert response.status_code in [400, 500]
+    assert response.status_code == 200
+    assert response.json()["intent"] == "unknown"
 
 
 def test_missing_audio_file():

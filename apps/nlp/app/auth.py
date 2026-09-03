@@ -5,7 +5,7 @@
 import jwt
 import os
 from typing import Optional, Dict, Any
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 from fastapi import HTTPException, Request, status
 import logging
@@ -35,8 +35,8 @@ class JWTManager:
         """
         payload = {
             "user_id": user_id,
-            "iat": datetime.utcnow(),
-            "exp": datetime.utcnow() + timedelta(hours=JWT_EXPIRATION_HOURS),
+            "iat": datetime.now(timezone.utc),
+            "exp": datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRATION_HOURS),
             "type": "access"
         }
         
