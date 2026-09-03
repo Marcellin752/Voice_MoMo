@@ -17,7 +17,7 @@ export function login(phone: string, pin: string) {
 }
 
 export function sendOtp(phone: string) {
-  return request<{ success: boolean; message: string; code?: string }>('POST', '/api/auth/send-otp', { phone });
+  return request<{ success: boolean; message: string; devCode?: string }>('POST', '/api/auth/send-otp', { phone });
 }
 
 export function verifyOtp(phone: string, code: string) {

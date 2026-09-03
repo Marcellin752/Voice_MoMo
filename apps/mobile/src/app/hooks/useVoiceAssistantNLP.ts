@@ -127,19 +127,17 @@ export function useVoiceAssistantNLP(
     return () => { stopProgressiveRef.current?.(); };
   }, []);
 
+  // Ré-arme le micro après une transition vers un état "en attente de réponse".
+  // Chaque point d'entrée dans ces états (voir les appels à speakFeedback /
+  // playAudioResponse plus bas) énonce déjà sa propre invite vocale précise —
+  // ce timer ne doit donc PAS reparler, sous peine de couper cette invite en
+  // plein milieu (QueueStrategy.Flush) pour enchaîner sur un message générique
+  // sans rapport, ce qui produisait une phrase incohérente à l'oral.
   useEffect(() => {
     if (status !== 'awaiting_confirmation' && status !== 'awaiting_disambiguation' && status !== 'awaiting_pin') {
       return;
     }
-    const prompts: Record<string, string> = {
-      awaiting_confirmation: 'Dites oui pour confirmer, ou non pour annuler.',
-      awaiting_disambiguation: 'Dites le numéro ou le nom du contact.',
-      awaiting_pin: 'Dictez votre code PIN MTN à voix haute, chiffre par chiffre.',
-    };
     const delay = setTimeout(() => {
-      const msg = prompts[status];
-      setFeedback(msg);
-      speakFeedback(msg);
       startListeningRef.current?.(true);
     }, 1200);
     return () => clearTimeout(delay);
@@ -148,6 +146,10 @@ export function useVoiceAssistantNLP(
   const speakFeedback = async (text: string) => {
     try {
       const { TextToSpeech } = await import('@capacitor-community/text-to-speech');
+      // Coupe toute lecture en cours avant de démarrer la suivante : sans ça,
+      // deux appels rapprochés peuvent se chevaucher et donner l'impression
+      // que l'assistant coupe une phrase pour en démarrer une autre au milieu.
+      await TextToSpeech.stop().catch(() => {});
       await TextToSpeech.speak({
         text: text,
         lang: 'fr-FR',

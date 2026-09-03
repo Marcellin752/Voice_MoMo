@@ -15,8 +15,9 @@ export default function LoginScreen() {
   const [otpSentCode, setOtpSentCode] = useState<string | null>(null); // Utilisé pour la simulation/démo
   
   const [loading, setLoading] = useState(false);
+  const [slowServer, setSlowServer] = useState(false);
   const [timer, setTimer] = useState(0);
-  
+
   const navigate = useNavigate();
   const { setAuth, token, loading: authLoading } = useAuth();
   const timerRef = useRef<NodeJS.Timeout | null>(null);
@@ -27,6 +28,18 @@ export default function LoginScreen() {
       navigate("/app", { replace: true });
     }
   }, [token, authLoading, navigate]);
+
+  // Le serveur (offre gratuite) peut être en veille et prendre jusqu'à 30-45s
+  // à se réveiller. Sans indice, l'utilisateur voit juste "Envoi..." figé et
+  // croit l'app plantée. On affiche un message dédié passé quelques secondes.
+  useEffect(() => {
+    if (!loading) {
+      setSlowServer(false);
+      return;
+    }
+    const t = setTimeout(() => setSlowServer(true), 4000);
+    return () => clearTimeout(t);
+  }, [loading]);
 
   // Gérer le compte à rebours pour la validité de l'OTP
   useEffect(() => {
@@ -150,7 +163,7 @@ export default function LoginScreen() {
           <p className="text-slate-500 dark:text-zinc-400 font-semibold text-sm max-w-xs mx-auto">
             {step === "phone"
               ? "Entrez votre numéro MTN pour recevoir un code d'authentification."
-              : `Entrez le code secret à 4 chiffres envoyé au numéro : ${phone.replace(/(\d{2})/g, "$1 ").trim()}`}
+              : `Entrez le code secret à 6 chiffres envoyé au numéro : ${phone.replace(/(\d{2})/g, "$1 ").trim()}`}
           </p>
         </div>
 
@@ -198,6 +211,11 @@ export default function LoginScreen() {
                 <span>{loading ? "Envoi du code..." : "Recevoir l'OTP"}</span>
                 {!loading && <ArrowRight size={18} />}
               </button>
+              {slowServer && (
+                <p className="text-center text-xs font-semibold text-slate-400 dark:text-zinc-500">
+                  Le serveur démarre (mode gratuit), cela peut prendre jusqu'à 30 secondes. Merci de patienter…
+                </p>
+              )}
             </motion.form>
           ) : (
             <motion.div
@@ -261,9 +279,9 @@ export default function LoginScreen() {
               <div className="space-y-3 pt-2">
                 <button
                   onClick={() => submitVerifyOtp()}
-                  disabled={otp.length !== 4 || loading}
+                  disabled={otp.length !== 6 || loading}
                   className={`w-full flex items-center justify-center space-x-2 py-5 px-6 rounded-2xl font-black text-base tracking-wide transition-all shadow-lg cursor-pointer ${
-                    otp.length === 4 && !loading
+                    otp.length === 6 && !loading
                       ? 'bg-[#FFCC00] text-[#004F71] active:scale-95 shadow-[#FFCC00]/30 hover:bg-[#FFD633]'
                       : 'bg-slate-200 dark:bg-[#1A1A1A] text-slate-400 dark:text-zinc-600 cursor-not-allowed shadow-none'
                   }`}

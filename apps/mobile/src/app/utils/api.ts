@@ -12,16 +12,35 @@ export function getToken(): string | null {
 }
 
 
+// Le backend Render (offre gratuite) se met en veille après inactivité et peut
+// prendre 30s+ à se réveiller. Sans timeout, un fetch() bloqué là-dessus reste
+// "en chargement" indéfiniment côté UI, sans jamais échouer ni réussir.
+const REQUEST_TIMEOUT_MS = 45000;
+
 export async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   const token = getToken();
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  const res = await fetch(`${BASE_URL}${path}`, {
-    method,
-    headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  let res: Response;
+  try {
+    res = await fetch(`${BASE_URL}${path}`, {
+      method,
+      headers,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+    });
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') {
+      throw new Error("Le serveur met trop de temps à répondre. Vérifiez votre connexion et réessayez.");
+    }
+    throw new Error('Impossible de contacter le serveur. Vérifiez votre connexion et réessayez.');
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({ message: res.statusText }));

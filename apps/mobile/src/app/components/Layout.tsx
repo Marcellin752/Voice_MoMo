@@ -109,7 +109,7 @@ export default function Layout() {
       </nav>
 
       <ContactDisambiguationModal
-        isOpen={status === 'awaiting_disambiguation'}
+        isOpen={!!ambiguityContacts?.length}
         contacts={ambiguityContacts || []}
         query={ambiguityQuery}
       />
