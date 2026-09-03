@@ -400,12 +400,9 @@ async def voice_command(request: Request, audio_file: UploadFile = File(...)) ->
     
     try:
         # 0. Authentifier l'utilisateur (extraire user_id du JWT)
-        try:
-            user_id = await extract_user_from_request(request)
-        except HTTPException as e:
-            # Si pas d'auth, utiliser "default" pour développement (à supprimer en prod)
-            logger.warning(f"⚠️ Pas d'auth trouvée. Fallback à user_id=default")
-            user_id = "default"
+        # L'auth est obligatoire : un token expiré/invalide renvoie une 401
+        # pour que le client mobile redirige vers le login (pas de fallback silencieux)
+        user_id = await extract_user_from_request(request)
         
         # 1. Lire l'audio
         audio_bytes = await audio_file.read()
@@ -510,6 +507,10 @@ async def voice_command(request: Request, audio_file: UploadFile = File(...)) ->
             media_type="application/json"
         )
         
+    except HTTPException:
+        # Re-lancer les HTTPException (401 auth, 429 rate-limit, etc.)
+        # pour que FastAPI renvoie le bon status code, pas un 500
+        raise
     except Exception as e:
         import traceback
         logger.error(f"❌ EXCEPTION CRITIQUE dans /api/voice-command:")
@@ -624,11 +625,8 @@ async def confirm_action(
     - `400`: Transaction introuvable ou expirée (TTL 5min)
     - `401`: Token JWT invalide
     """
-    # Extraire user_id du JWT
-    try:
-        user_id = await extract_user_from_request(request)
-    except HTTPException:
-        user_id = "default"
+    # Extraire user_id du JWT (401 si token manquant/expiré → le client redirige vers le login)
+    user_id = await extract_user_from_request(request)
     
     logger.info(f"✅ Confirmation reçue pour: {payload.transaction_id} (user_id={user_id})")
     

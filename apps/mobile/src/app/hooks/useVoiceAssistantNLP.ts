@@ -73,7 +73,7 @@ export function useVoiceAssistantNLP(
   const ambiguityContextRef = useRef<{ intent: string; data: any } | null>(null);
   const ambiguityContactsRef = useRef<any[] | null>(null);
 
-  const { resetSessionActivity } = useAuth();
+  const { resetSessionActivity, logout } = useAuth();
 
   const [showPinModal, setShowPinModal] = useState(false);
   const [pinContext, setPinContext] = useState<{ intent: string; data: any } | null>(null);
@@ -267,7 +267,17 @@ export function useVoiceAssistantNLP(
       if (tokenRef.current) headers['Authorization'] = `Bearer ${tokenRef.current}`;
 
       const response = await fetch(`${nlpApiUrl}/api/voice-command`, { method: 'POST', headers, body: formData });
-      if (!response.ok) throw new Error(`Erreur backend: ${response.status}`);
+      if (!response.ok) {
+        if (response.status === 401) {
+          await logout();
+          updateStatus('idle');
+          endProcessingFeedback();
+          setFeedback('Session expirée. Veuillez vous reconnecter.');
+          speakFeedback('Votre session a expiré. Veuillez vous reconnecter.');
+          return;
+        }
+        throw new Error(`Erreur backend: ${response.status}`);
+      }
 
       const result: ParsedResponse = await response.json();
       endProcessingFeedback();
@@ -457,6 +467,14 @@ export function useVoiceAssistantNLP(
         headers,
         body: JSON.stringify({ transaction_id: transactionIdRef.current }),
       });
+      if (response.status === 401) {
+        await logout();
+        updateStatus('idle');
+        endProcessingFeedback();
+        setFeedback('Session expirée. Veuillez vous reconnecter.');
+        speakFeedback('Votre session a expiré. Veuillez vous reconnecter.');
+        return;
+      }
       const result = await response.json();
       endProcessingFeedback();
 

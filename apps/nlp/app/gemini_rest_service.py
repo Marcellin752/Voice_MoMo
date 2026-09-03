@@ -171,7 +171,18 @@ FORMAT DE RÉPONSE (JSON uniquement, rien d'autre):
                         else:
                             logger.error("❌ Rate limit persist after all retries")
                             return self._create_fallback_response("Quota Gemini dépassé. Réessayez dans quelques secondes.")
-                    
+
+                    # Handle 503 transient high-demand with retry (surge is temporary)
+                    if response.status_code == 503:
+                        if attempt < max_retries - 1:
+                            delay = base_delay * (2 ** attempt)  # Exponential backoff: 2, 4, 8 seconds
+                            logger.warning(f"⚠️ High demand (503), retrying in {delay}s...")
+                            time.sleep(delay)
+                            continue
+                        else:
+                            logger.error("❌ High demand persists after all retries")
+                            return self._create_fallback_response("Gemini est surchargé. Réessayez dans quelques secondes.")
+
                     # Handle other errors
                     if response.status_code != 200:
                         error_text = response.text[:200]
