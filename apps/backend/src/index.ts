@@ -66,6 +66,17 @@ async function bootstrap(): Promise<void> {
       res.status(err.statusCode).json({ error: err.message, code: err.code });
       return;
     }
+    // Erreurs legacy (apps/backend/legacy) : Error simples avec .status (ex:
+    // "Numéro introuvable" -> 404, "PIN incorrect" -> 401), pas des AppError.
+    if (
+      err instanceof Error &&
+      "status" in err &&
+      typeof (err as { status: unknown }).status === "number"
+    ) {
+      const status = (err as { status: number }).status;
+      res.status(status).json({ error: err.message });
+      return;
+    }
     logger.error("unhandled error", { err });
     res.status(500).json({ error: "Erreur interne." });
   });
