@@ -104,16 +104,14 @@ def test_missing_auth_header():
 
 
 def test_invalid_token():
-    """Test: Token JWT invalide -> fallback à default"""
+    """Test: Token JWT invalide -> 401 (pas de fallback silencieux, le client doit se reloguer)"""
     headers = {"Authorization": "Bearer invalid_token_123"}
     response = client.post(
         "/api/confirm",
         headers=headers,
         json={"transaction_id": "tx_123"},
     )
-    # Devrait fallback à "default" user
-    # (transaction_id invalide mais test l'auth flow)
-    assert response.status_code in [400, 404]  # Transaction not found
+    assert response.status_code == 401
 
 
 # ===============================================
@@ -121,13 +119,12 @@ def test_invalid_token():
 # ===============================================
 
 def test_voice_command_without_auth(test_audio_file):
-    """Test: Commande vocale sans auth (fallback à default)"""
+    """Test: Commande vocale sans auth -> 401 (auth obligatoire, plus de fallback à default)"""
     response = client.post(
         "/api/voice-command",
         files={"audio_file": ("test.wav", test_audio_file, "audio/wav")}
     )
-    # Gemini API peut échouer en test si pas de clé, mais endpoint existe
-    assert response.status_code in [200, 400, 500]
+    assert response.status_code == 401
 
 
 def test_voice_command_with_auth(jwt_token, test_audio_file):
@@ -281,23 +278,27 @@ def test_action_help():
 # 🔍 TESTS - EDGE CASES
 # ===============================================
 
-def test_empty_audio_file():
-    """Test: Fichier audio vide -> dégradation gracieuse (200, intent unknown)"""
+def test_empty_audio_file(jwt_token):
+    """Test: Fichier audio vide (authentifié) -> dégradation gracieuse (200, intent unknown)"""
+    headers = {"Authorization": f"Bearer {jwt_token}"}
     response = client.post(
         "/api/voice-command",
+        headers=headers,
         files={"audio_file": ("empty.wav", b"", "audio/wav")}
     )
-    # /api/voice-command ne renvoie jamais d'erreur HTTP sur un échec de
-    # traitement : il répond 200 avec intent="unknown" pour que l'app mobile
-    # puisse toujours donner un retour vocal à l'utilisateur.
+    # Une fois l'auth validée, /api/voice-command ne renvoie jamais d'erreur HTTP
+    # sur un échec de traitement : il répond 200 avec intent="unknown" pour que
+    # l'app mobile puisse toujours donner un retour vocal à l'utilisateur.
     assert response.status_code == 200
     assert response.json()["intent"] == "unknown"
 
 
-def test_invalid_audio_format():
-    """Test: Format audio invalide -> dégradation gracieuse (200, intent unknown)"""
+def test_invalid_audio_format(jwt_token):
+    """Test: Format audio invalide (authentifié) -> dégradation gracieuse (200, intent unknown)"""
+    headers = {"Authorization": f"Bearer {jwt_token}"}
     response = client.post(
         "/api/voice-command",
+        headers=headers,
         files={"audio_file": ("test.txt", b"not audio", "text/plain")}
     )
     assert response.status_code == 200
