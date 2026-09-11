@@ -6,7 +6,6 @@ import {
   isCancelSpeech,
   isConfirmSpeech,
   matchContactFromSpeech,
-  parsePinFromSpeech,
 } from '../utils/voiceSelection';
 import {
   startProgressiveFeedback,
@@ -15,8 +14,45 @@ import {
   type ProgressiveStep,
 } from '../utils/progressiveFeedback';
 import { playListeningStartCue } from '../utils/audioCues';
+import {
+  VOICE_BIOMETRIC_MAX_ATTEMPTS,
+  hasVoiceBiometric,
+  verifyVoiceBiometric,
+  wipeSecret,
+} from '../services/voiceBiometric.service';
 
-type AssistantStatus = 'idle' | 'listening' | 'processing' | 'success' | 'error' | 'awaiting_confirmation' | 'awaiting_disambiguation' | 'awaiting_pin';
+type AssistantStatus =
+  | 'idle'
+  | 'listening'
+  | 'processing'
+  | 'success'
+  | 'error'
+  | 'awaiting_confirmation'
+  | 'awaiting_disambiguation'
+  | 'awaiting_voice_biometric'
+  | 'awaiting_pin';
+
+const SENSITIVE_INTENTS = new Set([
+  'transfer',
+  'momo_send',
+  'deposit',
+  'momo_deposit',
+  'withdraw',
+  'withdraw_gab',
+  'recharge',
+  'bill_payment',
+  'balance',
+  'momo_balance',
+  'internet_day',
+  'internet_week',
+  'internet_month',
+  'internet_unlimited',
+  'gopack_day',
+  'gopack_week',
+  'gopack_month',
+]);
+
+const BIOMETRIC_CHALLENGE = 'Je suis le propriétaire de ce compte Voice MoMo';
 
 interface ParsedResponse {
   success: boolean;
@@ -78,7 +114,7 @@ export function useVoiceAssistantNLP(
   const [showPinModal, setShowPinModal] = useState(false);
   const [pinContext, setPinContext] = useState<{ intent: string; data: any } | null>(null);
   // Message contextuel affiché dans la modale PIN (transfert vs consultation solde)
-  const [pinPrompt, setPinPrompt] = useState('Entrez votre code PIN MTN pour confirmer.');
+  const [pinPrompt, setPinPrompt] = useState('Saisissez votre code PIN MTN sur le clavier (ne le dictez jamais).');
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -86,6 +122,10 @@ export function useVoiceAssistantNLP(
   const streamRef = useRef<MediaStream | null>(null);
   const tokenRef = useRef<string | null>(null);
   const transactionIdRef = useRef<string | null>(null);
+  const biometricAttemptsRef = useRef(0);
+  const biometricModeRef = useRef(false);
+  const pendingAfterBiometricRef = useRef<null | (() => Promise<void>)>(null);
+  const biometricTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const token = jwtToken || localStorage.getItem('momo.auth.token');
@@ -128,13 +168,9 @@ export function useVoiceAssistantNLP(
   }, []);
 
   // Ré-arme le micro après une transition vers un état "en attente de réponse".
-  // Chaque point d'entrée dans ces états (voir les appels à speakFeedback /
-  // playAudioResponse plus bas) énonce déjà sa propre invite vocale précise —
-  // ce timer ne doit donc PAS reparler, sous peine de couper cette invite en
-  // plein milieu (QueueStrategy.Flush) pour enchaîner sur un message générique
-  // sans rapport, ce qui produisait une phrase incohérente à l'oral.
+  // PAS pour awaiting_pin : le PIN se saisit uniquement au clavier (confidentialité).
   useEffect(() => {
-    if (status !== 'awaiting_confirmation' && status !== 'awaiting_disambiguation' && status !== 'awaiting_pin') {
+    if (status !== 'awaiting_confirmation' && status !== 'awaiting_disambiguation' && status !== 'awaiting_voice_biometric') {
       return;
     }
     const delay = setTimeout(() => {
@@ -193,67 +229,164 @@ export function useVoiceAssistantNLP(
     });
   };
 
-  const triggerUSSD = useCallback(async (intent: string, data: any) => {
-    if (!intent || ['unknown', 'confirm', 'cancel'].includes(intent)) return { success: true, message: '' };
-    
-    console.log(`📱 [USSD] Intent: ${intent}`, data);
-    // UX Fix #3: Messages d'attente échelonnés pendant l'exécution USSD
-    beginProcessingFeedback(USSD_PROCESSING_STEPS);
+  const requestVoiceBiometric = useCallback(async (onSuccess: () => Promise<void>) => {
+    const enrolled = await hasVoiceBiometric();
+    if (!enrolled) {
+      updateStatus('error');
+      const msg =
+        'Empreinte vocale obligatoire. Allez dans Paramètres → Empreinte vocale pour enregistrer votre voix avant toute opération sensible.';
+      setFeedback(msg);
+      speakFeedback(msg);
+      setTimeout(() => {
+        if (statusRef.current === 'error') updateStatus('idle');
+      }, 9000);
+      return;
+    }
+    pendingAfterBiometricRef.current = onSuccess;
+    biometricModeRef.current = true;
+    updateStatus('awaiting_voice_biometric');
+    const msg = `Vérification vocale. Dites : ${BIOMETRIC_CHALLENGE}`;
+    setFeedback(msg);
+    setTranscript('');
+    speakFeedback(msg);
+  }, [updateStatus]);
+
+  const handleBiometricAudio = useCallback(async (audioBlob: Blob) => {
+    biometricModeRef.current = false;
+    updateStatus('processing');
+    setFeedback('Vérification de votre voix…');
     try {
-      const ussdResult = await executeVoiceCommand(intent, {
-        amount: data?.amount,
-        recipient: data?.recipient,
-      });
-      endProcessingFeedback();
-
-      if (ussdResult.success) {
-        return { success: true, message: ussdResult.message };
+      const result = await verifyVoiceBiometric(audioBlob);
+      if (!result.enrolled) {
+        updateStatus('error');
+        setFeedback('Aucune empreinte vocale. Enregistrez-la dans Paramètres.');
+        speakFeedback('Aucune empreinte vocale. Enregistrez-la dans les paramètres.');
+        setTimeout(() => updateStatus('idle'), 8000);
+        return;
       }
-
-      const resultAny = ussdResult as any;
-
-      if (resultAny.ambiguity) {
-        console.log('🤔 [USSD] Ambiguity detected');
-        setAmbiguityContacts(resultAny.ambiguity);
-        setAmbiguityQuery(data?.recipient || 'Contact');
-        ambiguityContextRef.current = { intent, data };
-        updateStatus('awaiting_disambiguation');
-        const msg = formatAmbiguityVoicePrompt(resultAny.ambiguity, data?.recipient || 'ce nom');
+      if (!result.matched) {
+        biometricAttemptsRef.current += 1;
+        const left = VOICE_BIOMETRIC_MAX_ATTEMPTS - biometricAttemptsRef.current;
+        if (left <= 0) {
+          updateStatus('error');
+          setFeedback('Voix non reconnue. Sécurité : déconnexion.');
+          speakFeedback('Voix non reconnue. Déconnexion pour protéger votre compte.');
+          biometricAttemptsRef.current = 0;
+          pendingAfterBiometricRef.current = null;
+          setTimeout(() => logout(), 1500);
+          return;
+        }
+        updateStatus('awaiting_voice_biometric');
+        biometricModeRef.current = true;
+        const msg = `Voix non reconnue. Il vous reste ${left} essai. Dites : ${BIOMETRIC_CHALLENGE}`;
         setFeedback(msg);
         speakFeedback(msg);
-        return { success: false, isAwaiting: true };
+        return;
       }
 
-      if (resultAny.promptPin || resultAny.context?.mode === 'balance') {
-        console.log('🔐 [USSD] PIN vocal requis');
-        setPinContext({ intent, data: resultAny.context || { mode: 'balance' } });
-        setShowPinModal(false);
-        updateStatus('awaiting_pin');
+      biometricAttemptsRef.current = 0;
+      const next = pendingAfterBiometricRef.current;
+      pendingAfterBiometricRef.current = null;
+      if (next) await next();
+    } catch (e: any) {
+      updateStatus('error');
+      setFeedback(e?.message || 'Échec de la vérification vocale.');
+      speakFeedback('Échec de la vérification vocale. Réessayez.');
+      setTimeout(() => updateStatus('idle'), 8000);
+    }
+  }, [logout, updateStatus]);
 
-        if (resultAny.context?.mode === 'balance') {
-          const pinMsg = 'Pour consulter votre solde à jour, dictez votre code PIN MTN.';
-          setPinPrompt(pinMsg);
-          setFeedback(pinMsg);
-          speakFeedback(pinMsg);
+  const openSecurePinPrompt = useCallback((intent: string, data: any) => {
+    setPinContext({ intent, data });
+    setShowPinModal(true);
+    updateStatus('awaiting_pin');
+
+    if (data?.mode === 'balance') {
+      const pinMsg = 'Pour consulter votre solde à jour, saisissez votre code PIN MTN sur le clavier (ne le dictez pas).';
+      setPinPrompt(pinMsg);
+      setFeedback(pinMsg);
+      speakFeedback('Saisissez votre code PIN MTN sur le clavier pour consulter le solde.');
+      return;
+    }
+
+    const amount = data?.amount || '...';
+    const recipient = data?.recipientName || data?.phone || '...';
+    const pinMsg = `Transfert de ${Number(amount).toLocaleString('fr-FR')} francs à ${recipient}. Saisissez votre code PIN MTN sur le clavier.`;
+    setPinPrompt(pinMsg);
+    setFeedback(pinMsg);
+    speakFeedback('Saisissez votre code PIN MTN sur le clavier pour confirmer.');
+  }, [updateStatus]);
+
+  const triggerUSSD = useCallback(async (intent: string, data: any) => {
+    if (!intent || ['unknown', 'confirm', 'cancel'].includes(intent)) return { success: true, message: '' };
+
+    const run = async (): Promise<{ success: boolean; message?: string; isAwaiting?: boolean }> => {
+      console.log(`📱 [USSD] Intent: ${intent}`, data);
+      beginProcessingFeedback(USSD_PROCESSING_STEPS);
+      try {
+        const ussdResult = await executeVoiceCommand(intent, {
+          amount: data?.amount,
+          recipient: data?.recipient,
+        });
+        endProcessingFeedback();
+
+        if (ussdResult.success) {
+          return { success: true, message: ussdResult.message };
+        }
+
+        const resultAny = ussdResult as any;
+
+        if (resultAny.ambiguity) {
+          console.log('🤔 [USSD] Ambiguity detected');
+          setAmbiguityContacts(resultAny.ambiguity);
+          setAmbiguityQuery(data?.recipient || 'Contact');
+          ambiguityContextRef.current = { intent, data };
+          updateStatus('awaiting_disambiguation');
+          const msg = formatAmbiguityVoicePrompt(resultAny.ambiguity, data?.recipient || 'ce nom');
+          setFeedback(msg);
+          speakFeedback(msg);
           return { success: false, isAwaiting: true };
         }
 
-        const amount = resultAny.context?.amount || '...';
-        const recipient = resultAny.context?.recipientName || resultAny.context?.phone || '...';
-        const pinMsg = `Transfert de ${Number(amount).toLocaleString('fr-FR')} francs à ${recipient}. Dictez votre code PIN MTN pour confirmer.`;
-        setPinPrompt(pinMsg);
-        setFeedback(pinMsg);
-        speakFeedback(pinMsg);
-        return { success: false, isAwaiting: true };
-      }
+        if (resultAny.promptPin || resultAny.context?.mode === 'balance') {
+          console.log('🔐 [USSD] PIN clavier requis (jamais vocal)');
+          openSecurePinPrompt(intent, resultAny.context || { mode: 'balance' });
+          return { success: false, isAwaiting: true };
+        }
 
-      return { success: false, message: ussdResult.message || 'Échec de l\'opération' };
-    } catch (e: any) {
-      endProcessingFeedback();
-      console.error('❌ [USSD] Erreur:', e);
-      return { success: false, message: e.message || 'Erreur USSD' };
+        return { success: false, message: ussdResult.message || 'Échec de l\'opération' };
+      } catch (e: any) {
+        endProcessingFeedback();
+        console.error('❌ [USSD] Erreur:', e);
+        return { success: false, message: e.message || 'Erreur USSD' };
+      }
+    };
+
+    if (SENSITIVE_INTENTS.has(String(intent).toLowerCase())) {
+      // Biométrie avant toute opération sensible ; le PIN clavier vient ensuite si besoin.
+      await requestVoiceBiometric(async () => {
+        const ussdRes = await run();
+        if (ussdRes.success) {
+          updateStatus('success');
+          setFeedback(ussdRes.message || 'OK');
+          speakFeedback(ussdRes.message || 'Opération lancée');
+          setTimeout(() => {
+            if (statusRef.current === 'success') updateStatus('idle');
+          }, 8000);
+        } else if (!ussdRes.isAwaiting) {
+          updateStatus('error');
+          setFeedback(ussdRes.message || 'Échec');
+          speakFeedback(ussdRes.message || 'Échec');
+          setTimeout(() => {
+            if (statusRef.current === 'error') updateStatus('idle');
+          }, 8000);
+        }
+      });
+      return { success: false, isAwaiting: true };
     }
-  }, [updateStatus, beginProcessingFeedback, endProcessingFeedback]);
+
+    return run();
+  }, [updateStatus, beginProcessingFeedback, endProcessingFeedback, requestVoiceBiometric, openSecurePinPrompt]);
 
   const sendAudioToBackend = async (audioBlob: Blob, filename: string = 'audio.webm') => {
     const epoch = cancelEpochRef.current;
@@ -286,16 +419,11 @@ export function useVoiceAssistantNLP(
 
       const understood = result.understood_text || '';
 
+      // PIN : jamais traité par la voix / NLP
       if (captureStatus === 'awaiting_pin') {
-        const pin = parsePinFromSpeech(understood);
-        if (pin) {
-          await executeTransferWithPin(pin);
-          return;
-        }
-        updateStatus('error');
-        setFeedback('Je n\'ai pas compris le PIN. Répétez les 4 chiffres de votre code MTN.');
-        speakFeedback('Je n\'ai pas compris le PIN. Répétez les 4 chiffres.');
-        setTimeout(() => updateStatus('awaiting_pin'), 2000);
+        updateStatus('awaiting_pin');
+        setFeedback('Utilisez le clavier pour saisir votre PIN. Ne le dictez jamais.');
+        speakFeedback('Utilisez le clavier pour votre code PIN.');
         return;
       }
 
@@ -417,6 +545,11 @@ export function useVoiceAssistantNLP(
   // (un clic utilisateur passe un event en premier argument → compteur remis à zéro)
   const startListening = useCallback(async (isAutoRetry?: unknown) => {
     if (isAutoRetry !== true) autoRetryRef.current = 0;
+    // Pendant la saisie PIN : micro désactivé (confidentialité)
+    if (statusRef.current === 'awaiting_pin' || showPinModal) {
+      setFeedback('Saisissez votre PIN sur le clavier uniquement.');
+      return;
+    }
     resetSessionActivity();
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -424,23 +557,40 @@ export function useVoiceAssistantNLP(
       const mediaRecorder = new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
+      recorderMimeTypeRef.current = mediaRecorder.mimeType || 'audio/webm';
       mediaRecorder.ondataavailable = (e) => audioChunksRef.current.push(e.data);
       mediaRecorder.onstop = async () => {
         const audioBlob = new Blob(audioChunksRef.current, { type: recorderMimeTypeRef.current });
-        if (audioBlob.size > 0) await sendAudioToBackend(audioBlob);
+        if (audioBlob.size <= 0) return;
+        // Biométrie : traitement 100 % local, jamais envoyé au NLP
+        if (biometricModeRef.current || statusRef.current === 'awaiting_voice_biometric') {
+          await handleBiometricAudio(audioBlob);
+          return;
+        }
+        await sendAudioToBackend(audioBlob);
       };
       mediaRecorder.start();
-      updateStatus('listening');
+      updateStatus(biometricModeRef.current ? 'awaiting_voice_biometric' : 'listening');
       setIsListening(true);
-      // UX Fix #14: Bip + vibration pour confirmer que le micro est actif
       playListeningStartCue();
-      // UX Fix #12: Feedback avec exemple
-      setFeedback('Je vous écoute... Dites par exemple: "Envoie 5000 à Maman"');
+      if (biometricModeRef.current) {
+        setFeedback(`Dites : ${BIOMETRIC_CHALLENGE}`);
+        if (biometricTimerRef.current) clearTimeout(biometricTimerRef.current);
+        biometricTimerRef.current = setTimeout(() => {
+          if (mediaRecorderRef.current?.state === 'recording') {
+            mediaRecorderRef.current.stop();
+            streamRef.current?.getTracks().forEach((t) => t.stop());
+            setIsListening(false);
+          }
+        }, 3500);
+      } else {
+        setFeedback('Je vous écoute... Dites par exemple: "Envoie 5000 à Maman"');
+      }
     } catch (e: any) {
       updateStatus('error');
       setFeedback('Microphone inaccessible');
     }
-  }, [updateStatus]);
+  }, [updateStatus, showPinModal, handleBiometricAudio, resetSessionActivity]);
 
   useEffect(() => {
     startListeningRef.current = startListening;
@@ -516,10 +666,15 @@ export function useVoiceAssistantNLP(
   }, [nlpApiUrl, parsedIntent, triggerUSSD, updateStatus, beginProcessingFeedback, endProcessingFeedback]);
 
   const cancelAction = useCallback(async () => {
-    // UX Fix #11: Invalider le pipeline en cours (une réponse NLP tardive sera ignorée)
     cancelEpochRef.current += 1;
     endProcessingFeedback();
     autoRetryRef.current = 0;
+    biometricModeRef.current = false;
+    pendingAfterBiometricRef.current = null;
+    if (biometricTimerRef.current) {
+      clearTimeout(biometricTimerRef.current);
+      biometricTimerRef.current = null;
+    }
     setParsedIntent(null);
     setAmbiguityContacts(null);
     setShowPinModal(false);
@@ -527,7 +682,6 @@ export function useVoiceAssistantNLP(
       const { cancelActiveTransaction } = await import('../services/ussd_engine/MoMoTransactionEngine');
       const res = cancelActiveTransaction();
       if (res.cancelled) {
-        // Une transaction USSD était en cours : informer clairement l'utilisateur
         updateStatus('success');
         setFeedback(res.message);
         speakFeedback(res.message);
@@ -570,16 +724,16 @@ export function useVoiceAssistantNLP(
 
   const executeTransferWithPin = useCallback(async (pin: string) => {
     if (!pinContext) return;
+    const pinHolder = { value: pin };
     try {
       updateStatus('processing');
-      // UX Fix #3: Messages d'attente échelonnés pendant le transfert USSD
       beginProcessingFeedback(USSD_PROCESSING_STEPS);
       const { MoMoTransactionEngine } = await import('../services/ussd_engine/MoMoTransactionEngine');
       const engine = new MoMoTransactionEngine();
 
-      // Consultation de solde live : USSD *880*4*PIN# au lieu d'un transfert
       if (pinContext.data?.mode === 'balance') {
-        const res = await engine.checkBalanceWithPin(pin);
+        const res = await engine.checkBalanceWithPin(pinHolder.value);
+        wipeSecret(pinHolder);
         endProcessingFeedback();
         setShowPinModal(false);
         updateStatus(res.status === 'success' ? 'success' : 'error');
@@ -591,26 +745,28 @@ export function useVoiceAssistantNLP(
         return;
       }
 
-      const res = await engine.confirmWithPin(pin, { phone: pinContext.data?.phone, amount: pinContext.data?.amount });
+      const res = await engine.confirmWithPin(pinHolder.value, {
+        phone: pinContext.data?.phone,
+        amount: pinContext.data?.amount,
+      });
+      wipeSecret(pinHolder);
       endProcessingFeedback();
       setShowPinModal(false);
       if (res.status === 'success') {
         updateStatus('success');
         setFeedback(res.message);
         speakFeedback(res.message);
-        // UX Fix #13: Délai plus long pour lire le message
         setTimeout(() => { if (statusRef.current === 'success') updateStatus('idle'); }, 8000);
       } else {
         updateStatus('error');
         setFeedback(res.message);
         speakFeedback(res.message);
-        // UX Fix #13: Délai plus long pour lire le message
         setTimeout(() => { if (statusRef.current === 'error') updateStatus('idle'); }, 8000);
       }
     } catch (e) {
+      wipeSecret(pinHolder);
       endProcessingFeedback();
       updateStatus('error');
-      // UX: Toujours expliquer ce qui s'est passé, même sur erreur inattendue
       setFeedback("Le transfert n'a pas pu être lancé. Votre argent n'a pas été débité. Veuillez réessayer.");
       setTimeout(() => { if (statusRef.current === 'error') updateStatus('idle'); }, 5000);
     }

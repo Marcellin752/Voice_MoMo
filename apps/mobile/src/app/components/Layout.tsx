@@ -5,6 +5,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { motion, AnimatePresence } from "motion/react";
 import { useVoiceAssistantNLP } from "../hooks/useVoiceAssistantNLP";
 import ContactDisambiguationModal from "./ContactDisambiguationModal";
+import SecurePinModal from "./SecurePinModal";
 
 export default function Layout() {
   const { t } = useLanguage();
@@ -19,17 +20,34 @@ export default function Layout() {
     cancelAction,
     ambiguityContacts,
     ambiguityQuery,
+    showPinModal,
+    pinPrompt,
+    executeTransferWithPin,
   } = useVoiceAssistantNLP(undefined, token ?? undefined);
 
   const handleMicClick = () => {
     if (status === 'idle') {
       startListening();
-    } else if (status === 'listening') {
+    } else if (status === 'listening' || status === 'awaiting_voice_biometric') {
       stopListening();
-    } else if (status === 'processing' || status === 'awaiting_confirmation' || status === 'awaiting_pin' || status === 'awaiting_disambiguation') {
+    } else if (
+      status === 'processing' ||
+      status === 'awaiting_confirmation' ||
+      status === 'awaiting_pin' ||
+      status === 'awaiting_disambiguation'
+    ) {
       cancelAction();
     }
   };
+
+  const hint =
+    status === 'awaiting_pin'
+      ? 'Saisissez le PIN sur le clavier (jamais à voix haute).'
+      : status === 'awaiting_voice_biometric'
+        ? 'Vérification : dites la phrase demandée.'
+        : status === 'awaiting_confirmation' || status === 'awaiting_disambiguation'
+          ? 'Répondez à voix haute ou dites « annule ».'
+          : null;
 
   return (
     <div className="flex flex-col h-[100dvh] bg-slate-50 dark:bg-[#121212] w-full max-w-md mx-auto relative overflow-hidden transition-colors duration-300">
@@ -52,10 +70,8 @@ export default function Layout() {
                   {feedback}
                 </p>
               )}
-              {(status === 'awaiting_confirmation' || status === 'awaiting_pin' || status === 'awaiting_disambiguation') && (
-                <p className="text-[10px] mt-2 text-slate-400 dark:text-zinc-500 font-medium">
-                  Répondez à voix haute ou dites « annule ».
-                </p>
+              {hint && (
+                <p className="text-[10px] mt-2 text-slate-400 dark:text-zinc-500 font-medium">{hint}</p>
               )}
             </motion.div>
           )}
@@ -66,14 +82,17 @@ export default function Layout() {
             onClick={handleMicClick}
             whileTap={{ scale: 0.92 }}
             whileHover={{ scale: 1.05 }}
+            disabled={status === 'awaiting_pin'}
             className={`relative w-14 h-14 rounded-full flex items-center justify-center shadow-2xl border-[3px] border-white dark:border-[#1A1A1A] cursor-pointer transition-colors duration-300 ${
               status === 'idle'
                 ? 'bg-[#004F71] text-white hover:bg-[#003B5C]'
-                : 'bg-red-500 text-white hover:bg-red-600'
+                : status === 'awaiting_pin'
+                  ? 'bg-slate-400 text-white cursor-not-allowed'
+                  : 'bg-red-500 text-white hover:bg-red-600'
             }`}
             title="Assistant Vocal"
           >
-            {status === 'listening' ? (
+            {(status === 'listening' || status === 'awaiting_voice_biometric') ? (
               <>
                 <motion.div
                   animate={{ scale: [1, 1.8], opacity: [0.4, 0] }}
@@ -95,7 +114,7 @@ export default function Layout() {
                 className="absolute inset-2 border-2 border-white border-t-transparent rounded-full"
               />
             ) : (
-              <Mic size={22} className={status === 'listening' ? 'animate-pulse' : ''} />
+              <Mic size={22} className={(status === 'listening' || status === 'awaiting_voice_biometric') ? 'animate-pulse' : ''} />
             )}
           </motion.button>
         </div>
@@ -109,9 +128,16 @@ export default function Layout() {
       </nav>
 
       <ContactDisambiguationModal
-        isOpen={!!ambiguityContacts?.length}
+        isOpen={status === 'awaiting_disambiguation'}
         contacts={ambiguityContacts || []}
         query={ambiguityQuery}
+      />
+
+      <SecurePinModal
+        isOpen={showPinModal}
+        prompt={pinPrompt}
+        onSubmit={executeTransferWithPin}
+        onCancel={cancelAction}
       />
     </div>
   );

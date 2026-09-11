@@ -1,4 +1,4 @@
-import { ChevronRight, User, Settings, LogOut, Check, Moon, Sun } from "lucide-react";
+import { ChevronRight, User, Settings, LogOut, Check, Moon, Sun, Mic } from "lucide-react";
 import { Link, useNavigate } from "react-router";
 import { useTheme } from "../contexts/ThemeContext";
 import { useAuth } from "../contexts/AuthContext";
@@ -76,6 +76,14 @@ export default function SettingsScreen() {
         <div>
           <h3 className="text-xs font-bold tracking-widest text-slate-500 dark:text-zinc-500 uppercase px-2 mb-3">{t("settings_security")}</h3>
           <div className="bg-white dark:bg-[#1A1A1A] rounded-3xl overflow-hidden shadow-sm border border-slate-100 dark:border-white/5 transition-colors duration-300">
+            <SettingsItem
+              to="/app/settings/voice-biometric"
+              icon={<Mic size={22} />}
+              title="Empreinte vocale"
+              subtitle="Protège vos transferts contre l'usurpation"
+              color="text-[#004F71] dark:text-[#FFCC00]"
+              bgColor="bg-[#004F71]/5 dark:bg-[#FFCC00]/10"
+            />
             <SettingsItem
               to="/app/settings/pin"
               icon={<Check size={22} />}

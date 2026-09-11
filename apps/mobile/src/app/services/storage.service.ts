@@ -14,7 +14,8 @@ export class StorageService {
       'momo.transactions',
       'momo.pin.updatedAt',
       'momo.theme',
-      'momo.contacts'
+      'momo.contacts',
+      'momo.voice.biometric',
     ];
     for (const key of keys) {
       try {
