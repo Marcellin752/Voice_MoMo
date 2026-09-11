@@ -1,27 +1,48 @@
 /**
- * Empreinte vocale 100 % on-device.
- * Aucun audio / vecteur n'est envoyé au cloud (ni Gemini, ni backend).
- *
- * Signature : énergies Goertzel (fréquences cibles) + ZCR + énergie RMS,
- * comparée par similarité cosinus.
+ * Empreinte vocale 100 % on-device + anti-replay + journal d'échecs.
+ * Aucun audio / vecteur n'est envoyé au cloud.
  */
 
 import { StorageService } from './storage.service';
 
 const STORAGE_KEY = 'momo.voice.biometric';
+const JOURNAL_KEY = 'momo.voice.biometric.journal';
+const REPLAY_KEY = 'momo.voice.biometric.recent';
+
 export const VOICE_BIOMETRIC_MAX_ATTEMPTS = 2;
 export const VOICE_BIOMETRIC_THRESHOLD = 0.82;
+/** Au-delà de ce score vs un probe récent → probable replay audio. */
+export const REPLAY_SIMILARITY_THRESHOLD = 0.985;
+export const REPLAY_WINDOW_MS = 90_000;
+export const BIOMETRIC_JOURNAL_MAX = 40;
+
 export const ENROLLMENT_PHRASES = [
   'Je suis le propriétaire de ce compte Voice MoMo',
   'Mon argent est protégé par ma voix',
   'Seul moi peux valider mes transferts',
 ] as const;
 
+const CODE_WORDS = [
+  'mango', 'soleil', 'coton', 'palmier', 'pirogue', 'tam-tam', 'yélo', 'cacahuète',
+];
+
 export type VoiceBiometricProfile = {
   embedding: number[];
   enrolledAt: string;
   sampleCount: number;
   version: 1;
+};
+
+export type BiometricJournalEntry = {
+  at: string;
+  event: 'enroll' | 'verify_ok' | 'verify_fail' | 'replay_blocked' | 'lockout';
+  score?: number;
+  detail?: string;
+};
+
+export type RecentProbe = {
+  at: number;
+  embedding: number[];
 };
 
 const TARGET_HZ = [80, 120, 180, 250, 350, 500, 750, 1000, 1500, 2000, 3000, 4000];
@@ -78,7 +99,44 @@ function downsample(channel: Float32Array, fromRate: number, toRate: number): Fl
   return out;
 }
 
-/** Extraire un embedding fixe depuis un Blob audio (Web Audio API). */
+/** Challenge anti-replay : phrase + mot aléatoire (change à chaque tentative). */
+export function buildBiometricChallenge(): { phrase: string; codeWord: string } {
+  const codeWord = CODE_WORDS[Math.floor(Math.random() * CODE_WORDS.length)];
+  const phrase = `Je suis le propriétaire de ce compte Voice MoMo, code ${codeWord}`;
+  return { phrase, codeWord };
+}
+
+export async function appendBiometricJournal(
+  event: BiometricJournalEntry['event'],
+  extra?: { score?: number; detail?: string }
+): Promise<void> {
+  const prev = (await StorageService.get<BiometricJournalEntry[]>(JOURNAL_KEY)) || [];
+  const entry: BiometricJournalEntry = {
+    at: new Date().toISOString(),
+    event,
+    score: extra?.score,
+    detail: extra?.detail,
+  };
+  const next = [entry, ...prev].slice(0, BIOMETRIC_JOURNAL_MAX);
+  await StorageService.set(JOURNAL_KEY, next);
+}
+
+export async function getBiometricJournal(): Promise<BiometricJournalEntry[]> {
+  return (await StorageService.get<BiometricJournalEntry[]>(JOURNAL_KEY)) || [];
+}
+
+async function loadRecentProbes(): Promise<RecentProbe[]> {
+  const raw = (await StorageService.get<RecentProbe[]>(REPLAY_KEY)) || [];
+  const now = Date.now();
+  return raw.filter((p) => now - p.at < REPLAY_WINDOW_MS);
+}
+
+async function saveRecentProbe(embedding: number[]): Promise<void> {
+  const prev = await loadRecentProbes();
+  prev.unshift({ at: Date.now(), embedding });
+  await StorageService.set(REPLAY_KEY, prev.slice(0, 8));
+}
+
 export async function extractVoiceEmbedding(audioBlob: Blob): Promise<number[]> {
   const arrayBuffer = await audioBlob.arrayBuffer();
   const audioCtx = new AudioContext();
@@ -91,7 +149,6 @@ export async function extractVoiceEmbedding(audioBlob: Blob): Promise<number[]> 
       throw new Error('Enregistrement trop court. Parlez plus longtemps.');
     }
 
-    // Couper silence approximatif aux extrémités
     let start = 0;
     let end = channel.length - 1;
     const silence = 0.01;
@@ -123,7 +180,6 @@ export async function extractVoiceEmbedding(audioBlob: Blob): Promise<number[]> 
         bandAcc[b] += goertzelPower(frame, sampleRate, TARGET_HZ[b]);
       }
       frameCount++;
-      // Limiter le coût CPU
       if (frameCount >= 40) break;
     }
 
@@ -174,6 +230,8 @@ export async function enrollVoiceBiometric(audioBlobs: Blob[]): Promise<VoiceBio
     version: 1,
   };
   await StorageService.set(STORAGE_KEY, profile);
+  await StorageService.remove(REPLAY_KEY);
+  await appendBiometricJournal('enroll', { detail: `${vectors.length} samples` });
   return profile;
 }
 
@@ -181,25 +239,39 @@ export async function verifyVoiceBiometric(audioBlob: Blob): Promise<{
   matched: boolean;
   score: number;
   enrolled: boolean;
+  replayBlocked?: boolean;
 }> {
   const profile = await getVoiceBiometricProfile();
   if (!profile?.embedding?.length) {
     return { matched: false, score: 0, enrolled: false };
   }
   const probe = await extractVoiceEmbedding(audioBlob);
+
+  // Anti-replay : rejeter un audio quasi-identique à un probe récent
+  const recent = await loadRecentProbes();
+  for (const prev of recent) {
+    const replayScore = cosineSimilarity(prev.embedding, probe);
+    if (replayScore >= REPLAY_SIMILARITY_THRESHOLD) {
+      await appendBiometricJournal('replay_blocked', {
+        score: replayScore,
+        detail: 'Possible réutilisation d\'un enregistrement audio',
+      });
+      return { matched: false, score: replayScore, enrolled: true, replayBlocked: true };
+    }
+  }
+
   const score = cosineSimilarity(profile.embedding, probe);
-  return {
-    matched: score >= VOICE_BIOMETRIC_THRESHOLD,
-    score,
-    enrolled: true,
-  };
+  const matched = score >= VOICE_BIOMETRIC_THRESHOLD;
+  await saveRecentProbe(probe);
+  await appendBiometricJournal(matched ? 'verify_ok' : 'verify_fail', { score });
+  return { matched, score, enrolled: true };
 }
 
 export async function clearVoiceBiometric(): Promise<void> {
   await StorageService.remove(STORAGE_KEY);
+  await StorageService.remove(REPLAY_KEY);
 }
 
-/** Écrase une chaîne PIN en mémoire (meilleur effort JS). */
 export function wipeSecret(secret: { value: string } | null): void {
   if (!secret) return;
   secret.value = '\0'.repeat(secret.value.length || 4);

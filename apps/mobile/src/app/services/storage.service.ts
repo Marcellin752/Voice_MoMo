@@ -16,6 +16,8 @@ export class StorageService {
       'momo.theme',
       'momo.contacts',
       'momo.voice.biometric',
+      'momo.voice.biometric.journal',
+      'momo.voice.biometric.recent',
     ];
     for (const key of keys) {
       try {

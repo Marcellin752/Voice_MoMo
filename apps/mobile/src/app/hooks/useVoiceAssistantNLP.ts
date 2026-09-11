@@ -16,6 +16,8 @@ import {
 import { playListeningStartCue } from '../utils/audioCues';
 import {
   VOICE_BIOMETRIC_MAX_ATTEMPTS,
+  appendBiometricJournal,
+  buildBiometricChallenge,
   hasVoiceBiometric,
   verifyVoiceBiometric,
   wipeSecret,
@@ -51,8 +53,6 @@ const SENSITIVE_INTENTS = new Set([
   'gopack_week',
   'gopack_month',
 ]);
-
-const BIOMETRIC_CHALLENGE = 'Je suis le propriétaire de ce compte Voice MoMo';
 
 interface ParsedResponse {
   success: boolean;
@@ -128,6 +128,7 @@ export function useVoiceAssistantNLP(
   const biometricModeRef = useRef(false);
   const pendingAfterBiometricRef = useRef<null | (() => Promise<void>)>(null);
   const biometricTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const biometricChallengeRef = useRef<string>('Je suis le propriétaire de ce compte Voice MoMo');
 
   useEffect(() => {
     ambiguityContactsRef.current = ambiguityContacts;
@@ -270,8 +271,10 @@ export function useVoiceAssistantNLP(
 
     pendingAfterBiometricRef.current = onSuccess;
     biometricModeRef.current = true;
+    const challenge = buildBiometricChallenge();
+    biometricChallengeRef.current = challenge.phrase;
     updateStatus('awaiting_voice_biometric');
-    const msg = `Vérification vocale. Dites : ${BIOMETRIC_CHALLENGE}`;
+    const msg = `Vérification vocale anti-fraude. Dites exactement : ${challenge.phrase}`;
     setFeedback(msg);
     setTranscript('');
     await speakFeedback(msg);
@@ -295,10 +298,36 @@ export function useVoiceAssistantNLP(
         setTimeout(() => updateStatus('idle'), 8000);
         return;
       }
+      if (result.replayBlocked) {
+        biometricAttemptsRef.current += 1;
+        const left = VOICE_BIOMETRIC_MAX_ATTEMPTS - biometricAttemptsRef.current;
+        if (left <= 0) {
+          await appendBiometricJournal('lockout', { detail: 'replay' });
+          updateStatus('error');
+          setFeedback('Enregistrement audio suspect. Sécurité : déconnexion.');
+          await speakFeedback('Enregistrement suspect. Déconnexion.');
+          biometricAttemptsRef.current = 0;
+          pendingAfterBiometricRef.current = null;
+          setTimeout(() => logout(), 1500);
+          return;
+        }
+        updateStatus('awaiting_voice_biometric');
+        biometricModeRef.current = true;
+        const challenge = buildBiometricChallenge();
+        biometricChallengeRef.current = challenge.phrase;
+        const msg = `Enregistrement suspect. Il reste ${left} essai. Parlez en direct : ${challenge.phrase}`;
+        setFeedback(msg);
+        await speakFeedback(msg);
+        if (statusRef.current === 'awaiting_voice_biometric') {
+          startListeningRef.current?.(true);
+        }
+        return;
+      }
       if (!result.matched) {
         biometricAttemptsRef.current += 1;
         const left = VOICE_BIOMETRIC_MAX_ATTEMPTS - biometricAttemptsRef.current;
         if (left <= 0) {
+          await appendBiometricJournal('lockout', { score: result.score });
           updateStatus('error');
           setFeedback('Voix non reconnue. Sécurité : déconnexion.');
           await speakFeedback('Voix non reconnue. Déconnexion pour protéger votre compte.');
@@ -310,7 +339,9 @@ export function useVoiceAssistantNLP(
         }
         updateStatus('awaiting_voice_biometric');
         biometricModeRef.current = true;
-        const msg = `Voix non reconnue. Il vous reste ${left} essai. Dites : ${BIOMETRIC_CHALLENGE}`;
+        const challenge = buildBiometricChallenge();
+        biometricChallengeRef.current = challenge.phrase;
+        const msg = `Voix non reconnue. Il vous reste ${left} essai. Dites : ${challenge.phrase}`;
         setFeedback(msg);
         await speakFeedback(msg);
         if (statusRef.current === 'awaiting_voice_biometric') {
@@ -652,7 +683,7 @@ export function useVoiceAssistantNLP(
       setIsListening(true);
       playListeningStartCue();
       if (biometricModeRef.current) {
-        setFeedback(`Dites : ${BIOMETRIC_CHALLENGE}`);
+        setFeedback(`Dites : ${biometricChallengeRef.current}`);
         if (biometricTimerRef.current) clearTimeout(biometricTimerRef.current);
         biometricTimerRef.current = setTimeout(() => {
           if (mediaRecorderRef.current?.state === 'recording') {

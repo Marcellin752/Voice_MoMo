@@ -6,8 +6,10 @@ import {
   ENROLLMENT_PHRASES,
   clearVoiceBiometric,
   enrollVoiceBiometric,
+  getBiometricJournal,
   hasVoiceBiometric,
   getVoiceBiometricProfile,
+  type BiometricJournalEntry,
 } from '../services/voiceBiometric.service';
 
 type Phase = 'idle' | 'recording' | 'processing';
@@ -15,6 +17,7 @@ type Phase = 'idle' | 'recording' | 'processing';
 export default function VoiceBiometricScreen() {
   const [enrolled, setEnrolled] = useState(false);
   const [enrolledAt, setEnrolledAt] = useState<string | null>(null);
+  const [journal, setJournal] = useState<BiometricJournalEntry[]>([]);
   const [step, setStep] = useState(0);
   const [phase, setPhase] = useState<Phase>('idle');
   const [samples, setSamples] = useState<Blob[]>([]);
@@ -31,6 +34,7 @@ export default function VoiceBiometricScreen() {
     } else {
       setEnrolledAt(null);
     }
+    setJournal(await getBiometricJournal());
   };
 
   useEffect(() => {
@@ -170,6 +174,27 @@ export default function VoiceBiometricScreen() {
             <Trash2 size={18} />
             Supprimer l’empreinte
           </button>
+        </div>
+      )}
+
+      {journal.length > 0 && (
+        <div className="mt-8 bg-white dark:bg-[#1A1A1A] rounded-3xl p-5 border border-slate-100 dark:border-white/5">
+          <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-3">Journal de sécurité</h3>
+          <ul className="space-y-2 max-h-48 overflow-y-auto">
+            {journal.slice(0, 12).map((j, idx) => (
+              <li key={`${j.at}-${idx}`} className="text-xs text-slate-500 dark:text-zinc-400 flex justify-between gap-2">
+                <span>
+                  {j.event === 'verify_ok' && '✅ Vérification OK'}
+                  {j.event === 'verify_fail' && '❌ Échec voix'}
+                  {j.event === 'replay_blocked' && '🚫 Replay bloqué'}
+                  {j.event === 'lockout' && '🔒 Verrouillage'}
+                  {j.event === 'enroll' && '🎙️ Enrôlement'}
+                  {j.score != null ? ` (${(j.score * 100).toFixed(0)}%)` : ''}
+                </span>
+                <span className="shrink-0">{new Date(j.at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}</span>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
     </div>

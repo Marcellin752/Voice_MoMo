@@ -399,9 +399,56 @@ export class MoMoTransactionEngine {
             const body: string = sms.body || sms.text || sms.message || '';
             const address: string = sms.address || sms.originatingAddress || sms.phone || '';
 
-            if (!SmsListenerService.isLikelyMtnMomoMessage(address, body)) return;
+            const isMtn = SmsListenerService.isLikelyMtnMomoMessage(address, body);
+            const isLinka = SmsListenerService.isLikelyLinkaMessage(address, body);
+            if (!isMtn && !isLinka) return;
 
-            console.log('📩 [SMS_CONFIRM] SMS MTN intercepté:', body);
+            console.log('📩 [SMS_CONFIRM] SMS MoMo/Linka intercepté:', body);
+
+            if (isLinka) {
+                const linka = SmsListenerService.parseLinkaSms(body);
+                if (linka.success === false) {
+                    console.warn('❌ [SMS_CONFIRM] Linka indique un échec.');
+                    document.removeEventListener('onSMSArrive', onSmsArrive);
+                    if (smsTimeoutId) clearTimeout(smsTimeoutId);
+                    resolved = true;
+                    window.dispatchEvent(new CustomEvent('momo:transaction-complete', {
+                        detail: {
+                            success: false,
+                            message: linka.message,
+                            fees: linka.fees,
+                            amount: linka.amount,
+                            provider: 'linka',
+                        }
+                    }));
+                    this.updateState(TransactionState.FAILED, { error: linka.message });
+                    this.cleanup();
+                    return;
+                }
+                if (linka.success === true || linka.balance !== null) {
+                    if (linka.balance !== null) {
+                        import('../users.service').then(({ updateBalance }) => {
+                            updateBalance(linka.balance!).catch((err: any) =>
+                                console.warn('⚠️ [SMS_CONFIRM] updateBalance failed:', err)
+                            );
+                        });
+                        window.dispatchEvent(new CustomEvent('momo:balance-updated', {
+                            detail: { balance: linka.balance }
+                        }));
+                    }
+                    finish(true, {
+                        success: true,
+                        message: linka.fees != null
+                            ? `Transfert Linka confirmé. Frais ${linka.fees.toLocaleString('fr-FR')} FCFA.`
+                            : (linka.message || 'Transfert Linka confirmé.'),
+                        balance: linka.balance ?? undefined,
+                        fees: linka.fees,
+                        amount: linka.amount,
+                        provider: 'linka',
+                    });
+                    return;
+                }
+            }
 
             // Échec explicite renvoyé par MTN
             if (/insuffisant|incorrect|échoué|invalide|refus|non autorisé|failed/i.test(body)) {
@@ -430,10 +477,11 @@ export class MoMoTransactionEngine {
                     success: true,
                     message: `Transaction réussie ! Nouveau solde : ${newBalance.toLocaleString('fr-FR')} FCFA.`,
                     balance: newBalance,
+                    provider: 'mtn',
                 });
             } else {
                 // SMS MTN reçu sans montant lisible → présumer succès
-                finish(true, { success: true, message: 'Transaction confirmée par MTN.' });
+                finish(true, { success: true, message: 'Transaction confirmée par MTN.', provider: 'mtn' });
             }
         };
 
