@@ -48,7 +48,13 @@ export class InterNetworkTransferEngine {
     // Cas 2 : MTN → Autre réseau (via Linka Send)
     // Format Linka : *601*16*{NUMERO}*{CODE_RESEAU}*{MONTANT}#
     if (this.senderNetwork === MobileNetwork.MTN) {
+      if (this.recipientNetwork === MobileNetwork.UNKNOWN) {
+        throw new Error('Réseau du destinataire inconnu. Vérifiez le numéro (MTN, Moov ou Celtis).');
+      }
       const networkCode = NetworkDetector.getNetworkCode(this.recipientNetwork);
+      if (!networkCode) {
+        throw new Error('Impossible de déterminer le code réseau Linka pour ce numéro.');
+      }
       const code = `*601*16*${this.recipientPhone}*${networkCode}*${amount}#`;
       console.log(`✅ [INTER-NETWORK] MTN→${this.recipientNetwork} (Linka): ${code}`);
       return code;
@@ -109,7 +115,14 @@ export class InterNetworkTransferEngine {
       };
     }
 
-    // MTN peut transférer vers tous les réseaux
+    if (this.recipientNetwork === MobileNetwork.UNKNOWN) {
+      return {
+        canExecute: false,
+        reason: 'Numéro destinataire non reconnu (MTN, Moov ou Celtis Bénin requis).',
+      };
+    }
+
+    // MTN peut transférer vers tous les réseaux connus
     return { canExecute: true };
   }
 

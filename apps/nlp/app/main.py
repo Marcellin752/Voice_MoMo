@@ -319,10 +319,7 @@ async def sync_contacts(request: Request, payload: ContactsSyncRequest):
     📱 Synchroniser les contacts JSON du mobile vers la base de l'utilisateur.
     Utilisé par le moteur NLP pour router un nom d'usage (ex "maman") en réel numéro de transfert.
     """
-    try:
-        user_id = await extract_user_from_request(request)
-    except HTTPException:
-        user_id = "default"
+    user_id = await extract_user_from_request(request)
         
     user_data = executor.users_db.get(user_id, executor.users_db["default"])
     
@@ -653,11 +650,8 @@ async def cancel_action(
     
     Utilisé après la réponse de refus vocal ("Non")
     """
-    # Extraire user_id du JWT
-    try:
-        user_id = await extract_user_from_request(request)
-    except HTTPException:
-        user_id = "default"
+    # Extraire user_id du JWT (strict — pas de fallback "default")
+    user_id = await extract_user_from_request(request)
     
     logger.info(f"❌ Annulation reçue pour: {payload.transaction_id} (user_id={user_id})")
     
@@ -674,12 +668,11 @@ async def cancel_action(
 
 
 @app.get("/api/pending-transactions")
-async def get_pending_transactions(user_id: str = "default"):
+async def get_pending_transactions(request: Request):
     """
-    📋 Lister les transactions en attente
-    
-    DEBUG ONLY - À utiliser pour le monitoring
+    📋 Lister les transactions en attente (JWT requis)
     """
+    user_id = await extract_user_from_request(request)
     tx = cache.get_by_user(user_id)
     
     if not tx:

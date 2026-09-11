@@ -6,6 +6,7 @@ Replaces Grok with Google's free Gemini 2.0 Flash API
 import json
 import requests
 import os
+import time
 
 from app.config import settings
 from app.models import (
@@ -125,8 +126,31 @@ class GeminiClient:
         }
         
         try:
-            response = requests.post(self.url, json=payload, timeout=30)
-            response.raise_for_status()
+            max_retries = 3
+            base_delay = 2
+            response = None
+            last_error = None
+            for attempt in range(max_retries):
+                try:
+                    response = requests.post(self.url, json=payload, timeout=30)
+                    if response.status_code in (429, 503) and attempt < max_retries - 1:
+                        delay = base_delay * (2 ** attempt)
+                        time.sleep(delay)
+                        continue
+                    response.raise_for_status()
+                    break
+                except requests.exceptions.RequestException as e:
+                    last_error = e
+                    if attempt < max_retries - 1:
+                        delay = base_delay * (2 ** attempt)
+                        time.sleep(delay)
+                        continue
+                    raise RuntimeError(f"Gemini API error: {str(e)}") from e
+
+            if response is None or response.status_code != 200:
+                err = last_error or f"HTTP {getattr(response, 'status_code', '?')}"
+                raise RuntimeError(f"Gemini API error: {err}")
+
             data_resp = response.json()
             content = data_resp['candidates'][0]['content']['parts'][0]['text'].strip()
         except Exception as e:
@@ -160,6 +184,7 @@ class GeminiClient:
         needs_confirmation = bool(data.get("needs_confirmation", False))
         if intent_value in {
             Intent.TRANSFER.value, Intent.RECHARGE.value, Intent.BILL_PAYMENT.value,
+            Intent.WITHDRAW.value, Intent.DEPOSIT.value,
             Intent.WITHDRAW_GAB.value, Intent.INTERNET_DAY.value, Intent.INTERNET_WEEK.value,
             Intent.INTERNET_MONTH.value, Intent.INTERNET_UNLIMITED.value,
             Intent.GOPACK_DAY.value, Intent.GOPACK_WEEK.value, Intent.GOPACK_MONTH.value

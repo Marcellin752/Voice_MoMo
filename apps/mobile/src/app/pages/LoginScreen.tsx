@@ -21,6 +21,7 @@ export default function LoginScreen() {
   const navigate = useNavigate();
   const { setAuth, token, loading: authLoading } = useAuth();
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const verifyingRef = useRef(false);
 
   // Auto-redirect if already authenticated
   useEffect(() => {
@@ -90,6 +91,8 @@ export default function LoginScreen() {
           setOtpSentCode("");
           toast.success("Code OTP envoyé par SMS !");
         }
+      } else {
+        toast.error((res as any).message || "Impossible d'envoyer l'OTP.");
       }
     } catch (err: any) {
       toast.error(err.message || "Impossible d'envoyer l'OTP.");
@@ -102,6 +105,8 @@ export default function LoginScreen() {
   const submitVerifyOtp = async (codeToVerify?: string) => {
     const targetCode = codeToVerify || otp;
     if (targetCode.length !== 6) return;
+    if (verifyingRef.current) return;
+    verifyingRef.current = true;
 
     setLoading(true);
     try {
@@ -113,6 +118,7 @@ export default function LoginScreen() {
       toast.error(err.message || "Code OTP incorrect ou expiré.");
       setOtp(""); // Vider en cas d'erreur
     } finally {
+      verifyingRef.current = false;
       setLoading(false);
     }
   };
@@ -288,6 +294,11 @@ export default function LoginScreen() {
                 >
                   <span>{loading ? "Vérification..." : "Valider le code"}</span>
                 </button>
+                {slowServer && (
+                  <p className="text-center text-xs font-semibold text-slate-400 dark:text-zinc-500">
+                    Le serveur démarre (mode gratuit), cela peut prendre jusqu'à 30 secondes. Merci de patienter…
+                  </p>
+                )}
 
                 <button
                   onClick={submitSendOtp}

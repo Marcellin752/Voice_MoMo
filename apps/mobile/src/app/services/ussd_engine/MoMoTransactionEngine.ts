@@ -254,7 +254,7 @@ export class MoMoTransactionEngine {
                 dialerFallback: true,
             };
         } catch (e) {
-            const msg = e instanceof Error ? e.message : 'Impossible de lancer le code USSD.';
+            const msg = formatUssdFailureMessage(e, null);
             this.updateState(TransactionState.FAILED, { error: msg });
             this.cleanup();
             return { status: 'error', message: msg };
@@ -352,7 +352,7 @@ export class MoMoTransactionEngine {
             };
         } catch (e: any) {
             console.error('⚙️ [ENGINE] [ERROR] Interactive transfer failed:', e);
-            const msg = e instanceof Error ? e.message : 'Impossible de lancer le transfert. Vérifiez vos permissions téléphone.';
+            const msg = formatUssdFailureMessage(e, null);
             this.updateState(TransactionState.FAILED, { error: msg });
             this.cleanup();
             return { status: 'error', message: msg };

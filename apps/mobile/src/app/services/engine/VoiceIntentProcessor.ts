@@ -191,6 +191,17 @@ export class VoiceIntentProcessor {
       const transferInfo = interNetworkEngine.getTransferInfo();
       const recipientNetwork = NetworkDetector.detectNetwork(finalNumber);
 
+      if (recipientNetwork === MobileNetwork.UNKNOWN) {
+        return {
+          status: 'error',
+          message: 'Je ne reconnais pas le réseau de ce numéro. Vérifiez qu\'il s\'agit d\'un numéro MTN, Moov ou Celtis du Bénin.',
+        };
+      }
+
+      const fees = interNetworkEngine.getTransferFees(Number(amount));
+      const total = Number(amount) + fees;
+      const networkLabel = NetworkDetector.getNetworkLabel(recipientNetwork).replace(/^[^\w]+/, '').trim();
+
       console.log(`🔄 [VIP] Transfer prepared - ${NetworkDetector.getNetworkLabel(transferInfo.senderNetwork)} → ${NetworkDetector.getNetworkLabel(recipientNetwork)} via ${transferInfo.service}`);
 
       return {
@@ -202,7 +213,13 @@ export class VoiceIntentProcessor {
           recipientName: contacts[0].name,
           senderNetwork: transferInfo.senderNetwork,
           recipientNetwork: recipientNetwork,
-          service: transferInfo.service
+          service: transferInfo.service,
+          fees,
+          totalAmount: total,
+          confirmationHint:
+            transferInfo.service === 'Linka Send'
+              ? `via Linka vers ${networkLabel}, frais estimés ${fees.toLocaleString('fr-FR')} francs, total ${total.toLocaleString('fr-FR')} francs`
+              : `vers ${networkLabel}, sans frais Linka`,
         }
       };
     } catch (error) {

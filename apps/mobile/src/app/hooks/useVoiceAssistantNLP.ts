@@ -108,6 +108,8 @@ export function useVoiceAssistantNLP(
   const [ambiguityQuery, setAmbiguityQuery] = useState('');
   const ambiguityContextRef = useRef<{ intent: string; data: any } | null>(null);
   const ambiguityContactsRef = useRef<any[] | null>(null);
+  const biometricVerifiedRef = useRef(false);
+  const speakChainRef = useRef<Promise<void>>(Promise.resolve());
 
   const { resetSessionActivity, logout } = useAuth();
 
@@ -126,6 +128,10 @@ export function useVoiceAssistantNLP(
   const biometricModeRef = useRef(false);
   const pendingAfterBiometricRef = useRef<null | (() => Promise<void>)>(null);
   const biometricTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    ambiguityContactsRef.current = ambiguityContacts;
+  }, [ambiguityContacts]);
 
   useEffect(() => {
     const token = jwtToken || localStorage.getItem('momo.auth.token');
@@ -167,49 +173,63 @@ export function useVoiceAssistantNLP(
     return () => { stopProgressiveRef.current?.(); };
   }, []);
 
-  // Ré-arme le micro après une transition vers un état "en attente de réponse".
-  // PAS pour awaiting_pin : le PIN se saisit uniquement au clavier (confidentialité).
+  // Ré-arme le micro après confirmation / désambiguïsation uniquement.
+  // Biométrie : le micro démarre APRÈS la fin du TTS (voir requestVoiceBiometric).
+  // PIN : jamais de micro (saisie clavier uniquement).
   useEffect(() => {
-    if (status !== 'awaiting_confirmation' && status !== 'awaiting_disambiguation' && status !== 'awaiting_voice_biometric') {
+    if (status !== 'awaiting_confirmation' && status !== 'awaiting_disambiguation') {
       return;
     }
     const delay = setTimeout(() => {
       startListeningRef.current?.(true);
-    }, 1200);
+    }, 1800);
     return () => clearTimeout(delay);
   }, [status]);
 
   const speakFeedback = async (text: string) => {
-    try {
-      const { TextToSpeech } = await import('@capacitor-community/text-to-speech');
-      // Coupe toute lecture en cours avant de démarrer la suivante : sans ça,
-      // deux appels rapprochés peuvent se chevaucher et donner l'impression
-      // que l'assistant coupe une phrase pour en démarrer une autre au milieu.
-      await TextToSpeech.stop().catch(() => {});
-      await TextToSpeech.speak({
-        text: text,
-        lang: 'fr-FR',
-        rate: 1.0,
-        pitch: 1.0,
-        volume: 1.0,
-        category: 'ambient',
-      });
-    } catch (e) {
-      console.warn('⚠️ [TTS] Fallback Web Speech API', e);
-      if (!('speechSynthesis' in window)) return;
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = 'fr-FR';
-      const voices = window.speechSynthesis.getVoices();
-      const frenchVoice = voices.find(v => v.lang.startsWith('fr'));
-      if (frenchVoice) utterance.voice = frenchVoice;
-      window.speechSynthesis.speak(utterance);
-    }
+    const run = async () => {
+      try {
+        const { TextToSpeech } = await import('@capacitor-community/text-to-speech');
+        await TextToSpeech.stop().catch(() => {});
+        await TextToSpeech.speak({
+          text: text,
+          lang: 'fr-FR',
+          rate: 1.0,
+          pitch: 1.0,
+          volume: 1.0,
+          category: 'ambient',
+        });
+      } catch (e) {
+        console.warn('⚠️ [TTS] Fallback Web Speech API', e);
+        if (!('speechSynthesis' in window)) return;
+        window.speechSynthesis.cancel();
+        await new Promise<void>((resolve) => {
+          const utterance = new SpeechSynthesisUtterance(text);
+          utterance.lang = 'fr-FR';
+          const voices = window.speechSynthesis.getVoices();
+          const frenchVoice = voices.find(v => v.lang.startsWith('fr'));
+          if (frenchVoice) utterance.voice = frenchVoice;
+          utterance.onend = () => resolve();
+          utterance.onerror = () => resolve();
+          window.speechSynthesis.speak(utterance);
+          setTimeout(resolve, Math.min(15000, Math.max(2500, text.length * 80)));
+        });
+      }
+    };
+    const next = speakChainRef.current.then(run, run);
+    speakChainRef.current = next.catch(() => {});
+    await next;
   };
 
   const playAudioResponse = async (base64Audio: string): Promise<void> => {
-    return new Promise((resolve) => {
+    return new Promise(async (resolve) => {
       try {
+        try {
+          const { TextToSpeech } = await import('@capacitor-community/text-to-speech');
+          await TextToSpeech.stop().catch(() => {});
+        } catch { /* ignore */ }
+        if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+
         const binaryString = atob(base64Audio);
         const bytes = new Uint8Array(binaryString.length);
         for (let i = 0; i < binaryString.length; i++) {
@@ -230,25 +250,36 @@ export function useVoiceAssistantNLP(
   };
 
   const requestVoiceBiometric = useCallback(async (onSuccess: () => Promise<void>) => {
+    if (biometricVerifiedRef.current) {
+      await onSuccess();
+      return { enrolled: true, awaiting: false as const };
+    }
+
     const enrolled = await hasVoiceBiometric();
     if (!enrolled) {
       updateStatus('error');
       const msg =
         'Empreinte vocale obligatoire. Allez dans Paramètres → Empreinte vocale pour enregistrer votre voix avant toute opération sensible.';
       setFeedback(msg);
-      speakFeedback(msg);
+      await speakFeedback(msg);
       setTimeout(() => {
         if (statusRef.current === 'error') updateStatus('idle');
       }, 9000);
-      return;
+      return { enrolled: false, awaiting: false as const };
     }
+
     pendingAfterBiometricRef.current = onSuccess;
     biometricModeRef.current = true;
     updateStatus('awaiting_voice_biometric');
     const msg = `Vérification vocale. Dites : ${BIOMETRIC_CHALLENGE}`;
     setFeedback(msg);
     setTranscript('');
-    speakFeedback(msg);
+    await speakFeedback(msg);
+    // Micro seulement après la fin du TTS (évite d'enregistrer la voix de l'assistant)
+    if (statusRef.current === 'awaiting_voice_biometric') {
+      startListeningRef.current?.(true);
+    }
+    return { enrolled: true, awaiting: true as const };
   }, [updateStatus]);
 
   const handleBiometricAudio = useCallback(async (audioBlob: Blob) => {
@@ -260,7 +291,7 @@ export function useVoiceAssistantNLP(
       if (!result.enrolled) {
         updateStatus('error');
         setFeedback('Aucune empreinte vocale. Enregistrez-la dans Paramètres.');
-        speakFeedback('Aucune empreinte vocale. Enregistrez-la dans les paramètres.');
+        await speakFeedback('Aucune empreinte vocale. Enregistrez-la dans les paramètres.');
         setTimeout(() => updateStatus('idle'), 8000);
         return;
       }
@@ -270,8 +301,9 @@ export function useVoiceAssistantNLP(
         if (left <= 0) {
           updateStatus('error');
           setFeedback('Voix non reconnue. Sécurité : déconnexion.');
-          speakFeedback('Voix non reconnue. Déconnexion pour protéger votre compte.');
+          await speakFeedback('Voix non reconnue. Déconnexion pour protéger votre compte.');
           biometricAttemptsRef.current = 0;
+          biometricVerifiedRef.current = false;
           pendingAfterBiometricRef.current = null;
           setTimeout(() => logout(), 1500);
           return;
@@ -280,18 +312,22 @@ export function useVoiceAssistantNLP(
         biometricModeRef.current = true;
         const msg = `Voix non reconnue. Il vous reste ${left} essai. Dites : ${BIOMETRIC_CHALLENGE}`;
         setFeedback(msg);
-        speakFeedback(msg);
+        await speakFeedback(msg);
+        if (statusRef.current === 'awaiting_voice_biometric') {
+          startListeningRef.current?.(true);
+        }
         return;
       }
 
       biometricAttemptsRef.current = 0;
+      biometricVerifiedRef.current = true;
       const next = pendingAfterBiometricRef.current;
       pendingAfterBiometricRef.current = null;
       if (next) await next();
     } catch (e: any) {
       updateStatus('error');
       setFeedback(e?.message || 'Échec de la vérification vocale.');
-      speakFeedback('Échec de la vérification vocale. Réessayez.');
+      await speakFeedback('Échec de la vérification vocale. Réessayez.');
       setTimeout(() => updateStatus('idle'), 8000);
     }
   }, [logout, updateStatus]);
@@ -363,25 +399,27 @@ export function useVoiceAssistantNLP(
     };
 
     if (SENSITIVE_INTENTS.has(String(intent).toLowerCase())) {
-      // Biométrie avant toute opération sensible ; le PIN clavier vient ensuite si besoin.
-      await requestVoiceBiometric(async () => {
+      const gate = await requestVoiceBiometric(async () => {
         const ussdRes = await run();
         if (ussdRes.success) {
           updateStatus('success');
           setFeedback(ussdRes.message || 'OK');
-          speakFeedback(ussdRes.message || 'Opération lancée');
+          await speakFeedback(ussdRes.message || 'Opération lancée');
           setTimeout(() => {
             if (statusRef.current === 'success') updateStatus('idle');
           }, 8000);
         } else if (!ussdRes.isAwaiting) {
           updateStatus('error');
           setFeedback(ussdRes.message || 'Échec');
-          speakFeedback(ussdRes.message || 'Échec');
+          await speakFeedback(ussdRes.message || 'Échec');
           setTimeout(() => {
             if (statusRef.current === 'error') updateStatus('idle');
           }, 8000);
         }
       });
+      if (!gate.enrolled) {
+        return { success: false, message: 'Empreinte vocale requise' };
+      }
       return { success: false, isAwaiting: true };
     }
 
@@ -391,6 +429,15 @@ export function useVoiceAssistantNLP(
   const sendAudioToBackend = async (audioBlob: Blob, filename: string = 'audio.webm') => {
     const epoch = cancelEpochRef.current;
     const captureStatus = statusRef.current;
+    // Nouvelle commande = nouvelle session biométrique
+    if (
+      captureStatus !== 'awaiting_confirmation' &&
+      captureStatus !== 'awaiting_disambiguation' &&
+      captureStatus !== 'awaiting_voice_biometric' &&
+      captureStatus !== 'awaiting_pin'
+    ) {
+      biometricVerifiedRef.current = false;
+    }
     resetSessionActivity();
     try {
       updateStatus('processing');
@@ -485,8 +532,39 @@ export function useVoiceAssistantNLP(
 
       if (result.needs_confirmation || result.requires_confirmation) {
         autoRetryRef.current = 0;
-        if (result.audio_base64) await playAudioResponse(result.audio_base64);
-        else speakFeedback(feedbackMsg);
+        let confirmMsg = feedbackMsg;
+        // Enrichir avec frais Linka avant confirmation (si destinataire connu)
+        try {
+          const intent = String(result.intent || '').toLowerCase();
+          const amount = result.amount ?? result.data?.amount;
+          const recipient = result.recipient || result.data?.recipient;
+          if (['transfer', 'momo_send', 'deposit', 'momo_deposit'].includes(intent) && amount && recipient) {
+            const { ContactResolverService } = await import('../services/engine/ContactResolverService');
+            const { InterNetworkTransferEngine } = await import('../services/ussd_engine/InterNetworkTransferEngine');
+            const { NetworkDetector, MobileNetwork } = await import('../services/engine/NetworkDetector');
+            const { StorageService } = await import('../services/storage.service');
+            const resolver = new ContactResolverService();
+            const contacts = await resolver.resolve(String(recipient));
+            const authUser = await StorageService.get<{ phone?: string }>('momo.auth.user');
+            if (contacts?.[0]?.phone && authUser?.phone) {
+              const engine = new InterNetworkTransferEngine(authUser.phone, contacts[0].phone);
+              const info = engine.getTransferInfo();
+              const fees = engine.getTransferFees(Number(amount));
+              const network = NetworkDetector.detectNetwork(contacts[0].phone);
+              if (network !== MobileNetwork.UNKNOWN && info.service === 'Linka Send') {
+                confirmMsg = `Envoyer ${Number(amount).toLocaleString('fr-FR')} francs à ${contacts[0].name || recipient} via Linka (${NetworkDetector.getNetworkLabel(network)}), frais estimés ${fees.toLocaleString('fr-FR')} francs, total ${(Number(amount) + fees).toLocaleString('fr-FR')} francs. Dites oui pour confirmer.`;
+                setFeedback(confirmMsg);
+              } else if (network === MobileNetwork.MTN) {
+                confirmMsg = `Envoyer ${Number(amount).toLocaleString('fr-FR')} francs à ${contacts[0].name || recipient} sur MTN. Dites oui pour confirmer.`;
+                setFeedback(confirmMsg);
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('⚠️ [FEES] Impossible d\'estimer les frais Linka:', e);
+        }
+        if (result.audio_base64 && confirmMsg === feedbackMsg) await playAudioResponse(result.audio_base64);
+        else await speakFeedback(confirmMsg);
         updateStatus('awaiting_confirmation');
       } else {
         if (result.success && result.intent !== 'help') {
@@ -670,6 +748,7 @@ export function useVoiceAssistantNLP(
     endProcessingFeedback();
     autoRetryRef.current = 0;
     biometricModeRef.current = false;
+    biometricVerifiedRef.current = false;
     pendingAfterBiometricRef.current = null;
     if (biometricTimerRef.current) {
       clearTimeout(biometricTimerRef.current);
@@ -677,6 +756,7 @@ export function useVoiceAssistantNLP(
     }
     setParsedIntent(null);
     setAmbiguityContacts(null);
+    ambiguityContactsRef.current = null;
     setShowPinModal(false);
     try {
       const { cancelActiveTransaction } = await import('../services/ussd_engine/MoMoTransactionEngine');
@@ -684,7 +764,7 @@ export function useVoiceAssistantNLP(
       if (res.cancelled) {
         updateStatus('success');
         setFeedback(res.message);
-        speakFeedback(res.message);
+        await speakFeedback(res.message);
         setTimeout(() => { if (statusRef.current === 'success') updateStatus('idle'); }, 8000);
       } else {
         updateStatus('idle');
