@@ -217,14 +217,14 @@ FORMAT DE RÉPONSE (JSON uniquement, rien d'autre):
             except (KeyError, IndexError, TypeError) as e:
                 logger.error(f"❌ Failed to parse response: {e}")
                 logger.error(f"   Response: {json.dumps(data, indent=2)[:500]}")
-                return self._create_fallback_response(f"Parse error: {str(e)}")
+                return self._create_fallback_response("La réponse du service vocal est illisible. Réessayez.")
             
         except requests.exceptions.Timeout:
             logger.warning("⚠️ REST API timeout")
             return self._create_fallback_response("REST API Timeout")
         except Exception as e:
-            logger.error(f"❌ Error: {type(e).__name__}: {e}")
-            return self._create_fallback_response(str(e))
+            logger.error(f"❌ Error: {type(e).__name__}: {self._scrub(str(e))}")
+            return self._create_fallback_response("Le service vocal est momentanément indisponible. Réessayez dans un instant.")
     
     def _parse_nlp_response(self, text: str) -> ParseCommandResponse:
         """Parser la réponse JSON de Gemini"""
