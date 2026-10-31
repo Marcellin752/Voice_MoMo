@@ -6,21 +6,17 @@ import os
 import json
 import base64
 import requests
-import urllib3
 import time
 from typing import Dict, Any
 import logging
 from app.config import settings
 from app.models import ParseCommandResponse, Intent, ParseMetadata
 
-# Disable SSL warnings
-urllib3.disable_warnings()
-
 logger = logging.getLogger(__name__)
 
-# Create a session with SSL verification disabled
+# Session HTTP partagée (réutilisation des connexions). La vérification TLS reste ACTIVE ; derrière un proxy
+# d'entreprise qui inspecte le TLS, pointer REQUESTS_CA_BUNDLE (ou SSL_CERT_FILE) vers le bundle de CA.
 session = requests.Session()
-session.verify = False
 
 class GeminiRESTService:
     """
@@ -38,7 +34,7 @@ class GeminiRESTService:
         api_version = os.getenv("GEMINI_API_VERSION", "v1beta")
         self.base_url = f"https://generativelanguage.googleapis.com/{api_version}/models/{settings.gemini_model}:generateContent"
         
-        logger.info("✅ Gemini REST Service initialized (SSL bypass enabled)")
+        logger.info("✅ Gemini REST Service initialized (TLS verification enabled)")
         
         self.system_prompt = """Tu es un assistant Mobile Money MTN MoMo pour l'Afrique de l'Ouest (Bénin, Nigeria, Ghana). Analyse la commande vocale en français et réponds UNIQUEMENT en JSON valide, sans texte autour.
 
@@ -153,10 +149,10 @@ FORMAT DE RÉPONSE (JSON uniquement, rien d'autre):
             for attempt in range(max_retries):
                 try:
                     response = session.post(
-                        f"{self.base_url}?key={self.api_key}",
+                        self.base_url,
+                        headers={"x-goog-api-key": self.api_key},
                         json=payload,
                         timeout=120,
-                        verify=False
                     )
                     
                     logger.info(f"📡 Response status: {response.status_code} (attempt {attempt + 1})")
