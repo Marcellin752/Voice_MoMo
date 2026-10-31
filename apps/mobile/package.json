@@ -6,7 +6,8 @@
   "scripts": {
     "start": "npm run dev",
     "build": "vite build",
-    "dev": "vite"
+    "dev": "vite",
+    "test": "node --test src/app/utils/api.test.ts"
   },
   "dependencies": {
     "@capacitor-community/contacts": "^7.1.0",
