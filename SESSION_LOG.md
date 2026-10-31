@@ -54,3 +54,14 @@ Entry template: **Date · Objective · Work completed · Files modified · Decis
 - **Outstanding:** T-031…T-042 and everything earlier.
 - **Recommended next action:** capture real MTN messages (SMS and USSD; success, failure, insufficient funds, timeout) from a test SIM to ground T-033/T-036/T-007; then fix T-031 + T-033 together, behind the T-010 test gate.
 
+## 2026-10-31 — Database architecture and data-integrity audit (static, read-only)
+- **Objective:** audit schema, constraints, indexes, migrations, access, query patterns, transactions, validation, isolation, sensitive data, backups.
+- **Work completed:** inventoried every SQL statement in `apps/backend/legacy` and `src`, the three schema definitions (`db.js initDb()`, `legacy/config/schema.sql`, Prisma + its single migration), deletion patterns, transaction boundaries, policies and backup configuration. Findings recorded as T-043…T-051; T-006 extended with the schema-drift specifics.
+- **Live database NOT inspected:** a Postgres listens on `localhost:5432` (container `autogest-postgres-1`, probably another project's). My read-only connection attempt using the credentials from `apps/backend/.env` was denied by the permission layer and I did not work around it. Consequently the findings are static; production schema, row counts, existing duplicates and backup state are **[Unknown]**.
+- **Files modified:** `TODO.md`, `PROJECT_STATUS.md`, `SESSION_LOG.md`; agent memory note. No application code, no database touched. A read-only inspection script (`SELECT`/`SHOW` only, aggregates and catalog metadata, no row contents) was written to the session scratchpad for the owner: `/tmp/claude-1000/-home-satignon-Tek2-VoiceMomo/11305ba9-1ce4-4d73-b0be-7474512e4249/scratchpad/db_readonly_inspect.sql` (temporary; not in the repo).
+- **Decisions:** none (no ADR; ADR-0014 remains proposed).
+- **Tests executed:** greps for `DELETE|TRUNCATE|DROP|BEGIN|COMMIT|FOR UPDATE|POLICY|backup|statement_timeout` → no application hits; in-process probe of the NLP service (TestClient, no network): two users syncing contacts → `users_db["user-A"] is users_db["user-B"]` and both `is users_db["default"]` (True), user B's contacts overwrote user A's. Existing suites not re-run (no source changed).
+- **Problems:** no live catalog; Prisma `P3005` behavior is inferred, not executed.
+- **Outstanding:** T-043…T-051; owner to run the inspection script against each real environment.
+- **Recommended next action:** owner runs the script (dev and production, read-only role), shares the output; then decide ADR-0014 and take a verified backup before any schema work.
+
