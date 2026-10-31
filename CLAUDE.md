@@ -99,3 +99,94 @@ implementation is not evidence that the existing one is unnecessary.
 - `.vscode/settings.json` has pre-existing uncommitted user changes — never stage or revert it.
 - Branches `origin/mobile`, `origin/execute_mmi`, `origin/features/v1` hold unmerged commits; don't
   delete or merge them without approval.
+
+## 5. Communication
+
+- Explain consequential decisions; separate verified facts from assumptions; say plainly what is
+  incomplete or untested. Never claim a USSD/device behavior works unless it was tested on a device.
+- Don't ask what the repo can answer. **Ask first** before changing: amount limits, USSD strings,
+  contact-matching thresholds, auth/OTP/PIN behavior, API contracts, deployment config, or anything
+  that affects what a user is told about their money.
+
+## 6. Task discipline
+
+Substantial changes: understand the requirement → inspect existing code → identify affected
+components → state expected behavior → define acceptance criteria → smallest change → verify →
+review the diff → update the relevant doc. Trivial changes: skip the ceremony.
+
+## 7. Money and business logic (adapted to this product)
+
+- Treat all of this as high-risk. Never silently change monetary logic.
+- **Truth of a transaction = MTN's response or MTN's confirmation SMS**, never frontend state, an
+  NLP message, or keyword heuristics. "Unknown" is not "success". Never simulate success outside an
+  explicit demo mode.
+- Never auto-retry a transfer; prevent double submission. Known gap: the engine's `USSD_IN_PROGRESS`
+  guard is per instance and every flow creates a new engine (T-031) — don't rely on it.
+- Do not change without approval: transfer bounds (100–500,000 FCFA, `VoiceIntentProcessor.ts`),
+  USSD templates (`ussd-codes.config.ts`, `MoMoTransactionEngine.ts`, `InterNetworkTransferEngine.ts`),
+  contact auto-accept thresholds (`ContactResolverService.ts`), MTN-only restriction.
+- Keep `USE_MOCK_MODEM=true` unless a real modem deployment is explicitly authorized.
+- Never log or upload PINs, OTPs, tokens, USSD strings containing a PIN, SMS bodies or phone
+  numbers. Preserve traceability of transactions (ids, status, timestamps).
+- Never write to production data or call deployed Render hosts with mutating requests.
+- Flag races and consistency risks you notice (e.g. non-atomic ledger updates).
+
+## 8. Security
+
+- Never expose or hardcode secrets. `.env` files exist locally and are untracked (`apps/nlp/.env`
+  holds real keys): don't print, commit, or copy values; redact when inspecting.
+- New endpoints require auth: `legacy/middleware/auth.js` (backend) / `extract_user_from_request`
+  (NLP). Derive the user from the token only, never from query/body.
+- Don't weaken auth/TLS to simplify work or pass tests: no `verify=False`, no bypass codes,
+  no unauthenticated fallbacks. API keys go in headers, not URLs. Don't return `str(exception)` to clients.
+- Treat Gemini, SMS providers and MTN responses as untrusted input.
+- Keep the AccessibilityService narrowly scoped; never broaden its events/packages or let it
+  inject credentials outside the USSD dialog.
+- Fail closed when a secret or key is missing; don't add fallback defaults.
+
+## 9. Testing
+
+- Run the relevant commands above after changes; never claim success unless they ran and passed.
+- Don't delete tests or weaken assertions without justification. (The one NLP test that asserted the
+  open token endpoint was changed deliberately for T-002; see `tests/test_auth_hardening.py`.)
+- Covered only partly: `apps/backend/legacy` (the OTP and PIN-login flow only, `tests/unit/legacy-auth-otp.test.ts`).
+  Not covered at all: all of `apps/mobile` except `api.ts` (`npm test`), all native Java. For
+  changes there, state exactly what was and wasn't verified, and that USSD/accessibility behavior needs
+  a device with an MTN SIM.
+- Test edge cases (empty/invalid input, timeouts, duplicate submits, DB/Redis unavailable).
+
+## 10. Documentation
+
+Keep docs accurate and concise; edit existing files, don't create new ones unless asked. Link, don't
+copy. The code is the source of truth; the reference docs below were not all re-verified:
+
+- `README.md`, `docs/CAHIER_DES_CHARGES.md` — scope and USSD codes. README is partly stale (lists
+  Google Cloud Speech/TTS; the code uses Gemini REST and on-device TTS). CAHIER §7–8 "✅" marks are
+  self-reported, not verified — feature status lives in `PROJECT_STATUS.md`.
+- `docs/LAUNCH_GUIDE.md`, `docs/BUILD_APK.md` — run and build.
+- `apps/backend/MTN_USSD_ACTIONS.md`, `MMI_SERVICES.md`, `DOCUMENTATION.md` — USSD/backend reference.
+- `docs/nlp/*` — NLP pipeline and action architecture.
+- `apps/mobile/src/app/services/ARCHITECTURE_NOTES.md` — mobile service layout.
+
+### Continuity system (each fact lives in exactly one file)
+
+| File | Holds | Update when |
+|---|---|---|
+| `PROJECT_STATUS.md` | CURRENT state: maturity, module status, verified features, risks, next actions | the state changes (rewrite in place; keep it short) |
+| `TODO.md` | Open work by priority, with IDs (`T-nnn`) and a completion criterion | a task is found, started, blocked or done (edit status in place) |
+| `DECISIONS.md` | ADRs (`ADR-nnnn`): meaningful decisions only | a significant decision is proposed or made (append; supersede, never rewrite) |
+| `SESSION_LOG.md` | Append-only history of sessions | the end of every significant session (append only) |
+| `CHANGELOG.md` | User-visible changes: Added/Changed/Fixed/Removed/Security | a user-visible change is delivered (under Unreleased) |
+
+Session protocol: **start** by reading `PROJECT_STATUS.md`, the last `SESSION_LOG.md` entry and the
+open Critical/High items of `TODO.md`; **end** by appending a `SESSION_LOG.md` entry (what ran and
+its result, what is outstanding, next action) and updating only the files whose facts changed.
+Reference tasks/decisions by ID instead of restating them. Mark uncertain facts `[Unknown]` or
+`[Claimed]`; never record a feature as working without evidence, and never invent history.
+
+## Known hazards (unresolved — do not copy or extend; fix only under an approved plan)
+
+Open defects exist in auth (no attempt limits, `/ai/parse` unauthenticated), PIN handling, the `/ai/parse` Gemini client (key in URL),
+success reporting and storage — full list, evidence and completion criteria in `TODO.md` (T-001…).
+Fixes are staged per phase because demos may depend on some of them. Don't build on these
+patterns, and don't "fix" them opportunistically.
