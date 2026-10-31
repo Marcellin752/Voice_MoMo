@@ -10,6 +10,8 @@ interface ContactDisambiguationModalProps {
   isOpen: boolean;
   contacts: AmbiguousContact[];
   query: string;
+  onSelect: (contact: AmbiguousContact) => void;
+  onClose?: () => void;
 }
 
 const getBubbleStyle = (name: string) => {
@@ -30,16 +32,17 @@ const getInitials = (name: string) => {
   return name.substring(0, 2).toUpperCase();
 };
 
-/** Affichage informatif uniquement — la sélection se fait par la voix. */
+/** Liste cliquable + sélection vocale possible. */
 export default function ContactDisambiguationModal({
   isOpen,
   contacts,
   query,
+  onSelect,
 }: ContactDisambiguationModalProps) {
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-50 flex flex-col justify-end pointer-events-none">
+        <div className="fixed inset-0 z-50 flex flex-col justify-end">
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -62,10 +65,10 @@ export default function ContactDisambiguationModal({
               </div>
               <div>
                 <h3 className="text-lg font-black text-slate-900 dark:text-white leading-tight">
-                  Choisissez à la voix
+                  Qui voulez-vous ?
                 </h3>
                 <p className="text-xs font-medium text-slate-400 dark:text-zinc-500 mt-0.5">
-                  J'ai compris « {query} ». Dites le numéro (1, 2, 3…) ou le nom complet du contact.
+                  Plusieurs contacts pour « {query} ». Touchez le bon, ou dites le numéro (1, 2, 3…).
                 </p>
               </div>
             </div>
@@ -74,12 +77,14 @@ export default function ContactDisambiguationModal({
               {contacts.map((contact, i) => {
                 const bubble = getBubbleStyle(contact.name || "?");
                 return (
-                  <motion.div
+                  <motion.button
+                    type="button"
                     key={`${contact.phone}-${i}`}
                     initial={{ opacity: 0, y: 12 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: i * 0.06 }}
-                    className="w-full flex items-center justify-between p-4 bg-white dark:bg-white/5 rounded-2xl shadow-sm border border-slate-100 dark:border-white/5"
+                    onClick={() => onSelect(contact)}
+                    className="w-full flex items-center justify-between p-4 bg-white dark:bg-white/5 rounded-2xl shadow-sm border border-slate-100 dark:border-white/5 active:scale-[0.98] transition-transform text-left"
                   >
                     <div className="flex items-center gap-3">
                       <div className="w-8 h-8 rounded-xl bg-[#004F71]/10 dark:bg-[#FFCC00]/10 flex items-center justify-center font-black text-sm text-[#004F71] dark:text-[#FFCC00] shrink-0">
@@ -103,7 +108,7 @@ export default function ContactDisambiguationModal({
                         </div>
                       </div>
                     </div>
-                  </motion.div>
+                  </motion.button>
                 );
               })}
             </div>

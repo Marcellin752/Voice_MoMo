@@ -157,3 +157,26 @@ Entry template: **Date · Objective · Work completed · Files modified · Decis
 - **Tests executed:** none new; the plan restates results already recorded. The plan itself was not run.
 - **Outstanding:** the whole plan; Render deployment state **[Unknown]**.
 - **Recommended next action:** the teammate runs section 2 and 3 of the plan first (B1, B2 and C1 decide whether anything else is meaningful), then continues with T-004 part 2.
+
+## 2026-10-31 — T-004 part 2, T-061, and owner UX (passive voice, tap homonyms, speakable names)
+- **Objective:** owner asked to fix what still does not work. Scoped to: T-004 part 2, T-061, and the three UX defects reported earlier (enrollment that did not record, homonym list not tappable, TTS mangling names). Did **not** attempt the rest of `TODO.md` (money/auth policy, device-only findings, T-069).
+- **Work completed:**
+  - T-004 part 2 (ADR-0019): tests first (`test_parse_client_*`, 3 failed on the unfixed `gemini_client.py`), then key moved to `x-goog-api-key`, URL without `?key=`, retry loop kept, fixed error message. NLP suite 57 passed.
+  - T-061: `requestNlp` (`nlpClient.ts`, 120 s timeout, auth, 401) wired in the live hook only. 4 tests.
+  - ADR-0020: enrollment wizard removed; embeddings learned from command audio; gate open while `learning`.
+  - ADR-0021: disambiguation modal tappable; confirmation speaks first name + last 4 digits, displays full name.
+- **Files modified:** `apps/nlp/app/gemini_client.py`, `apps/nlp/tests/test_gemini_transport.py`; mobile `nlpClient.ts` (+test), `speakableName.ts` (+test), `useVoiceAssistantNLP.ts`, `voiceBiometric.service.ts`, `VoiceBiometricScreen.tsx`, `ContactDisambiguationModal.tsx`, `Layout.tsx`, `voiceSelection.ts`, `SettingsScreen.tsx`, `package.json`; docs `TODO.md` (T-004, T-011, T-061, T-071, T-072), `DECISIONS.md` (0019–0021), `PROJECT_STATUS.md`, `CHANGELOG.md`, `CLAUDE.md`, this log. **Not committed.**
+- **Tests executed:**
+  - NLP: 3 new tests failed, then `venv/bin/python -m pytest -q -p no:cacheprovider tests/` → **57 passed** (~38 s) **[Ran]**.
+  - Backend: `npx tsc --noEmit` silent; `npm test` → **6 suites / 26 tests** **[Ran]**.
+  - Mobile: Node 22.23.2 `node --test src/app/utils/*.test.ts` → **14 passed**; `npx vite build --outDir <tmp>` succeeded (2062 modules) **[Ran]**. Default shell Node is 20.20.2 (cannot run the `.ts` tests).
+- **Problems:** did not install/run on a phone; did not touch Render. Passive learning lets any speaker on the device shape the template for the first 3 samples **[Claimed]**. `voiceAI.ts` and ContactsScreen NLP URL (T-069) left alone.
+- **Outstanding:** T-071 B/C (Render + `build-111`); B8 key rotation; T-072 for this working tree on a device; T-003/T-007/T-005/T-010 and the rest of the backlog.
+- **Recommended next action:** owner reviews the diff and says whether to commit; in parallel rotate the Gemini key (B8).
+
+## 2026-10-31 — Owner asked to commit and push the working tree
+- **Objective:** put T-004 part 2, T-061 and the UX (ADR-0020/0021) on `origin/main` so CI can publish a new debug APK.
+- **Work completed:** staged the listed paths only (no `.env`, no `.vscode`); committed; pushed as a fast-forward. No force-push.
+- **Tests executed:** none new in this step (results of the previous entry still apply).
+- **Outstanding:** T-071 B/C, B8 key rotation, T-072 on the new APK (not `build-111`).
+- **Recommended next action:** wait for the CI prerelease, install that APK, rotate the Gemini key.

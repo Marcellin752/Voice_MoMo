@@ -152,3 +152,60 @@ def test_voice_command_500_does_not_echo_exception_text(monkeypatch):
     assert response.status_code == 500
     assert "secret-internal-detail" not in response.text
     assert "RuntimeError" not in response.text
+
+
+# ---------------------------------------------------------------------------
+# Client /ai/parse (T-004 partie 2) — même contrat que le chemin vocal
+# ---------------------------------------------------------------------------
+
+def _run_parse_client(monkeypatch, post_fn):
+    import asyncio
+    import app.gemini_client as gc
+
+    monkeypatch.setattr(gc.requests, "post", post_fn)
+    monkeypatch.setattr(gc.time, "sleep", lambda _s: None)
+    return asyncio.run(gc.GeminiClient().parse_command("quel est mon solde"))
+
+
+def test_parse_client_api_key_travels_in_a_header_not_in_the_url(monkeypatch):
+    calls = []
+
+    def fake_post(url, **kwargs):
+        calls.append((url, kwargs))
+        resp = FakeResponse(400)
+
+        def raise_for_status():
+            raise requests.HTTPError("400 Client Error")
+
+        resp.raise_for_status = raise_for_status  # type: ignore[method-assign]
+        return resp
+
+    with pytest.raises(RuntimeError):
+        _run_parse_client(monkeypatch, fake_post)
+
+    assert calls, "GeminiClient n'a pas appelé requests.post"
+    url, kwargs = calls[0]
+    assert "key=" not in url and KEY not in url
+    assert kwargs.get("headers", {}).get("x-goog-api-key") == KEY
+
+
+def test_parse_client_url_does_not_embed_the_key():
+    from app.gemini_client import GeminiClient
+
+    url = GeminiClient().url
+    assert "key=" not in url
+    assert KEY not in url
+
+
+def test_parse_client_connection_error_never_leaks_the_key(monkeypatch):
+    def boom(_url, **_kwargs):
+        raise requests.exceptions.ConnectionError(
+            "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded "
+            f"with url: /v1beta/models/m:generateContent?key={KEY}"
+        )
+
+    with pytest.raises(RuntimeError) as exc:
+        _run_parse_client(monkeypatch, boom)
+
+    assert KEY not in str(exc.value)
+    assert "HTTPSConnectionPool" not in str(exc.value)

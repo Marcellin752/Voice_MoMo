@@ -23,7 +23,10 @@ Only meaningful decisions (architecture, data, dependencies, API contracts, auth
 | 0015 | OTP development behaviours are opt-in (`ALLOW_DEV_OTP`) | accepted (2026-10-31) |
 | 0016 | The default PIN `0000` never opens a session by PIN | accepted (2026-10-31) |
 | 0017 | NLP test endpoints are opt-in; JWT required; no default JWT secret | accepted (2026-10-31) |
-| 0018 | Gemini calls: key in a header, TLS verified, sanitized errors | accepted (2026-10-31) — part 1 |
+| 0018 | Gemini calls: key in a header, TLS verified, sanitized errors | accepted (2026-10-31) — part 1; part 2 via 0019 |
+| 0019 | Apply ADR-0018 to the `/ai/parse` Gemini client | accepted (2026-10-31) |
+| 0020 | Voice print is learned passively on device (no phrase enrollment) | accepted (2026-10-31) |
+| 0021 | Homonym picker is tappable; TTS speaks first name + last 4 digits | accepted (2026-10-31) |
 
 ---
 
@@ -132,3 +135,21 @@ Only meaningful decisions (architecture, data, dependencies, API contracts, auth
 - **Decision:** verification is on and cannot be switched off by configuration; the key travels in `x-goog-api-key`; log text goes through `_scrub()`; failures return fixed, user-safe messages while details stay in server logs; the 500 handler of `/api/voice-command` no longer echoes the exception.
 - **Alternatives:** honour the existing but unused `settings.disable_ssl_verify` (rejected: an insecure switch for a credential-bearing request; the standard `REQUESTS_CA_BUNDLE` / `SSL_CERT_FILE` covers inspecting proxies); keep the key in the URL and only redact (rejected: it also appears in intermediary logs).
 - **Consequences:** developers behind a TLS-inspecting network must point `REQUESTS_CA_BUNDLE` at their CA bundle (`start_backend.sh` already exports certifi's bundle when `.env` exists); the Gemini key may sit in historical Render logs and should be rotated after deploying; `gemini_client.py` keeps the key in the URL until its call lines can be edited on top of upstream's retry loop.
+
+### ADR-0019 — Apply ADR-0018 to the `/ai/parse` Gemini client
+- **Date:** 2026-10-31 (owner: "fixe et corrige tout ce qui ne fonctionne pas encore"). **Status:** accepted.
+- **Context:** T-004 part 2. `gemini_client.py` still put `?key=` in the URL and re-raised `str(e)` (which embeds the URL). The voice path already followed ADR-0018; `/ai/parse` did not. Exceptions are swallowed by `service.parse` (fallback parser), so nothing leaked to HTTP responses, but the key still sat in the request URL.
+- **Decision:** keep the upstream 429/503 retry loop; send the key in `x-goog-api-key`; URL has no query key; failures raise a fixed French message with no exception text. 3 tests in `test_gemini_transport.py` failed on the unfixed code, then passed.
+- **Consequences:** same as ADR-0018. Key rotation on Render (HANDOFF B8) is still owed. `/ai/parse` remains unauthenticated (T-016).
+
+### ADR-0020 — Passive on-device voice print (no enrollment phrases)
+- **Date:** 2026-10-31 (owner: do not ask the user to record phrases; learn like Siri). **Status:** accepted.
+- **Context:** the enrollment screen's "Enregistrer cette phrase" path was unreliable, and a dedicated enrollment step blocks the target users. Upstream required an enrolled template before any sensitive operation.
+- **Decision:** embeddings are learned from normal command audio on the device (`learnFromUserSpeech`). Until `LEARNING_MIN_SAMPLES` (3) the gate lets the operation through and keeps learning. After that, the command audio is verified; a live phrase challenge is only used if that check fails. Settings shows status/journal, not an enrollment wizard. PIN stays on the keypad (ADR-0012).
+- **Consequences:** during the first few utterances any speaker on that phone can contribute to the template **[Claimed, not device-tested]**. Embeddings remain in `StorageService` (unencrypted — T-017). Device behaviour is T-072.
+
+### ADR-0021 — Homonym list is tappable; spoken names use a safe form
+- **Date:** 2026-10-31 (owner: tap the right homonym; do not mispronounce names). **Status:** accepted. In tension with ADR-0004 (no touch for contact choice).
+- **Context:** several contacts can share a first name; the modal had become display-only (`pointer-events-none`) and `resolveAmbiguity` was not wired. On-device TTS mangles many Beninese names.
+- **Decision:** the list is a button per contact (`onSelect` → `resolveAmbiguity`); voice selection (say 1, 2, 3…) remains. Confirmation **displays** the full name and **speaks** first name + last 4 digits spaced (`formatContactForSpeech`). NLP `audio_base64` is not used for that confirmation.
+- **Consequences:** a user who cannot see the screen can still say the number; a user who cannot parse the spoken list can tap. Device behaviour is T-072.

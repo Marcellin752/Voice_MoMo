@@ -80,7 +80,7 @@ export default function SettingsScreen() {
               to="/app/settings/voice-biometric"
               icon={<Mic size={22} />}
               title="Empreinte vocale"
-              subtitle="Protège vos transferts contre l'usurpation"
+              subtitle="Apprend votre voix en parlant — sans enregistrement"
               color="text-[#004F71] dark:text-[#FFCC00]"
               bgColor="bg-[#004F71]/5 dark:bg-[#FFCC00]/10"
             />

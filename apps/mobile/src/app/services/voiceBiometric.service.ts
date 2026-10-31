@@ -1,6 +1,7 @@
 /**
- * Empreinte vocale 100 % on-device + anti-replay + journal d'échecs.
- * Aucun audio / vecteur n'est envoyé au cloud.
+ * Empreinte vocale on-device, apprentissage passif (style Siri).
+ * L'utilisateur n'a pas besoin d'enregistrer des phrases :
+ * le système apprend en écoutant les commandes normales.
  */
 
 import { StorageService } from './storage.service';
@@ -9,33 +10,26 @@ const STORAGE_KEY = 'momo.voice.biometric';
 const JOURNAL_KEY = 'momo.voice.biometric.journal';
 const REPLAY_KEY = 'momo.voice.biometric.recent';
 
+/** Nombre minimum d'échantillons avant de bloquer une voix inconnue. */
+export const LEARNING_MIN_SAMPLES = 3;
 export const VOICE_BIOMETRIC_MAX_ATTEMPTS = 2;
-export const VOICE_BIOMETRIC_THRESHOLD = 0.82;
-/** Au-delà de ce score vs un probe récent → probable replay audio. */
+export const VOICE_BIOMETRIC_THRESHOLD = 0.78;
 export const REPLAY_SIMILARITY_THRESHOLD = 0.985;
 export const REPLAY_WINDOW_MS = 90_000;
 export const BIOMETRIC_JOURNAL_MAX = 40;
-
-export const ENROLLMENT_PHRASES = [
-  'Je suis le propriétaire de ce compte Voice MoMo',
-  'Mon argent est protégé par ma voix',
-  'Seul moi peux valider mes transferts',
-] as const;
-
-const CODE_WORDS = [
-  'mango', 'soleil', 'coton', 'palmier', 'pirogue', 'tam-tam', 'yélo', 'cacahuète',
-];
 
 export type VoiceBiometricProfile = {
   embedding: number[];
   enrolledAt: string;
   sampleCount: number;
-  version: 1;
+  version: 2;
+  /** true tant que le profil apprend encore (pas assez d'échantillons). */
+  learning: boolean;
 };
 
 export type BiometricJournalEntry = {
   at: string;
-  event: 'enroll' | 'verify_ok' | 'verify_fail' | 'replay_blocked' | 'lockout';
+  event: 'learn' | 'verify_ok' | 'verify_fail' | 'replay_blocked' | 'lockout' | 'enroll';
   score?: number;
   detail?: string;
 };
@@ -61,21 +55,10 @@ function cosineSimilarity(a: number[], b: number[]): number {
   return dot / (Math.sqrt(na) * Math.sqrt(nb));
 }
 
-function averageEmbeddings(vectors: number[][]): number[] {
-  if (!vectors.length) return [];
-  const len = vectors[0].length;
-  const out = new Array(len).fill(0);
-  for (const v of vectors) {
-    for (let i = 0; i < len; i++) out[i] += v[i] / vectors.length;
-  }
-  return out;
-}
-
 function goertzelPower(samples: Float32Array | number[], sampleRate: number, freq: number): number {
   const k = Math.round((freq * samples.length) / sampleRate);
   const w = (2 * Math.PI * k) / samples.length;
-  const cosine = Math.cos(w);
-  const coeff = 2 * cosine;
+  const coeff = 2 * Math.cos(w);
   let s0 = 0;
   let s1 = 0;
   let s2 = 0;
@@ -84,8 +67,7 @@ function goertzelPower(samples: Float32Array | number[], sampleRate: number, fre
     s2 = s1;
     s1 = s0;
   }
-  const power = s1 * s1 + s2 * s2 - coeff * s1 * s2;
-  return Math.max(0, power) / samples.length;
+  return Math.max(0, s1 * s1 + s2 * s2 - coeff * s1 * s2) / samples.length;
 }
 
 function downsample(channel: Float32Array, fromRate: number, toRate: number): Float32Array {
@@ -93,17 +75,8 @@ function downsample(channel: Float32Array, fromRate: number, toRate: number): Fl
   const ratio = fromRate / toRate;
   const outLen = Math.floor(channel.length / ratio);
   const out = new Float32Array(outLen);
-  for (let i = 0; i < outLen; i++) {
-    out[i] = channel[Math.floor(i * ratio)];
-  }
+  for (let i = 0; i < outLen; i++) out[i] = channel[Math.floor(i * ratio)];
   return out;
-}
-
-/** Challenge anti-replay : phrase + mot aléatoire (change à chaque tentative). */
-export function buildBiometricChallenge(): { phrase: string; codeWord: string } {
-  const codeWord = CODE_WORDS[Math.floor(Math.random() * CODE_WORDS.length)];
-  const phrase = `Je suis le propriétaire de ce compte Voice MoMo, code ${codeWord}`;
-  return { phrase, codeWord };
 }
 
 export async function appendBiometricJournal(
@@ -111,13 +84,10 @@ export async function appendBiometricJournal(
   extra?: { score?: number; detail?: string }
 ): Promise<void> {
   const prev = (await StorageService.get<BiometricJournalEntry[]>(JOURNAL_KEY)) || [];
-  const entry: BiometricJournalEntry = {
-    at: new Date().toISOString(),
-    event,
-    score: extra?.score,
-    detail: extra?.detail,
-  };
-  const next = [entry, ...prev].slice(0, BIOMETRIC_JOURNAL_MAX);
+  const next = [
+    { at: new Date().toISOString(), event, score: extra?.score, detail: extra?.detail },
+    ...prev,
+  ].slice(0, BIOMETRIC_JOURNAL_MAX);
   await StorageService.set(JOURNAL_KEY, next);
 }
 
@@ -138,25 +108,27 @@ async function saveRecentProbe(embedding: number[]): Promise<void> {
 }
 
 export async function extractVoiceEmbedding(audioBlob: Blob): Promise<number[]> {
+  if (!audioBlob || audioBlob.size < 500) {
+    throw new Error('Audio trop court pour analyser la voix.');
+  }
   const arrayBuffer = await audioBlob.arrayBuffer();
   const audioCtx = new AudioContext();
   try {
     const decoded = await audioCtx.decodeAudioData(arrayBuffer.slice(0));
     const channel = downsample(decoded.getChannelData(0), decoded.sampleRate, 16000);
     const sampleRate = 16000;
-
-    if (channel.length < 4000) {
-      throw new Error('Enregistrement trop court. Parlez plus longtemps.');
+    if (channel.length < 2000) {
+      throw new Error('Enregistrement trop court.');
     }
 
     let start = 0;
     let end = channel.length - 1;
-    const silence = 0.01;
+    const silence = 0.008;
     while (start < end && Math.abs(channel[start]) < silence) start++;
     while (end > start && Math.abs(channel[end]) < silence) end--;
     const trimmed = channel.subarray(start, end + 1);
-    if (trimmed.length < 4000) {
-      throw new Error('Parole insuffisante détectée. Réessayez à voix haute.');
+    if (trimmed.length < 2000) {
+      throw new Error('Parole insuffisante.');
     }
 
     const frameSize = 2048;
@@ -182,17 +154,13 @@ export async function extractVoiceEmbedding(audioBlob: Blob): Promise<number[]> 
       frameCount++;
       if (frameCount >= 40) break;
     }
-
-    if (frameCount === 0) {
-      throw new Error('Impossible d\'analyser la voix. Réessayez.');
-    }
+    if (frameCount === 0) throw new Error('Impossible d\'analyser la voix.');
 
     const embedding = [
       ...bandAcc.map((v) => Math.log1p(v / frameCount)),
       Math.log1p(energyAcc / frameCount),
       zcrAcc / frameCount,
     ];
-
     const norm = Math.sqrt(embedding.reduce((s, x) => s + x * x, 0)) || 1;
     return embedding.map((x) => x / norm);
   } finally {
@@ -209,53 +177,75 @@ export async function hasVoiceBiometric(): Promise<boolean> {
   return !!(p?.embedding?.length);
 }
 
-export async function enrollVoiceBiometric(audioBlobs: Blob[]): Promise<VoiceBiometricProfile> {
-  if (audioBlobs.length < 2) {
-    throw new Error('Enregistrez au moins 2 phrases pour sécuriser votre voix.');
-  }
-  const vectors: number[][] = [];
-  for (const blob of audioBlobs) {
-    vectors.push(await extractVoiceEmbedding(blob));
-  }
-  for (let i = 1; i < vectors.length; i++) {
-    const sim = cosineSimilarity(vectors[0], vectors[i]);
-    if (sim < 0.65) {
-      throw new Error('Les enregistrements ne semblent pas provenir de la même voix. Réessayez au calme.');
+export async function isVoiceProfileReady(): Promise<boolean> {
+  const p = await getVoiceBiometricProfile();
+  return !!(p && !p.learning && p.sampleCount >= LEARNING_MIN_SAMPLES);
+}
+
+/**
+ * Apprend passivement depuis une commande vocale normale.
+ * Moyenne glissante de l'embedding — pas besoin de session d'enrôlement.
+ */
+export async function learnFromUserSpeech(audioBlob: Blob): Promise<VoiceBiometricProfile | null> {
+  try {
+    if (!audioBlob || audioBlob.size < 800) return null;
+    const probe = await extractVoiceEmbedding(audioBlob);
+    const prev = await getVoiceBiometricProfile();
+    let profile: VoiceBiometricProfile;
+
+    if (!prev?.embedding?.length) {
+      profile = {
+        embedding: probe,
+        enrolledAt: new Date().toISOString(),
+        sampleCount: 1,
+        version: 2,
+        learning: true,
+      };
+    } else {
+      const n = Math.min(prev.sampleCount, 12);
+      const merged = prev.embedding.map((v, i) => (v * n + probe[i]) / (n + 1));
+      const norm = Math.sqrt(merged.reduce((s, x) => s + x * x, 0)) || 1;
+      const sampleCount = prev.sampleCount + 1;
+      profile = {
+        embedding: merged.map((x) => x / norm),
+        enrolledAt: prev.enrolledAt,
+        sampleCount,
+        version: 2,
+        learning: sampleCount < LEARNING_MIN_SAMPLES,
+      };
     }
+
+    await StorageService.set(STORAGE_KEY, profile);
+    await appendBiometricJournal('learn', {
+      detail: `samples=${profile.sampleCount}${profile.learning ? ' (apprentissage)' : ' (prêt)'}`,
+    });
+    return profile;
+  } catch (e) {
+    console.warn('⚠️ [BIOMETRIC] Apprentissage ignoré:', e);
+    return null;
   }
-  const profile: VoiceBiometricProfile = {
-    embedding: averageEmbeddings(vectors),
-    enrolledAt: new Date().toISOString(),
-    sampleCount: vectors.length,
-    version: 1,
-  };
-  await StorageService.set(STORAGE_KEY, profile);
-  await StorageService.remove(REPLAY_KEY);
-  await appendBiometricJournal('enroll', { detail: `${vectors.length} samples` });
-  return profile;
 }
 
 export async function verifyVoiceBiometric(audioBlob: Blob): Promise<{
   matched: boolean;
   score: number;
   enrolled: boolean;
+  learning?: boolean;
   replayBlocked?: boolean;
 }> {
   const profile = await getVoiceBiometricProfile();
-  if (!profile?.embedding?.length) {
-    return { matched: false, score: 0, enrolled: false };
+  if (!profile?.embedding?.length || profile.learning || profile.sampleCount < LEARNING_MIN_SAMPLES) {
+    // Encore en apprentissage : on laisse passer et on apprend
+    await learnFromUserSpeech(audioBlob);
+    return { matched: true, score: 1, enrolled: false, learning: true };
   }
-  const probe = await extractVoiceEmbedding(audioBlob);
 
-  // Anti-replay : rejeter un audio quasi-identique à un probe récent
+  const probe = await extractVoiceEmbedding(audioBlob);
   const recent = await loadRecentProbes();
   for (const prev of recent) {
     const replayScore = cosineSimilarity(prev.embedding, probe);
     if (replayScore >= REPLAY_SIMILARITY_THRESHOLD) {
-      await appendBiometricJournal('replay_blocked', {
-        score: replayScore,
-        detail: 'Possible réutilisation d\'un enregistrement audio',
-      });
+      await appendBiometricJournal('replay_blocked', { score: replayScore });
       return { matched: false, score: replayScore, enrolled: true, replayBlocked: true };
     }
   }
@@ -263,8 +253,43 @@ export async function verifyVoiceBiometric(audioBlob: Blob): Promise<{
   const score = cosineSimilarity(profile.embedding, probe);
   const matched = score >= VOICE_BIOMETRIC_THRESHOLD;
   await saveRecentProbe(probe);
+  if (matched) {
+    // Renforce le profil avec cette voix valide
+    await learnFromUserSpeech(audioBlob);
+  }
   await appendBiometricJournal(matched ? 'verify_ok' : 'verify_fail', { score });
   return { matched, score, enrolled: true };
+}
+
+/** Vérifie un blob déjà capturé (commande vocale) sans nouveau challenge. */
+export async function verifyOrLearnFromCommandAudio(audioBlob: Blob | null): Promise<{
+  ok: boolean;
+  learning: boolean;
+  replayBlocked?: boolean;
+  score?: number;
+  message?: string;
+}> {
+  if (!audioBlob || audioBlob.size < 800) {
+    // Pas d'audio : en phase d'apprentissage on laisse passer
+    const ready = await isVoiceProfileReady();
+    if (!ready) return { ok: true, learning: true };
+    return { ok: false, learning: false, message: 'Impossible de vérifier la voix. Réessayez.' };
+  }
+
+  const ready = await isVoiceProfileReady();
+  if (!ready) {
+    await learnFromUserSpeech(audioBlob);
+    return { ok: true, learning: true };
+  }
+
+  const result = await verifyVoiceBiometric(audioBlob);
+  if (result.replayBlocked) {
+    return { ok: false, learning: false, replayBlocked: true, score: result.score };
+  }
+  if (!result.matched) {
+    return { ok: false, learning: false, score: result.score, message: 'Voix non reconnue.' };
+  }
+  return { ok: true, learning: false, score: result.score };
 }
 
 export async function clearVoiceBiometric(): Promise<void> {
@@ -276,4 +301,27 @@ export function wipeSecret(secret: { value: string } | null): void {
   if (!secret) return;
   secret.value = '\0'.repeat(secret.value.length || 4);
   secret.value = '';
+}
+
+/** Conservé pour compat éventuelle — l'enrôlement forcé n'est plus requis. */
+export const ENROLLMENT_PHRASES = [
+  'Je suis le propriétaire de ce compte Voice MoMo',
+  'Mon argent est protégé par ma voix',
+  'Seul moi peux valider mes transferts',
+] as const;
+
+export function buildBiometricChallenge(): { phrase: string; codeWord: string } {
+  return {
+    phrase: 'Je confirme que c\'est bien moi',
+    codeWord: 'moi',
+  };
+}
+
+export async function enrollVoiceBiometric(audioBlobs: Blob[]): Promise<VoiceBiometricProfile> {
+  for (const blob of audioBlobs) {
+    await learnFromUserSpeech(blob);
+  }
+  const p = await getVoiceBiometricProfile();
+  if (!p) throw new Error('Échec de l\'enregistrement vocal.');
+  return p;
 }

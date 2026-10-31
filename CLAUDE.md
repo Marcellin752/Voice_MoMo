@@ -42,7 +42,7 @@ Run from the stated directory.
 
 - Backend `apps/backend`: `npx tsc --noEmit` (typechecks `src/` only — `legacy/` is not
   typechecked) and `npm test` (Jest, 26 tests: `src/` plus the legacy OTP and PIN-login flow).
-- NLP `apps/nlp`: `venv/bin/python -m pytest -q -p no:cacheprovider tests/` (54 tests). `tests/conftest.py`
+- NLP `apps/nlp`: `venv/bin/python -m pytest -q -p no:cacheprovider tests/` (57 tests). `tests/conftest.py`
   sets a test `JWT_SECRET` and a dummy `GEMINI_API_KEY` by default, so the real key in `apps/nlp/.env`
   is never used (the tests still make outbound requests, with the dummy key). The service itself needs
   `JWT_SECRET` (same value as the backend) and refuses to start without it; the mock endpoints
@@ -50,8 +50,8 @@ Run from the stated directory.
   `ENABLE_TEST_ENDPOINTS=true` (local development only). Gemini calls verify TLS; behind a TLS-inspecting
   proxy set `REQUESTS_CA_BUNDLE` to its CA bundle — never disable verification. `tests/test_voice_pipeline.py` is a manual script,
   excluded by `conftest.py`.
-- Mobile `apps/mobile`: `npm test` (plain Node ≥ 22.18, no dependency; 7 tests, `src/app/utils/api.ts`
-  only) and `npm run build` (Vite; verified 2026-10-31 with `--outDir` pointed at a temporary directory
+- Mobile `apps/mobile`: `npm test` (plain Node ≥ 22.18, no dependency; 14 tests in `src/app/utils/*.test.ts`:
+  `api.ts`, `nlpClient.ts`, `speakableName.ts`) and `npm run build` (Vite; verified 2026-10-31 with `--outDir` pointed at a temporary directory
   so the project's `dist/` is not overwritten). There is still **no** lint or typecheck setup and no `tsconfig`.
 - Run locally: see `docs/LAUNCH_GUIDE.md` and `start_backend.sh`. Build APK: `docs/BUILD_APK.md`.
 - Never load `legacy/config/db.js` with a non-local `DATABASE_URL`: it runs `CREATE TABLE IF NOT EXISTS`

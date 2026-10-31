@@ -20,6 +20,7 @@ export default function Layout() {
     cancelAction,
     ambiguityContacts,
     ambiguityQuery,
+    resolveAmbiguity,
     showPinModal,
     pinPrompt,
     executeTransferWithPin,
@@ -44,8 +45,10 @@ export default function Layout() {
     status === 'awaiting_pin'
       ? 'Saisissez le PIN sur le clavier (jamais à voix haute).'
       : status === 'awaiting_voice_biometric'
-        ? 'Vérification : dites la phrase demandée.'
-        : status === 'awaiting_confirmation' || status === 'awaiting_disambiguation'
+        ? 'Dites la phrase courte demandée pour confirmer votre voix.'
+        : status === 'awaiting_disambiguation'
+          ? 'Touchez le bon contact, ou dites son numéro dans la liste.'
+          : status === 'awaiting_confirmation'
           ? 'Répondez à voix haute ou dites « annule ».'
           : null;
 
@@ -131,6 +134,7 @@ export default function Layout() {
         isOpen={status === 'awaiting_disambiguation'}
         contacts={ambiguityContacts || []}
         query={ambiguityQuery}
+        onSelect={resolveAmbiguity}
       />
 
       <SecurePinModal

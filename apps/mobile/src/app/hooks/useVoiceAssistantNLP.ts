@@ -18,10 +18,13 @@ import {
   VOICE_BIOMETRIC_MAX_ATTEMPTS,
   appendBiometricJournal,
   buildBiometricChallenge,
-  hasVoiceBiometric,
+  learnFromUserSpeech,
+  verifyOrLearnFromCommandAudio,
   verifyVoiceBiometric,
   wipeSecret,
 } from '../services/voiceBiometric.service';
+import { buildTransferConfirmSpeech, formatContactForSpeech } from '../utils/speakableName';
+import { NlpRequestError, requestNlp } from '../utils/nlpClient';
 
 type AssistantStatus =
   | 'idle'
@@ -128,7 +131,9 @@ export function useVoiceAssistantNLP(
   const biometricModeRef = useRef(false);
   const pendingAfterBiometricRef = useRef<null | (() => Promise<void>)>(null);
   const biometricTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const biometricChallengeRef = useRef<string>('Je suis le propriétaire de ce compte Voice MoMo');
+  const biometricChallengeRef = useRef<string>('Je confirme que c\'est bien moi');
+  /** Dernier audio utilisateur (commande / oui) — utilisé pour apprendre / vérifier sans enrôlement. */
+  const lastUserAudioRef = useRef<Blob | null>(null);
 
   useEffect(() => {
     ambiguityContactsRef.current = ambiguityContacts;
@@ -250,52 +255,61 @@ export function useVoiceAssistantNLP(
     });
   };
 
+  const startLiveBiometricChallenge = useCallback(async (onSuccess: () => Promise<void>) => {
+    pendingAfterBiometricRef.current = onSuccess;
+    biometricModeRef.current = true;
+    const challenge = buildBiometricChallenge();
+    biometricChallengeRef.current = challenge.phrase;
+    updateStatus('awaiting_voice_biometric');
+    const msg = `Pour confirmer que c'est bien vous, dites : ${challenge.phrase}`;
+    setFeedback(msg);
+    setTranscript('');
+    await speakFeedback(msg);
+    if (statusRef.current === 'awaiting_voice_biometric') {
+      startListeningRef.current?.(true);
+    }
+  }, [updateStatus]);
+
+  /**
+   * Vérifie la voix à partir de l'audio déjà capturé (comme Siri).
+   * Pas d'enrôlement forcé : pendant l'apprentissage on laisse passer.
+   * Challenge live uniquement si le profil est prêt et la voix ne match pas.
+   */
   const requestVoiceBiometric = useCallback(async (onSuccess: () => Promise<void>) => {
     if (biometricVerifiedRef.current) {
       await onSuccess();
       return { enrolled: true, awaiting: false as const };
     }
 
-    const enrolled = await hasVoiceBiometric();
-    if (!enrolled) {
-      updateStatus('error');
-      const msg =
-        'Empreinte vocale obligatoire. Allez dans Paramètres → Empreinte vocale pour enregistrer votre voix avant toute opération sensible.';
-      setFeedback(msg);
-      await speakFeedback(msg);
-      setTimeout(() => {
-        if (statusRef.current === 'error') updateStatus('idle');
-      }, 9000);
-      return { enrolled: false, awaiting: false as const };
+    const check = await verifyOrLearnFromCommandAudio(lastUserAudioRef.current);
+    if (check.ok) {
+      biometricVerifiedRef.current = true;
+      biometricAttemptsRef.current = 0;
+      if (check.learning) {
+        setFeedback('Voix en cours d\'apprentissage…');
+      }
+      await onSuccess();
+      return { enrolled: true, awaiting: false as const };
     }
 
-    pendingAfterBiometricRef.current = onSuccess;
-    biometricModeRef.current = true;
-    const challenge = buildBiometricChallenge();
-    biometricChallengeRef.current = challenge.phrase;
-    updateStatus('awaiting_voice_biometric');
-    const msg = `Vérification vocale anti-fraude. Dites exactement : ${challenge.phrase}`;
-    setFeedback(msg);
-    setTranscript('');
-    await speakFeedback(msg);
-    // Micro seulement après la fin du TTS (évite d'enregistrer la voix de l'assistant)
-    if (statusRef.current === 'awaiting_voice_biometric') {
-      startListeningRef.current?.(true);
-    }
+    // Profil prêt mais voix non reconnue → une chance en direct
+    await startLiveBiometricChallenge(onSuccess);
     return { enrolled: true, awaiting: true as const };
-  }, [updateStatus]);
+  }, [startLiveBiometricChallenge]);
 
   const handleBiometricAudio = useCallback(async (audioBlob: Blob) => {
     biometricModeRef.current = false;
+    lastUserAudioRef.current = audioBlob;
     updateStatus('processing');
     setFeedback('Vérification de votre voix…');
     try {
       const result = await verifyVoiceBiometric(audioBlob);
-      if (!result.enrolled) {
-        updateStatus('error');
-        setFeedback('Aucune empreinte vocale. Enregistrez-la dans Paramètres.');
-        await speakFeedback('Aucune empreinte vocale. Enregistrez-la dans les paramètres.');
-        setTimeout(() => updateStatus('idle'), 8000);
+      if (result.learning || !result.enrolled) {
+        biometricAttemptsRef.current = 0;
+        biometricVerifiedRef.current = true;
+        const next = pendingAfterBiometricRef.current;
+        pendingAfterBiometricRef.current = null;
+        if (next) await next();
         return;
       }
       if (result.replayBlocked) {
@@ -448,9 +462,8 @@ export function useVoiceAssistantNLP(
           }, 8000);
         }
       });
-      if (!gate.enrolled) {
-        return { success: false, message: 'Empreinte vocale requise' };
-      }
+      // Si challenge live en cours, on attend ; sinon l'opération a déjà démarré
+      if (gate.awaiting) return { success: false, isAwaiting: true };
       return { success: false, isAwaiting: true };
     }
 
@@ -460,6 +473,9 @@ export function useVoiceAssistantNLP(
   const sendAudioToBackend = async (audioBlob: Blob, filename: string = 'audio.webm') => {
     const epoch = cancelEpochRef.current;
     const captureStatus = statusRef.current;
+    lastUserAudioRef.current = audioBlob;
+    // Apprentissage passif (style Siri) sur chaque commande / confirmation orale
+    void learnFromUserSpeech(audioBlob);
     // Nouvelle commande = nouvelle session biométrique
     if (
       captureStatus !== 'awaiting_confirmation' &&
@@ -476,12 +492,15 @@ export function useVoiceAssistantNLP(
       beginProcessingFeedback(NLP_PROCESSING_STEPS);
       const formData = new FormData();
       formData.append('audio_file', audioBlob, filename);
-      const headers: any = {};
-      if (tokenRef.current) headers['Authorization'] = `Bearer ${tokenRef.current}`;
-
-      const response = await fetch(`${nlpApiUrl}/api/voice-command`, { method: 'POST', headers, body: formData });
-      if (!response.ok) {
-        if (response.status === 401) {
+      let response: Response;
+      try {
+        response = await requestNlp(nlpApiUrl, '/api/voice-command', {
+          method: 'POST',
+          body: formData,
+          token: tokenRef.current,
+        });
+      } catch (e) {
+        if (e instanceof NlpRequestError && e.status === 401) {
           await logout();
           updateStatus('idle');
           endProcessingFeedback();
@@ -489,6 +508,9 @@ export function useVoiceAssistantNLP(
           speakFeedback('Votre session a expiré. Veuillez vous reconnecter.');
           return;
         }
+        throw e;
+      }
+      if (!response.ok) {
         throw new Error(`Erreur backend: ${response.status}`);
       }
 
@@ -582,20 +604,34 @@ export function useVoiceAssistantNLP(
               const info = engine.getTransferInfo();
               const fees = engine.getTransferFees(Number(amount));
               const network = NetworkDetector.detectNetwork(contacts[0].phone);
-              if (network !== MobileNetwork.UNKNOWN && info.service === 'Linka Send') {
-                confirmMsg = `Envoyer ${Number(amount).toLocaleString('fr-FR')} francs à ${contacts[0].name || recipient} via Linka (${NetworkDetector.getNetworkLabel(network)}), frais estimés ${fees.toLocaleString('fr-FR')} francs, total ${(Number(amount) + fees).toLocaleString('fr-FR')} francs. Dites oui pour confirmer.`;
-                setFeedback(confirmMsg);
-              } else if (network === MobileNetwork.MTN) {
-                confirmMsg = `Envoyer ${Number(amount).toLocaleString('fr-FR')} francs à ${contacts[0].name || recipient} sur MTN. Dites oui pour confirmer.`;
-                setFeedback(confirmMsg);
-              }
+              const isLinka = network !== MobileNetwork.UNKNOWN && info.service === 'Linka Send';
+              const spoken = buildTransferConfirmSpeech({
+                amount: Number(amount),
+                name: contacts[0].name || String(recipient),
+                phone: contacts[0].phone,
+                linkaFees: isLinka ? fees : null,
+                networkLabel: isLinka
+                  ? NetworkDetector.getNetworkLabel(network)
+                  : network === MobileNetwork.MTN
+                    ? 'MTN'
+                    : null,
+              });
+              // Écran : nom complet ; oral : prénom + 4 derniers chiffres (TTS fiable)
+              setFeedback(
+                isLinka
+                  ? spoken.display
+                  : `Envoyer ${Number(amount).toLocaleString('fr-FR')} F à ${contacts[0].name || recipient}${network === MobileNetwork.MTN ? ' (MTN)' : ''}. Dites oui pour confirmer.`
+              );
+              confirmMsg = isLinka
+                ? spoken.speech
+                : `Envoyer ${Number(amount).toLocaleString('fr-FR')} francs à ${formatContactForSpeech(contacts[0].name, contacts[0].phone)}${network === MobileNetwork.MTN ? ' sur MTN' : ''}. Dites oui pour confirmer.`;
             }
           }
         } catch (e) {
           console.warn('⚠️ [FEES] Impossible d\'estimer les frais Linka:', e);
         }
-        if (result.audio_base64 && confirmMsg === feedbackMsg) await playAudioResponse(result.audio_base64);
-        else await speakFeedback(confirmMsg);
+        // Toujours TTS local pour les noms (le audio_base64 NLP malprononce souvent)
+        await speakFeedback(confirmMsg);
         updateStatus('awaiting_confirmation');
       } else {
         if (result.success && result.intent !== 'help') {
@@ -643,9 +679,12 @@ export function useVoiceAssistantNLP(
       endProcessingFeedback();
       console.error('❌ Erreur audio:', error);
       updateStatus('error');
-      // UX: Message humain, pas de code d'erreur technique
-      setFeedback("Je n'ai pas pu traiter votre demande. Vérifiez votre connexion internet et réessayez.");
-      // UX Fix #13: Délai plus long
+      const msg =
+        error instanceof NlpRequestError
+          ? error.message
+          : "Je n'ai pas pu traiter votre demande. Vérifiez votre connexion internet et réessayez.";
+      setFeedback(msg);
+      speakFeedback(msg);
       setTimeout(() => updateStatus('idle'), 8000);
     }
   };
@@ -721,20 +760,24 @@ export function useVoiceAssistantNLP(
       updateStatus('processing');
       // UX Fix #3: Messages d'attente échelonnés pendant la confirmation
       beginProcessingFeedback(NLP_PROCESSING_STEPS);
-      const headers: any = { 'Content-Type': 'application/json' };
-      if (tokenRef.current) headers['Authorization'] = `Bearer ${tokenRef.current}`;
-      const response = await fetch(`${nlpApiUrl}/api/confirm`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ transaction_id: transactionIdRef.current }),
-      });
-      if (response.status === 401) {
-        await logout();
-        updateStatus('idle');
-        endProcessingFeedback();
-        setFeedback('Session expirée. Veuillez vous reconnecter.');
-        speakFeedback('Votre session a expiré. Veuillez vous reconnecter.');
-        return;
+      let response: Response;
+      try {
+        response = await requestNlp(nlpApiUrl, '/api/confirm', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ transaction_id: transactionIdRef.current }),
+          token: tokenRef.current,
+        });
+      } catch (e) {
+        if (e instanceof NlpRequestError && e.status === 401) {
+          await logout();
+          updateStatus('idle');
+          endProcessingFeedback();
+          setFeedback('Session expirée. Veuillez vous reconnecter.');
+          speakFeedback('Votre session a expiré. Veuillez vous reconnecter.');
+          return;
+        }
+        throw e;
       }
       const result = await response.json();
       endProcessingFeedback();
@@ -768,8 +811,12 @@ export function useVoiceAssistantNLP(
     } catch (e) {
       endProcessingFeedback();
       updateStatus('error');
-      // UX: Toujours expliquer ce qui s'est passé, même sur erreur inattendue
-      setFeedback("La confirmation n'a pas abouti. Veuillez réessayer.");
+      const msg =
+        e instanceof NlpRequestError
+          ? e.message
+          : "La confirmation n'a pas abouti. Veuillez réessayer.";
+      setFeedback(msg);
+      speakFeedback(msg);
       setTimeout(() => { if (statusRef.current === 'error') updateStatus('idle'); }, 5000);
     }
   }, [nlpApiUrl, parsedIntent, triggerUSSD, updateStatus, beginProcessingFeedback, endProcessingFeedback]);

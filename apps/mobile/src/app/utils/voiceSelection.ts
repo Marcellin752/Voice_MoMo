@@ -80,6 +80,11 @@ export function parsePinFromSpeech(text: string): string | null {
 }
 
 export function formatAmbiguityVoicePrompt(contacts: AmbiguousContact[], query: string): string {
-  const lines = contacts.slice(0, 5).map((c, i) => `${i + 1}, ${c.name}`);
-  return `Je ne suis pas sûr pour "${query}". Dites le numéro ou le nom : ${lines.join(' ; ')}.`;
+  const lines = contacts.slice(0, 5).map((c, i) => {
+    const first = (c.name || 'contact').trim().split(/\s+/)[0];
+    const last4 = (c.phone || '').replace(/\D/g, '').slice(-4);
+    const digits = last4 ? last4.split('').join(' ') : '';
+    return digits ? `${i + 1}, ${first}, numéro ${digits}` : `${i + 1}, ${first}`;
+  });
+  return `Plusieurs contacts pour "${query}". Touchez le bon sur l'écran, ou dites le numéro : ${lines.join(' ; ')}.`;
 }

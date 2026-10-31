@@ -98,7 +98,8 @@ class GeminiClient:
             raise RuntimeError("GEMINI_API_KEY is not configured in environment")
         
         api_version = os.getenv("GEMINI_API_VERSION", "v1beta")
-        self.url = f"https://generativelanguage.googleapis.com/{api_version}/models/{settings.gemini_model}:generateContent?key={self.api_key}"
+        # Clé dans l'en-tête x-goog-api-key, jamais dans l'URL (T-004 partie 2 / ADR-0018).
+        self.url = f"https://generativelanguage.googleapis.com/{api_version}/models/{settings.gemini_model}:generateContent"
     
     async def parse_command(self, text: str) -> ParseCommandResponse:
         """
@@ -130,9 +131,15 @@ class GeminiClient:
             base_delay = 2
             response = None
             last_error = None
+            headers = {"x-goog-api-key": self.api_key}
             for attempt in range(max_retries):
                 try:
-                    response = requests.post(self.url, json=payload, timeout=30)
+                    response = requests.post(
+                        self.url,
+                        json=payload,
+                        timeout=30,
+                        headers=headers,
+                    )
                     if response.status_code in (429, 503) and attempt < max_retries - 1:
                         delay = base_delay * (2 ** attempt)
                         time.sleep(delay)
@@ -145,17 +152,17 @@ class GeminiClient:
                         delay = base_delay * (2 ** attempt)
                         time.sleep(delay)
                         continue
-                    raise RuntimeError(f"Gemini API error: {str(e)}") from e
+                    raise RuntimeError("Le service vocal est momentanément indisponible.") from e
 
             if response is None or response.status_code != 200:
-                err = last_error or f"HTTP {getattr(response, 'status_code', '?')}"
-                raise RuntimeError(f"Gemini API error: {err}")
+                raise RuntimeError("Le service vocal est momentanément indisponible.") from last_error
 
             data_resp = response.json()
             content = data_resp['candidates'][0]['content']['parts'][0]['text'].strip()
+        except RuntimeError:
+            raise
         except Exception as e:
-            # If Gemini fails, return error response (will be caught by fallback)
-            raise RuntimeError(f"Gemini API error: {str(e)}")
+            raise RuntimeError("Le service vocal est momentanément indisponible.") from e
         
         # Parse JSON response
         data = self._extract_json(content)

@@ -5,6 +5,14 @@ User-oriented, newest first. Categories: **Added · Changed · Fixed · Removed 
 **Provenance:** reconstructed on 2026-10-31 from git commit subjects (the repo has no earlier changelog). Dates are commit dates. Entries describe what the commits say; they were **not re-verified on a device**. There are no semantic versions: CI publishes a debug-APK prerelease per push to `main` (tags `build-N`, last known `build-104` on 2026-09-03). New entries go under **Unreleased**.
 
 ## [Unreleased]
+### Security — local working tree 2026-10-31, not pushed, not on a device
+- The `/ai/parse` Gemini client no longer puts the API key in the URL (same header as the voice path). Connection errors no longer include the exception text.
+- Voice operations no longer require recording enrollment phrases: the app learns the speaker from ordinary commands on the phone (first few commands are not blocked).
+
+### Changed — local working tree 2026-10-31, not pushed, not on a device
+- When several contacts share a name, the list is tappable (voice “1, 2, 3” still works). Confirmation **shows** the full name and **speaks** the first name plus the last four digits, so the voice does not mangle the surname.
+- If the voice service does not answer within two minutes, the app stops waiting and says so (instead of spinning forever).
+
 ### Security — pushed to `origin/main` on 2026-10-31 (`7020529a`), deployment not verified
 - The test OTP code `000000` and the on-screen OTP (`devCode`) are disabled unless `ALLOW_DEV_OTP=true` is set. If the SMS cannot be sent, the app now receives an error instead of the code, and OTP codes are no longer written to the server logs. **Deployment note:** an SMS provider must be configured, otherwise login fails (503).
 - The default PIN `0000` given to accounts created with an SMS code can no longer be used to sign in through `POST /api/auth/login`; changing the PIN from the settings still works.
