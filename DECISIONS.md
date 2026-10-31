@@ -20,6 +20,7 @@ Only meaningful decisions (architecture, data, dependencies, API contracts, auth
 | 0012 | How the MTN PIN is entered | **proposed** |
 | 0013 | Fate of the dormant v1/modem/MMI stack | **proposed** |
 | 0014 | Single schema/migration authority | **proposed** |
+| 0015 | OTP development behaviours are opt-in (`ALLOW_DEV_OTP`) | accepted (2026-10-31) |
 
 ---
 
@@ -100,4 +101,11 @@ Only meaningful decisions (architecture, data, dependencies, API contracts, auth
 - **Context:** runtime DDL in `db.js` (added 2026-05-17 for Neon), an unapplied `schema.sql`, and Prisma covering two tables; production DB provider unknown.
 - **Options:** Prisma owns all tables (introspect the live schema); versioned SQL migrations for everything; keep runtime DDL (rejected: no history, no rollback).
 - **Consequences:** drives T-006; needs a baseline against a copy of the live schema before any change.
+
+### ADR-0015 — OTP development behaviours are opt-in
+- **Date:** 2026-10-31 (owner approval: "oui vas-y pour A"). **Status:** accepted. Supersedes the "dev conveniences left active" part of ADR-0009; OTP-only login itself stands.
+- **Context:** the test code `000000` (2026-05-18) and the OTP returned in the API response when SMS fails (2026-05-17) were added for development and Twilio trial accounts, but stayed active in production code. The repo is public and Render sets no SMS provider, so any phone number could be logged into (T-001).
+- **Decision:** both behaviours work only when `ALLOW_DEV_OTP=true` (default off; `legacy/services/auth.service.js`). By default an SMS failure returns HTTP 503 and the code is never returned or logged.
+- **Alternatives:** gate on `NODE_ENV` (rejected: Render runs `production` yet the intent is an explicit opt-in, and tests need control); delete the behaviours (rejected: demos and development without an SMS provider would lose their only path); a seeded demo account behind a flag (deferred — not needed while the flag exists).
+- **Consequences:** login requires a configured SMS provider (Twilio or Termii) in any environment that does not set the flag; local development without a provider needs `ALLOW_DEV_OTP=true` in its own `.env` (untouched); the app's `devCode` display branch is dead unless the flag is on; accounts created by OTP still carry the default PIN `0000` (T-068, closed by ADR-0016).
 
