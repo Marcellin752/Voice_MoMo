@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, Body, HTTPException, Request, status
+from fastapi import FastAPI, UploadFile, File, Body, Depends, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 import logging
@@ -12,7 +12,7 @@ from app.entity_normalizer import normalize_parsed_entities
 from app.gemini_rest_service import get_voice_service
 from app.action_executor import get_action_executor
 from app.transaction_cache import get_transaction_cache
-from app.auth import extract_user_from_request, JWTManager
+from app.auth import extract_user_from_request, require_test_endpoints, JWTManager
 from app.config import settings
 from app.rate_limiter import rate_limit_middleware
 
@@ -172,7 +172,7 @@ async def get_transactions(user_id: str = "default") -> dict:
     }
 
 
-@app.post("/api/auth/token", tags=["🔐 Authentication"])
+@app.post("/api/auth/token", tags=["🔐 Authentication"], dependencies=[Depends(require_test_endpoints)])
 async def get_token(user_id: str = "default") -> dict:
     """
     🔐 **Générer un token JWT**
@@ -211,7 +211,7 @@ async def get_token(user_id: str = "default") -> dict:
     }
 
 
-@app.post("/api/auth/login", tags=["🔐 Authentication"])
+@app.post("/api/auth/login", tags=["🔐 Authentication"], dependencies=[Depends(require_test_endpoints)])
 async def login(phone: str = Body(...), pin: str = Body(...)):
     """
     🔐 **Login utilisateur (MODE TEST)**
@@ -261,7 +261,7 @@ async def login(phone: str = Body(...), pin: str = Body(...)):
     }
 
 
-@app.post("/api/auth/register", tags=["🔐 Authentication"])
+@app.post("/api/auth/register", tags=["🔐 Authentication"], dependencies=[Depends(require_test_endpoints)])
 async def register(phone: str = Body(...), pin: str = Body(...)):
     """
     🔐 **Register nouvel utilisateur (MODE TEST)**

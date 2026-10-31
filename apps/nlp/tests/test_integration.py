@@ -85,8 +85,12 @@ def test_api_health():
     assert "features" in data
 
 
-def test_generate_token():
-    """Test: Générer un token JWT"""
+def test_generate_token(monkeypatch):
+    """Test: l'endpoint de jeton de test est fermé par défaut (TODO T-002) et n'existe qu'en mode dev explicite"""
+    monkeypatch.delenv("ENABLE_TEST_ENDPOINTS", raising=False)
+    assert client.post("/api/auth/token?user_id=test_user").status_code == 404
+
+    monkeypatch.setenv("ENABLE_TEST_ENDPOINTS", "true")
     response = client.post("/api/auth/token?user_id=test_user")
     assert response.status_code == 200
     data = response.json()
