@@ -134,7 +134,7 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.get("/api/users/profile", tags=["👤 Users"])
+@app.get("/api/users/profile", tags=["👤 Users"], dependencies=[Depends(require_test_endpoints)])
 async def get_profile(user_id: str = "default") -> dict:
     """Mock User Profile Endpoint pour que le Frontend Mobile affiche l'utilisateur"""
     user_data = executor.users_db.get(user_id, executor.users_db["default"])
@@ -145,7 +145,7 @@ async def get_profile(user_id: str = "default") -> dict:
         "balance": user_data.get("balance", 0)
     }
 
-@app.get("/api/users/balance", tags=["💰 Users Solde"])
+@app.get("/api/users/balance", tags=["💰 Users Solde"], dependencies=[Depends(require_test_endpoints)])
 async def get_balance(user_id: str = "default") -> dict:
     """Mock User Balance Endpoint pour le Frontend Mobile"""
     user_data = executor.users_db.get(user_id, executor.users_db["default"])
@@ -154,7 +154,7 @@ async def get_balance(user_id: str = "default") -> dict:
         "currency": "FCFA"
     }
 
-@app.get("/api/transactions", tags=["📄 Transactions"])
+@app.get("/api/transactions", tags=["📄 Transactions"], dependencies=[Depends(require_test_endpoints)])
 async def get_transactions(user_id: str = "default") -> dict:
     """Mock Transactions Endpoint pour le Frontend Mobile"""
     return {
@@ -694,7 +694,7 @@ class BalanceUpdateRequest(BaseModel):
     balance: int
     user_id: str = "default"
 
-@app.post("/api/users/balance", tags=["💰 Users Solde"])
+@app.post("/api/users/balance", tags=["💰 Users Solde"], dependencies=[Depends(require_test_endpoints)])
 async def update_balance(req: BalanceUpdateRequest) -> dict:
     """Met à jour le solde (intercepté via SMS depuis le mobile)"""
     executor.users_db[req.user_id]["balance"] = req.balance
