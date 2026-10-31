@@ -17,6 +17,9 @@ Only meaningful decisions (architecture, data, dependencies, API contracts, auth
 | 0009 | OTP-only login, with dev conveniences left active | dev conveniences superseded by ADR-0015 (OTP-only login stands) |
 | 0010 | Recharge/withdraw/bill/forfaits only open the USSD menu | accepted |
 | 0011 | Server `balance` is a client-reported mirror | accepted |
+| 0012 | How the MTN PIN is entered | **proposed** |
+| 0013 | Fate of the dormant v1/modem/MMI stack | **proposed** |
+| 0014 | Single schema/migration authority | **proposed** |
 
 ---
 
@@ -78,4 +81,23 @@ Only meaningful decisions (architecture, data, dependencies, API contracts, auth
 - **Consequences:** the server number is not authoritative and must not drive decisions (T-013).
 
 ---
+
+### ADR-0012 — How the MTN PIN is entered (PROPOSED)
+- **Date:** proposed 2026-10-31. **Status:** proposed — **owner decision required.**
+- **Context:** CAHIER requires no touch input and a dictated PIN. Local clone: dictated audio is uploaded to NLP/Gemini, transcribed, never delivered to USSD, and USSD-with-PIN strings are logged natively. Upstream: touch keypad + voice biometrics, claimed "PIN never spoken or sent to NLP" (unverified).
+- **Options:** (A) on-device digit recognition only, nothing uploaded; (B) keep cloud STT with TLS verified, no logging — still sends the credential to a third party; (C) system/secure keypad, accessible via TalkBack; (D) A or C plus injection into the USSD dialog, restricted to the phone package (T-008).
+- **Leaning (to validate on devices):** A or C with D; B rejected on credential-exposure grounds. Cost: digit accuracy in noise; keypad departs from ADR-0004 and needs the CAHIER updated.
+- **Consequences if accepted:** T-003 scope fixed; CAHIER §4.1/§8 revised; biometric gating (upstream) reviewed.
+
+### ADR-0013 — Fate of the dormant v1/modem/MMI stack (PROPOSED)
+- **Date:** proposed 2026-10-31. **Status:** proposed.
+- **Context:** `apps/backend/src` (~1.9k lines) and `/api/mmi/*` have no mobile caller; Render runs them with `USE_MOCK_MODEM=true`; `execute-sync` is called only by NLP when `BACKEND_ACTION_URL` is set (not set in `render.yaml`).
+- **Options:** keep and finish with hardware tests and the T-009 fixes; park (disable routes/Redis, keep code); remove.
+- **Consequences:** drives T-009, T-014, T-015, T-021 and the Redis/Bull Board footprint. Removal needs explicit approval.
+
+### ADR-0014 — Schema/migration authority (PROPOSED)
+- **Date:** proposed 2026-10-31. **Status:** proposed.
+- **Context:** runtime DDL in `db.js` (added 2026-05-17 for Neon), an unapplied `schema.sql`, and Prisma covering two tables; production DB provider unknown.
+- **Options:** Prisma owns all tables (introspect the live schema); versioned SQL migrations for everything; keep runtime DDL (rejected: no history, no rollback).
+- **Consequences:** drives T-006; needs a baseline against a copy of the live schema before any change.
 
