@@ -191,7 +191,7 @@ FORMAT DE RÉPONSE (JSON uniquement, rien d'autre):
                 except requests.exceptions.RequestException as e:
                     if attempt < max_retries - 1:
                         delay = base_delay * (2 ** attempt)
-                        logger.warning(f"⚠️ Request failed, retrying in {delay}s: {e}")
+                        logger.warning(f"⚠️ Request failed, retrying in {delay}s: {self._scrub(str(e))}")
                         time.sleep(delay)
                     else:
                         raise
@@ -302,6 +302,10 @@ FORMAT DE RÉPONSE (JSON uniquement, rien d'autre):
                 )
             )
     
+    def _scrub(self, text: str) -> str:
+        """Retire la clé API de tout texte destiné aux journaux (défense en profondeur)."""
+        return text.replace(self.api_key, "[redacted-key]") if self.api_key else text
+
     def _create_fallback_response(self, error_msg: str) -> Dict[str, Any]:
         """Créer une réponse d'erreur — success=False pour déclencher le bon chemin dans main.py"""
         logger.warning(f"⚠️ Fallback response: {error_msg}")
