@@ -43,3 +43,14 @@ Entry template: **Date · Objective · Work completed · Files modified · Decis
 - **Outstanding:** upstream commits not reviewed in depth (T-011); everything in `TODO.md`.
 - **Recommended next action:** owner runs `git fetch`, then re-validate T-003/T-007/T-017 against `3696121`; decide Phase 0.
 
+## 2026-10-31 — Financial and transaction logic audit (read-only)
+- **Objective:** audit all monetary/transaction logic for security, consistency, traceability and duplicate/inconsistent processing.
+- **Work completed:** established scope — no payment provider, webhooks, subscriptions, refunds, invoices, taxes, commissions, discounts, payouts or reconciliation exist (keyword search + route inventory); money moves only through on-device MTN USSD. Reviewed the four financial surfaces on the local clone `03f977fe`: legacy ledger/balance mirror, v1 pipeline (dormant), NLP confirm cache, mobile transaction engine/SMS confirmation. Reviewed upstream `3696121` finance-related diffs (`MtnUssdCodes.ts`, `InterNetworkTransferEngine`, SMS confirmation) at diff level in the scratch repo. Result: findings recorded as T-031…T-042 (T-041 extends T-013); T-003 amended.
+- **Corrections to earlier statements:** (1) in the local clone the transfer voice-PIN path (`confirmWithPin`) is unreachable — transfers type the PIN in MTN's dialog (T-003 text fixed); (2) the earlier "read-back uses the resolved contact's name" held only for that unreachable PIN prompt — live transfers never read back the resolved recipient (T-035); (3) `CLAUDE.md` §7 overstated the double-submit guard (per-instance; T-031).
+- **Files modified:** `TODO.md`, `PROJECT_STATUS.md`, `CLAUDE.md` (one line, §7), `SESSION_LOG.md`; agent memory note. No application code, no financial records; no payment/provider API was called and no transaction was executed.
+- **Decisions:** none (no ADR). Fixes not started.
+- **Tests executed:** (a) real `SmsListenerService.extractBalanceWithPriority` via `tsx` on 6 strings: `12.500`→12500, `12 500`→12500, `12500.00`→1250000, `12 500,00`→1250000, `1500,50`→150050; (b) the engine's live-USSD expression `parseFloat(m.replace(/[,\s]/g,''))`: `12.500`→12.5, `12,500`→12500; (c) `isLikelyMtnMomoMessage("+22997000000", "…MTN MoMo…")` → `true`; (d) NLP `extract_amount_and_phone` on 16 phrases (e.g. "5,5 francs"→55; "cinq mille"→none, left to Gemini). Existing suites not re-run (no source changed).
+- **Problems:** real MTN SMS/USSD message formats are unavailable, so the parsing findings are conditional on those formats; nothing verified on a device; upstream reviewed at diff level only.
+- **Outstanding:** T-031…T-042 and everything earlier.
+- **Recommended next action:** capture real MTN messages (SMS and USSD; success, failure, insufficient funds, timeout) from a test SIM to ground T-033/T-036/T-007; then fix T-031 + T-033 together, behind the T-010 test gate.
+
