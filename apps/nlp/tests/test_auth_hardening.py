@@ -87,3 +87,66 @@ def test_test_only_endpoints_work_when_explicitly_enabled(monkeypatch):
     assert client.post("/api/auth/login", json={"phone": "0197000000", "pin": "1234"}).status_code == 200
     assert client.get("/api/users/profile?user_id=default").status_code == 200
     assert client.get("/api/transactions?user_id=default").status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Endpoints métier : JWT obligatoire, aucun repli sur "default"
+# ---------------------------------------------------------------------------
+
+AUDIO = {"audio_file": ("a.wav", b"RIFF0000WAVE", "audio/wav")}
+
+PROTECTED = [
+    ("post", "/api/cancel", {"transaction_id": "x"}, None),
+    ("post", "/api/confirm", {"transaction_id": "x"}, None),
+    ("post", "/api/users/contacts", {"contacts": []}, None),
+    ("get", "/api/pending-transactions", None, None),
+    ("post", "/api/voice-command", None, AUDIO),
+]
+
+
+def _protected_call(method, path, body, files, headers=None):
+    kwargs = {"headers": headers}
+    if body is not None:
+        kwargs["json"] = body
+    if files is not None:
+        kwargs["files"] = files
+    return getattr(client, method)(path, **kwargs)
+
+
+@pytest.mark.parametrize("method,path,body,files", PROTECTED)
+def test_protected_endpoints_reject_missing_token(method, path, body, files):
+    assert _protected_call(method, path, body, files).status_code == 401
+
+
+@pytest.mark.parametrize("method,path,body,files", PROTECTED)
+def test_protected_endpoints_reject_garbage_token(method, path, body, files):
+    assert _protected_call(method, path, body, files, {"Authorization": "Bearer not.a.jwt"}).status_code == 401
+
+
+def test_pending_transactions_ignores_a_caller_supplied_user_id():
+    """L'identité vient du jeton ; ?user_id=<autre> ne doit rien exposer ni être accepté sans jeton."""
+    assert client.get("/api/pending-transactions?user_id=someone-else").status_code == 401
+    token = JWTManager.encode_token("owner")
+    ok = client.get("/api/pending-transactions?user_id=someone-else", headers={"Authorization": f"Bearer {token}"})
+    assert ok.status_code == 200 and ok.json()["user_id"] == "owner"
+
+
+def test_valid_token_is_accepted():
+    token = JWTManager.encode_token("legit_user")
+    response = client.get("/api/pending-transactions", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 200
+
+
+def test_token_signed_with_another_secret_is_rejected():
+    forged = jwt.encode({"user_id": "victim", "exp": datetime.now(timezone.utc) + timedelta(hours=1)}, "attacker-secret", algorithm="HS256")
+    assert client.get("/api/pending-transactions", headers={"Authorization": f"Bearer {forged}"}).status_code == 401
+
+
+def test_expired_token_is_rejected():
+    expired = jwt.encode({"user_id": "victim", "exp": datetime.now(timezone.utc) - timedelta(hours=1)}, JWT_SECRET, algorithm="HS256")
+    assert client.get("/api/pending-transactions", headers={"Authorization": f"Bearer {expired}"}).status_code == 401
+
+
+def test_unsigned_alg_none_token_is_rejected():
+    unsigned = jwt.encode({"user_id": "victim"}, key=None, algorithm="none")
+    assert client.get("/api/pending-transactions", headers={"Authorization": f"Bearer {unsigned}"}).status_code == 401
