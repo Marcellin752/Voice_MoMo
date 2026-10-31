@@ -5,7 +5,7 @@ User-oriented, newest first. Categories: **Added · Changed · Fixed · Removed 
 **Provenance:** reconstructed on 2026-10-31 from git commit subjects (the repo has no earlier changelog). Dates are commit dates. Entries describe what the commits say; they were **not re-verified on a device**. There are no semantic versions: CI publishes a debug-APK prerelease per push to `main` (tags `build-N`, last known `build-104` on 2026-09-03). New entries go under **Unreleased**.
 
 ## [Unreleased]
-### Security — on local `main`, not yet pushed or deployed
+### Security — pushed to `origin/main` on 2026-10-31 (`7020529a`), deployment not verified
 - The test OTP code `000000` and the on-screen OTP (`devCode`) are disabled unless `ALLOW_DEV_OTP=true` is set. If the SMS cannot be sent, the app now receives an error instead of the code, and OTP codes are no longer written to the server logs. **Deployment note:** an SMS provider must be configured, otherwise login fails (503).
 - The default PIN `0000` given to accounts created with an SMS code can no longer be used to sign in through `POST /api/auth/login`; changing the PIN from the settings still works.
 - The voice (NLP) service no longer hands out login tokens to anyone: its test endpoints (token, login, register, mock profile/balance/transactions) are off unless `ENABLE_TEST_ENDPOINTS=true`, cancelling, syncing contacts and listing pending transactions now require a valid login token, and the service refuses to start without `JWT_SECRET` instead of using a publicly known default. **Deployment note:** the NLP service needs the same `JWT_SECRET` as the backend.
@@ -16,8 +16,9 @@ User-oriented, newest first. Categories: **Added · Changed · Fixed · Removed 
 - **Fixed:** double biometric prompts and TTS/microphone overlap; contact voice matching restored; Gemini retries.
 - **Security:** NLP `/api/cancel`, `/api/users/contacts` and `/api/pending-transactions` now require a valid JWT.
 
-### Fixed — on local `main`, not yet pushed or shipped
+### Fixed — pushed to `origin/main` on 2026-10-31; in the `build-111` prerelease APK (not tested on a device)
 - The login, PIN and profile screens now show the server's real error message (wrong PIN or SMS code, too many attempts, "the SMS could not be sent") instead of a generic "Erreur réseau".
+- The automatic APK build (GitHub Actions) failed at the Android SDK setup step on every push since the SDK repository dropped the `tools` package; the step now installs only `platform-tools` (`daaa2cb5`). The next build succeeded and published prerelease `build-111` (T-070).
 
 ## 2026-09
 - **Fixed:** login hang with no feedback after requesting an OTP; contact picker closing by itself; overlapping spoken messages (09-03). Backend errors now keep their real status code (09-03). NLP rate-limit crash (09-03). Voice analysis retries when Gemini is overloaded (09-02).
