@@ -161,3 +161,14 @@ def require_auth(func):
         # Logique d'auth gérée dans l'endpoint
         return await func(*args, **kwargs)
     return wrapper
+
+
+def require_test_endpoints() -> None:
+    """
+    Dépendance FastAPI pour les endpoints de TEST (jetons émis sans identifiants, données mock
+    keyées par un user_id fourni par l'appelant). Répond 404 comme si la route n'existait pas,
+    sauf si ENABLE_TEST_ENDPOINTS=true. Réservé au développement local : ne jamais activer en production.
+    Le drapeau est lu à chaque requête pour pouvoir être contrôlé dans les tests.
+    """
+    if os.getenv("ENABLE_TEST_ENDPOINTS", "").strip().lower() != "true":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
