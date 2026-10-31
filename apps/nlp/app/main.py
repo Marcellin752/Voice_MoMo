@@ -516,7 +516,7 @@ async def voice_command(request: Request, audio_file: UploadFile = File(...)) ->
         logger.error(f"   Traceback:\n{traceback.format_exc()}")
         return Response(
             content=json.dumps({
-                "error": f"{type(e).__name__}: {str(e)}",
+                "error": "Erreur interne du service vocal.",
                 "intent": "unknown"
             }),
             status_code=500,
