@@ -89,6 +89,15 @@ async function login(phone, pin) {
   _validatePhone(cleaned);
   _validatePin(pin);
 
+  // Le PIN par défaut des comptes OTP n'ouvre jamais de session. Réponse identique à un PIN faux,
+  // pour ne pas révéler qu'un compte est encore sur le PIN par défaut.
+  if (String(pin) === DEFAULT_OTP_PIN) {
+    console.warn("[auth] Connexion par PIN refusée : PIN par défaut.");
+    const err = new Error("PIN incorrect.");
+    err.status = 401;
+    throw err;
+  }
+
   const useDb = await _isDbAvailable();
 
   if (useDb) {
