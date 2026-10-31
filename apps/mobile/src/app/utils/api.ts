@@ -18,6 +18,15 @@ export function getToken(): string | null {
 // "en chargement" indéfiniment côté UI, sans jamais échouer ni réussir.
 const REQUEST_TIMEOUT_MS = 45000;
 
+/** Le backend répond { error } (API legacy et v1) ; certains services utilisent { message }. */
+function errorMessage(body: unknown): string {
+  const b = (body ?? {}) as { error?: unknown; message?: unknown };
+  for (const candidate of [b.error, b.message]) {
+    if (typeof candidate === 'string' && candidate.trim()) return candidate;
+  }
+  return 'Erreur réseau';
+}
+
 export async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   const token = getToken();
@@ -45,7 +54,7 @@ export async function request<T>(method: string, path: string, body?: unknown): 
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({ message: res.statusText }));
-    const error = new Error(err.message || 'Erreur réseau') as Error & { status: number };
+    const error = new Error(errorMessage(err)) as Error & { status: number };
     error.status = res.status;
     throw error;
   }
