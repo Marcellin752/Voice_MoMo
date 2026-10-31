@@ -149,3 +149,11 @@ Entry template: **Date · Objective · Work completed · Files modified · Decis
 - **Problems:** my previous search for stale wording looked for "not pushed" and missed "not yet pushed" in two `CHANGELOG.md` headings and "on local `main`" in T-020; corrected here. The earlier log entry giving the cause as **[Unknown]** is superseded by this one.
 - **Outstanding:** the debug APK `build-111` (the first one containing the OTP/PIN/NLP/Gemini/error-message fixes and the merged upstream code) has not been run on a device; Render's deployment of the new code is still **[Unknown]**. T-070 can be closed.
 - **Recommended next action:** T-004 part 2 (`gemini_client.py` key in the URL, on top of upstream's retry loop), then T-061; install `build-111` on a phone when convenient to check the login/error-message path.
+
+## 2026-10-31 — Handoff to the second developer: verification plan
+- **Objective:** the owner's teammate (with their own agent) will continue and run the tests this session could not; the owner asked to make sure everything is up to date for that and to say which tests to run, then push so the teammate can pull.
+- **Work completed:** wrote `HANDOFF_TESTS.md` (in French): setup, automated checks with the counts seen on 2026-10-31 (backend 26, NLP 54, mobile 7, CI green), checks on the deployed services (deployment, environment variables, OTP/PIN/NLP behaviour with the owner's own number, logs, Gemini key rotation) and a phone checklist for the `build-111` APK (OTP, error messages, voice flow, failure phrasings for T-007, logcat PIN leak for T-003, the upstream features never exercised for T-011), what not to do, the next items in order, and how to record results. Registered as T-071; pointers added in `CLAUDE.md` (continuity table) and `PROJECT_STATUS.md` (next actions, rewritten because the old list was stale).
+- **Files modified:** `HANDOFF_TESTS.md` (new), `CLAUDE.md`, `PROJECT_STATUS.md`, `TODO.md`, this log. No code touched.
+- **Tests executed:** none new; the plan restates results already recorded. The plan itself was not run.
+- **Outstanding:** the whole plan; Render deployment state **[Unknown]**.
+- **Recommended next action:** the teammate runs section 2 and 3 of the plan first (B1, B2 and C1 decide whether anything else is meaningful), then continues with T-004 part 2.
