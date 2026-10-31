@@ -29,3 +29,17 @@ Entry template: **Date · Objective · Work completed · Files modified · Decis
 - **Tests executed:** none (docs only); cited paths checked to exist.
 - **Outstanding:** none. **Next action:** keep in sync via the protocol in `CLAUDE.md`.
 
+## 2026-10-31 — Continuity docs and upstream baseline check
+- **Objective:** create the project knowledge/continuity system (status, log, decisions, todo, changelog) without duplicating existing docs.
+- **Work completed:**
+  - Inspected all existing docs (README, `docs/*`, `apps/*/…md`, mobile `ARCHITECTURE_NOTES.md`, parent-folder files) and the git history. No status/log/changelog/ADR/TODO files existed in the repo.
+  - Discovered that **`origin/main` is 3 commits ahead of the local clone** (`3696121`, 2026-09-12: secure PIN keypad, on-device voice biometrics, dual-SIM/Linka/deep-USSD, NLP auth tightening). Fetched them into a throwaway bare repo (the user's repo untouched) and diffed. Findings unchanged upstream (files identical): `auth.service.js`, `gemini_rest_service.py`, `UssdAccessibilityService.java`, `AndroidManifest.xml`, accessibility config, `execute-sync.controller.ts`, `session-parser.ts`, `action_executor.py`, `render.yaml`, CI workflow, `api.ts`. Partly fixed upstream: NLP `/api/cancel`, `/api/users/contacts`, `/api/pending-transactions` now require a JWT. `Log.i` of USSD codes still present in the native plugin.
+  - Verified the GitHub repo is **public** (unauthenticated `git ls-remote` succeeded).
+  - Corrected an earlier statement: the audit said local `main` was "in sync with origin"; that compared against a stale remote-tracking ref.
+- **Files modified:** created `PROJECT_STATUS.md`, `TODO.md`, `DECISIONS.md`, `SESSION_LOG.md`, `CHANGELOG.md`; updated `CLAUDE.md` (documentation/session protocol, hazards now point to `TODO.md`, remote-freshness check, product-intent PIN wording). Outside the repo: the agent's memory note for this audit was corrected (baseline caveat). Verified afterward: only these six root files are new, the only modified tracked file is the pre-existing `.vscode/settings.json`, and every `T-nnn`/`ADR-nnnn` reference resolves.
+- **Decisions:** files live at the repo root; status for features is tracked only in `PROJECT_STATUS.md` (CAHIER §7 treated as self-reported); retroactive ADRs marked as such; 3 ADRs left `proposed` for the owner.
+- **Tests executed:** none (docs only). Git probes: `git ls-remote` (read-only), scratch-repo fetch and diffs.
+- **Problems:** changelog/ADR dates come from commit subjects, some of which are vague ("we modify something") and were skipped, not guessed.
+- **Outstanding:** upstream commits not reviewed in depth (T-011); everything in `TODO.md`.
+- **Recommended next action:** owner runs `git fetch`, then re-validate T-003/T-007/T-017 against `3696121`; decide Phase 0.
+
