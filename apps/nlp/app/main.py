@@ -668,12 +668,11 @@ async def cancel_action(
 
 
 @app.get("/api/pending-transactions")
-async def get_pending_transactions(user_id: str = "default"):
+async def get_pending_transactions(request: Request):
     """
-    📋 Lister les transactions en attente
-    
-    DEBUG ONLY - À utiliser pour le monitoring
+    📋 Lister les transactions en attente (JWT requis)
     """
+    user_id = await extract_user_from_request(request)
     tx = cache.get_by_user(user_id)
     
     if not tx:
