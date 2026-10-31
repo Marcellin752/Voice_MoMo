@@ -22,6 +22,7 @@ Only meaningful decisions (architecture, data, dependencies, API contracts, auth
 | 0014 | Single schema/migration authority | **proposed** |
 | 0015 | OTP development behaviours are opt-in (`ALLOW_DEV_OTP`) | accepted (2026-10-31) |
 | 0016 | The default PIN `0000` never opens a session by PIN | accepted (2026-10-31) |
+| 0017 | NLP test endpoints are opt-in; JWT required; no default JWT secret | accepted (2026-10-31) |
 
 ---
 
@@ -116,4 +117,11 @@ Only meaningful decisions (architecture, data, dependencies, API contracts, auth
 - **Decision:** `login()` refuses PIN `0000` with the same 401 "PIN incorrect." as a wrong PIN, before any account lookup, so the response reveals nothing about which accounts are on the default PIN. `updatePin` is unchanged: it verifies the old PIN directly, so changing the PIN from `0000` still works.
 - **Alternatives:** (b) a random unusable PIN hash for OTP accounts — rejected, it breaks the old-PIN prompt of the PIN screen; (c) disable `/api/auth/login` and `/api/auth/register` — not chosen, nothing in the app calls them but removal is a larger behaviour change; a distinct, explanatory error — rejected, it would act as an oracle for default-PIN accounts.
 - **Consequences:** a user who deliberately sets `0000` as a personal PIN cannot PIN-login (OTP login is unaffected); PIN-login brute force on personal PINs is still unthrottled (T-005); registering via `/api/auth/register` with `0000` creates an account that cannot PIN-login.
+
+### ADR-0017 — NLP test endpoints are opt-in; JWT required; no default JWT secret
+- **Date:** 2026-10-31 (owner: "continue", after the T-002 recommendation). **Status:** accepted.
+- **Context:** the NLP service issued JWTs to anyone (`/api/auth/token`, `/login`, `/register`), exposed mock profile/balance/transaction data keyed by a caller-supplied `user_id`, let `/api/cancel`, `/api/users/contacts` and `/api/pending-transactions` fall back to the shared `default` user, and defaulted to a public JWT secret. The `.env.example` flags meant to guard this (`ENABLE_TEST_TOKEN_ENDPOINT`, `ALLOW_UNAUTHENTICATED`) were never read. The mobile app calls none of those endpoints on the NLP service (its login goes to the backend).
+- **Decision:** (1) the seven test endpoints answer 404 unless `ENABLE_TEST_ENDPOINTS=true` (read on each request); (2) `cancel`, `contacts` and `pending-transactions` require a JWT and take the identity from it — byte-identical to the fix already on `origin/main` `3696121`, verified to merge cleanly; (3) `app.auth` raises at import when `JWT_SECRET` is unset.
+- **Alternatives:** delete the mock endpoints (rejected: removal needs approval and they remain useful for local development); require a JWT on them and derive identity from it (rejected: larger behaviour change, and their purpose is token-less local use); gate on `NODE_ENV` (rejected, as in ADR-0015).
+- **Consequences:** the NLP service will not start without `JWT_SECRET`, which must equal the backend's (the Render blueprint links them; a local `apps/nlp/.env` needs it); `docs/nlp/README_PRODUCTION.md` curl examples need the flag; `/ai/parse` is still unauthenticated (T-016) and users still share state in the in-memory store (T-050); the two never-read example flags were replaced by `ENABLE_TEST_ENDPOINTS`; `tests/conftest.py` now makes the NLP tests hermetic (test secret, dummy Gemini key).
 
