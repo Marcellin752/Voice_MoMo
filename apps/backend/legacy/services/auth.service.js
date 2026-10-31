@@ -350,7 +350,7 @@ async function sendOtp(phone) {
     _otps.set(cleaned, { code: otpCode, expiresAt });
   }
 
-  console.log(`🔑 [OTP] Code OTP généré pour ${cleaned} : ${otpCode}`);
+  console.log(`🔑 [OTP] Code OTP généré pour ${cleaned}.`);
 
   // Envoi du SMS réel via le provider
   const smsSent = await _sendSms(cleaned, `Votre code de connexion Voice MoMo est : ${otpCode}. Il expire dans 5 minutes.`);
