@@ -12,6 +12,7 @@ import PinScreen from "./pages/PinScreen";
 import NotificationsScreen from "./pages/NotificationsScreen";
 import VoiceOnlyRedirect from "./components/VoiceOnlyRedirect";
 import ContactsScreen from "./pages/ContactsScreen";
+import VoiceBiometricScreen from "./pages/VoiceBiometricScreen";
 
 export const router = createBrowserRouter([
   {
@@ -40,6 +41,7 @@ export const router = createBrowserRouter([
       { path: "settings/profile", Component: ProfileScreen },
       { path: "settings/language", Component: LanguageScreen },
       { path: "settings/pin", Component: PinScreen },
+      { path: "settings/voice-biometric", Component: VoiceBiometricScreen },
       { path: "notifications", Component: NotificationsScreen },
       { path: "services", Component: VoiceOnlyRedirect },
       { path: "services/:serviceId", Component: VoiceOnlyRedirect },

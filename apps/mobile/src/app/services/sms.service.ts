@@ -58,12 +58,62 @@ export class SmsListenerService {
     const addr = (address || "").trim();
     const lowerA = addr.toLowerCase();
     const lowerB = body.toLowerCase();
-    if (/mtn|momo|mobile money|momob|momopay|882|880|yello/i.test(lowerA)) return true;
-    if (/mtn mobile|mobile money|\bmomo\b|mtn momo|yello wallet/i.test(lowerB)) return true;
-    if (/(fcfa|f\s*cfa|xof)/i.test(lowerB) && /\b(solde|momo|nouveau solde|mobile money)\b/i.test(lowerB)) {
+    if (/mtn|momo|mobile money|momob|momopay|882|880|yello|linka/i.test(lowerA)) return true;
+    if (/mtn mobile|mobile money|\bmomo\b|mtn momo|yello wallet|linka/i.test(lowerB)) return true;
+    if (/(fcfa|f\s*cfa|xof)/i.test(lowerB) && /\b(solde|momo|nouveau solde|mobile money|linka)\b/i.test(lowerB)) {
       return true;
     }
     return false;
+  }
+
+  /** SMS Linka Send (transferts inter-réseau). */
+  static isLikelyLinkaMessage(address: string | undefined, body: string): boolean {
+    const lowerA = (address || "").toLowerCase();
+    const lowerB = body.toLowerCase();
+    if (/linka/i.test(lowerA) || /linka/i.test(lowerB)) return true;
+    // Confirmation inter-opérateur typique sans marquer "Linka"
+    if (/inter[- ]?r[eé]seau|vers\s+(moov|celtis)|transfert\s+vers/i.test(lowerB) && /(fcfa|f\s*cfa|xof)/i.test(lowerB)) {
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Parse un SMS Linka / inter-réseau : succès, échec, montant, frais, solde.
+   */
+  static parseLinkaSms(body: string): {
+    success: boolean | null;
+    amount: number | null;
+    fees: number | null;
+    balance: number | null;
+    message: string;
+  } {
+    const lower = body.toLowerCase();
+    let success: boolean | null = null;
+    if (/insuffisant|incorrect|échoué|echec|échec|invalide|refus|non autorisé|failed|annul/i.test(lower)) {
+      success = false;
+    } else if (/succ[eè]s|reussi|réussi|effectué|confirme|envoyé|envoye|transaction\s+ok/i.test(lower)) {
+      success = true;
+    }
+
+    const amountMatch =
+      body.match(/(?:montant|envoy[eé]|transfert)\s*(?:de\s*)?([\d\s.,]+)\s*(?:FCFA|F\s*CFA|XOF)/i) ||
+      body.match(/([\d\s.,]+)\s*(?:FCFA|F\s*CFA|XOF)\s*(?:envoy|transf)/i);
+    const feesMatch =
+      body.match(/frais\s*(?:de\s*)?(?:transfert\s*)?[:=]?\s*([\d\s.,]+)\s*(?:FCFA|F\s*CFA|XOF)?/i) ||
+      body.match(/commission\s*[:=]?\s*([\d\s.,]+)/i);
+
+    const amount = amountMatch?.[1] ? this.parseFcfaAmount(amountMatch[1]) : null;
+    const fees = feesMatch?.[1] ? this.parseFcfaAmount(feesMatch[1]) : null;
+    const balance = this.extractBalanceWithPriority(body)?.value ?? null;
+
+    return {
+      success,
+      amount,
+      fees,
+      balance,
+      message: body.trim().slice(0, 280),
+    };
   }
 
   static async readBalanceFromSmsHistory(limit: number = 150): Promise<number | null> {

@@ -8,6 +8,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.telecom.TelecomManager;
 import android.telephony.TelephonyManager;
 import android.util.Log;
 
@@ -87,14 +88,33 @@ public class UssdBackgroundNativePlugin extends Plugin {
             Log.i("UssdBackground", "📞 Lancement appel direct ACTION_CALL: " + ussdCode);
             Intent intent = new Intent(Intent.ACTION_CALL);
             
-            // Re-reversion vers Uri.fromParts car l'utilisateur a confirmé que "CETTE VERSION FONCTIONNE"
-            // avec cette méthode pour lancer le flux. 
-            // Uri.fromParts gère nativement l'encodage correct des caractères spéciaux USSD (* et #).
             String finalCode = ussdCode;
             if (!finalCode.endsWith("#")) finalCode += "#";
             
             intent.setData(Uri.fromParts("tel", finalCode, null));
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+
+            // Dual-SIM : forcer la SIM MTN quand possible
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                try {
+                    android.telecom.PhoneAccountHandle handle =
+                            TelephonyUssdHelper.getMtnPhoneAccountHandle(getContext());
+                    if (handle != null) {
+                        intent.putExtra(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, handle);
+                        Log.i("UssdBackground", "📡 EXTRA_PHONE_ACCOUNT_HANDLE MTN appliqué");
+                    }
+                    TelephonyUssdHelper.SimChoice mtn = TelephonyUssdHelper.findPreferredMtnSim(getContext());
+                    if (mtn != null) {
+                        // Hints OEM fréquents (Xiaomi / Samsung / stock)
+                        intent.putExtra("com.android.phone.extra.slot", mtn.simSlotIndex);
+                        intent.putExtra("slot", mtn.simSlotIndex);
+                        intent.putExtra("simSlot", mtn.simSlotIndex);
+                        intent.putExtra("subscription", mtn.subscriptionId);
+                    }
+                } catch (Exception e) {
+                    Log.w("UssdBackground", "Sélection SIM MTN non appliquée: " + e.getMessage());
+                }
+            }
             
             Log.i("UssdBackground", "📡 URI générée via fromParts: " + intent.getDataString());
             

@@ -3,6 +3,7 @@ import { MoMoTransactionEngine } from '../ussd_engine/MoMoTransactionEngine';
 import { InterNetworkTransferEngine } from '../ussd_engine/InterNetworkTransferEngine';
 import { NetworkDetector, MobileNetwork } from './NetworkDetector';
 import { StorageService } from '../storage.service';
+import { buildMtnServiceUssd } from '../ussd_engine/MtnUssdCodes';
 import type { ApiUser } from '../../utils/api';
 
 /** Intents qui envoient un USSD *880*… vers un numéro (transfert / dépôt wallet-to-wallet). */
@@ -13,22 +14,10 @@ const WALLET_TRANSFER_INTENTS = new Set([
   'momo_deposit',
 ]);
 
-const SIMPLE_USSD_INTENTS: Record<string, { code: string; message: string }> = {
-  withdraw: {
-    code: '*880*2#',
-    message: 'Menu retrait MoMo ouvert. Suivez les instructions à l\'écran, puis validez avec votre code PIN.',
-  },
-  withdraw_gab: {
-    code: '*880*724#',
-    message: 'Génération du code retrait GAB. Suivez les instructions MTN à l\'écran.',
-  },
-  bill_payment: {
-    code: '*880*5#',
-    message: 'Menu paiement marchand ouvert. Suivez les instructions à l\'écran.',
-  },
-};
-
-const MENU_USSD_INTENTS = new Set([
+const SERVICE_USSD_INTENTS = new Set([
+  'withdraw',
+  'withdraw_gab',
+  'bill_payment',
   'recharge',
   'internet_day',
   'internet_week',
@@ -69,23 +58,17 @@ export class VoiceIntentProcessor {
       return result;
     }
 
-    const simple = SIMPLE_USSD_INTENTS[intent];
-    if (simple) {
-      return this.runSimpleUssd(simple.code, simple.message);
-    }
-
-    if (MENU_USSD_INTENTS.has(intent)) {
-      const amount = nlpResponse.amount;
-      if (amount != null && Number(amount) > 0) {
-        return this.runSimpleUssd(
-          '*880#',
-          `Menu MoMo ouvert pour votre demande de ${Number(amount).toLocaleString('fr-FR')} francs. Suivez les instructions à l'écran.`
-        );
+    if (SERVICE_USSD_INTENTS.has(intent)) {
+      try {
+        const built = buildMtnServiceUssd(intent, {
+          amount: nlpResponse.amount,
+          recipient: nlpResponse.recipient,
+          billType: nlpResponse.bill_type || nlpResponse.billType,
+        });
+        return this.runSimpleUssd(built.code, built.message);
+      } catch (e: any) {
+        return { status: 'error', message: e?.message || 'Impossible de construire le code USSD.' };
       }
-      return this.runSimpleUssd(
-        '*880#',
-        'Menu MoMo ouvert. Choisissez l\'option crédit ou forfait à l\'écran, puis validez avec votre PIN.'
-      );
     }
 
     console.log('🔄 [VIP] Intent unsupported:', intent);
@@ -191,6 +174,17 @@ export class VoiceIntentProcessor {
       const transferInfo = interNetworkEngine.getTransferInfo();
       const recipientNetwork = NetworkDetector.detectNetwork(finalNumber);
 
+      if (recipientNetwork === MobileNetwork.UNKNOWN) {
+        return {
+          status: 'error',
+          message: 'Je ne reconnais pas le réseau de ce numéro. Vérifiez qu\'il s\'agit d\'un numéro MTN, Moov ou Celtis du Bénin.',
+        };
+      }
+
+      const fees = interNetworkEngine.getTransferFees(Number(amount));
+      const total = Number(amount) + fees;
+      const networkLabel = NetworkDetector.getNetworkLabel(recipientNetwork).replace(/^[^\w]+/, '').trim();
+
       console.log(`🔄 [VIP] Transfer prepared - ${NetworkDetector.getNetworkLabel(transferInfo.senderNetwork)} → ${NetworkDetector.getNetworkLabel(recipientNetwork)} via ${transferInfo.service}`);
 
       return {
@@ -202,7 +196,13 @@ export class VoiceIntentProcessor {
           recipientName: contacts[0].name,
           senderNetwork: transferInfo.senderNetwork,
           recipientNetwork: recipientNetwork,
-          service: transferInfo.service
+          service: transferInfo.service,
+          fees,
+          totalAmount: total,
+          confirmationHint:
+            transferInfo.service === 'Linka Send'
+              ? `via Linka vers ${networkLabel}, frais estimés ${fees.toLocaleString('fr-FR')} francs, total ${total.toLocaleString('fr-FR')} francs`
+              : `vers ${networkLabel}, sans frais Linka`,
         }
       };
     } catch (error) {
