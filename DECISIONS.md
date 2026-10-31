@@ -12,6 +12,11 @@ Only meaningful decisions (architecture, data, dependencies, API contracts, auth
 | 0004 | Voice-only transaction UX (no touch input) | accepted — in tension with upstream keypad (0012) |
 | 0005 | Contacts resolved on the device only | accepted |
 | 0006 | Monorepo `apps/{mobile,backend,nlp}` | accepted |
+| 0007 | Two backend codebases: `legacy/` (live) + `src/` v1 (dormant) | accepted de facto, under review (0013) |
+| 0008 | Backend and NLP share one JWT secret/format | accepted |
+| 0009 | OTP-only login, with dev conveniences left active | dev conveniences superseded by ADR-0015 (OTP-only login stands) |
+| 0010 | Recharge/withdraw/bill/forfaits only open the USSD menu | accepted |
+| 0011 | Server `balance` is a client-reported mirror | accepted |
 
 ---
 
@@ -45,4 +50,32 @@ Only meaningful decisions (architecture, data, dependencies, API contracts, auth
 
 ### ADR-0006 — Monorepo layout
 - **Date:** 2026-06-18 ("migrate to apps/ monorepo layout"). **Status:** accepted. **Reasoning:** not recorded. **Consequence:** the old `Mobile/`, `Backend/`, `NLP/` paths survive in some docs and scripts.
+
+### ADR-0007 — Two backend codebases
+- **Date:** legacy JS services from 2026-03-18; the TS v1 `src/` stack and the `legacy/` folder layout were added together on 2026-03-28 ("we add the USSD ligic"; the Backend folder had been recovered from branch `execute_mmi` on 2026-03-27). **Status:** accepted de facto; under review (0013).
+- **Context/decision:** `src/index.ts` mounts `legacy/` routes next to `/api/v1/*`; the mobile app only calls `legacy/`.
+- **Consequences:** two validation styles, two data-access layers (raw `pg` vs Prisma), three schema sources (0014).
+
+### ADR-0008 — Shared JWT secret
+- **Date:** 2026-05-08 ("JWT compatibility with Node.js backend"); strict enforcement 2026-09-02. **Status:** accepted.
+- **Decision:** backend issues JWTs; NLP verifies with the same secret (`render.yaml` links them); backend claim `userId`, NLP accepts `userId` or `user_id`.
+- **Consequences:** one secret compromises both services; changing claims is a cross-service contract change (see `CLAUDE.md`).
+
+### ADR-0009 — OTP-only login with dev conveniences
+- **Date:** OTP via Twilio/Termii 2026-05-17; on-screen OTP when SMS fails 2026-05-17 ("trial account fallback"); `000000` bypass 2026-05-18 (commit says "DEV bypass"). **Status:** accepted as temporary; flagged for supersession.
+- **Context:** CAHIER §4.1 specifies OTP login (the MTN PIN is not used at login); SMS providers were on trial accounts.
+- **Consequences:** the conveniences are still active in production code and the repo is public (T-001). A demo mechanism must replace them before removal.
+
+### ADR-0010 — Menu-open USSD for non-transfer services
+- **Date:** 2026-06-21 ("handle recharge, withdraw and bill payment via voice"). **Status:** accepted.
+- **Decision:** these intents dial `*880#`-family menus and tell the user to follow the screen; only transfer and balance build full strings.
+- **Reasoning:** lower risk than automating multi-step menus.
+- **Consequences:** breaks the inclusion goal for users who cannot read the screen (T-027).
+
+### ADR-0011 — Server balance is a mirror
+- **Date:** 2026-05-11 ("parse real solde from sms with plugin and sync with backend"). **Status:** accepted.
+- **Decision:** the app reads the balance from MTN SMS/USSD and POSTs it to `/api/users/balance`.
+- **Consequences:** the server number is not authoritative and must not drive decisions (T-013).
+
+---
 
