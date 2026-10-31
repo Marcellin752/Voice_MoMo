@@ -41,6 +41,10 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # v3 installs "tools platform-tools" by default; the "tools" package no longer exists
+          # in the SDK repository (the action's v4.0.2 dropped it from its default).
+          packages: platform-tools
 
       - name: Install Capacitor CLI
         working-directory: apps/mobile
