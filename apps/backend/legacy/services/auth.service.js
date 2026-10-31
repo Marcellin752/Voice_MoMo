@@ -355,15 +355,23 @@ async function sendOtp(phone) {
   // Envoi du SMS réel via le provider
   const smsSent = await _sendSms(cleaned, `Votre code de connexion Voice MoMo est : ${otpCode}. Il expire dans 5 minutes.`);
 
-  // Si l'envoi SMS a échoué (ex: numéro non vérifié sur compte Twilio trial),
-  // on renvoie le code directement pour permettre les tests sans SMS.
   if (!smsSent) {
-    console.warn(`⚠️ [OTP] SMS non délivré pour ${cleaned}. Code renvoyé en réponse pour test.`);
-    return {
-      success: true,
-      message: "SMS non délivré. Utilisez le code ci-dessous pour vous connecter.",
-      devCode: otpCode // Affiché sur l'écran uniquement si le SMS échoue
-    };
+    // Mode développement explicite uniquement (ALLOW_DEV_OTP=true) : renvoyer le code permet de
+    // tester sans fournisseur SMS (ex: numéro non vérifié sur compte Twilio trial).
+    if (_devOtpAllowed()) {
+      console.warn(`⚠️ [OTP] SMS non délivré pour ${cleaned}. Code renvoyé en réponse (ALLOW_DEV_OTP=true).`);
+      return {
+        success: true,
+        message: "SMS non délivré. Utilisez le code ci-dessous pour vous connecter.",
+        devCode: otpCode // Affiché sur l'écran uniquement si le SMS échoue
+      };
+    }
+
+    // Par défaut on échoue : le code n'est jamais renvoyé à l'appelant.
+    console.error(`❌ [OTP] SMS non délivré pour ${cleaned}.`);
+    const err = new Error("L'envoi du SMS a échoué. Veuillez réessayer dans quelques instants.");
+    err.status = 503;
+    throw err;
   }
 
   return {
