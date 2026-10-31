@@ -91,3 +91,64 @@ def test_no_application_module_disables_tls_verification():
         text = source.read_text(encoding="utf-8").replace(" ", "")
         assert "verify=False" not in text, f"{source.name} désactive la vérification TLS"
         assert "disable_warnings" not in text, f"{source.name} masque les avertissements TLS"
+
+
+# ---------------------------------------------------------------------------
+# Aucune fuite dans les réponses ni dans les journaux
+# ---------------------------------------------------------------------------
+
+def test_connection_error_never_leaks_the_key(monkeypatch, caplog):
+    def boom(_url, **_kwargs):
+        raise requests.exceptions.ConnectionError(
+            "HTTPSConnectionPool(host='generativelanguage.googleapis.com', port=443): Max retries exceeded "
+            f"with url: /v1beta/models/m:generateContent?key={KEY}"
+        )
+
+    monkeypatch.setattr(grs.session, "post", boom)
+    monkeypatch.setattr(grs.time, "sleep", lambda _s: None)
+    caplog.set_level(logging.DEBUG)
+
+    result = _run_service()
+
+    assert result["success"] is False
+    assert KEY not in str(result)
+    assert "HTTPSConnectionPool" not in str(result)
+    assert KEY not in caplog.text
+
+
+def test_unexpected_exception_detail_is_not_returned(monkeypatch):
+    def boom(_url, **_kwargs):
+        raise ValueError("internal detail in /srv/app/secret_module.py")
+
+    monkeypatch.setattr(grs.session, "post", boom)
+    monkeypatch.setattr(grs.time, "sleep", lambda _s: None)
+
+    result = _run_service()
+
+    assert result["success"] is False
+    assert "internal detail" not in str(result)
+    assert "secret_module" not in str(result)
+
+
+def test_parse_failure_does_not_echo_the_exception_text():
+    parsed = grs.GeminiRESTService()._parse_nlp_response("{not valid json}")
+    raw = parsed.metadata.raw_output
+    assert "Expecting" not in raw and "column" not in raw
+
+
+def test_voice_command_500_does_not_echo_exception_text(monkeypatch):
+    def explode():
+        raise RuntimeError("secret-internal-detail")
+
+    monkeypatch.setattr("app.main.get_voice_service", explode)
+    token = JWTManager.encode_token("transport_test_user")
+
+    response = client.post(
+        "/api/voice-command",
+        files={"audio_file": ("a.wav", AUDIO_BYTES, "audio/wav")},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 500
+    assert "secret-internal-detail" not in response.text
+    assert "RuntimeError" not in response.text
