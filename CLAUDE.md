@@ -177,6 +177,7 @@ copy. The code is the source of truth; the reference docs below were not all re-
 | `DECISIONS.md` | ADRs (`ADR-nnnn`): meaningful decisions only | a significant decision is proposed or made (append; supersede, never rewrite) |
 | `SESSION_LOG.md` | Append-only history of sessions | the end of every significant session (append only) |
 | `CHANGELOG.md` | User-visible changes: Added/Changed/Fixed/Removed/Security | a user-visible change is delivered (under Unreleased) |
+| `HANDOFF_TESTS.md` | Verification still owed (automated, deployed services, device), with expected results; in French | a listed check is run (record the result in `SESSION_LOG.md` and the item's `TODO.md` status) or the plan changes |
 
 Session protocol: **start** by reading `PROJECT_STATUS.md`, the last `SESSION_LOG.md` entry and the
 open Critical/High items of `TODO.md`; **end** by appending a `SESSION_LOG.md` entry (what ran and

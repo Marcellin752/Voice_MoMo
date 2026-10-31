@@ -65,7 +65,8 @@ French only; Android only; MTN-Bénin senders only (`utils/authUser.ts`); intern
 `CAHIER_DES_CHARGES.md` §7–8 mark most items "✅ Complète"; treat as self-reported. Known conflicts: dictated PIN "✅" (never delivered to USSD locally; replaced by a keypad upstream); "HTTPS" "✅" (cleartext allowed in manifest); "détection d'anomalies" and "PIN/Biométrie" "✅" (no such code in the local clone); "Android 8+" (minSdk 24); `docs/nlp/IMPLEMENTATION_GUIDE_TRANSFER_DIRECT.md` velocity limits (not implemented). `README.md` lists Google Cloud STT/TTS (code uses Gemini REST + on-device TTS). Investor files in the parent folder (outside git) claim "PRODUCTION READY" / "bank-grade security" — contradicted by T-001/T-002 (T-012). Reconciliation: T-026.
 
 ## Priorities and immediate next actions
-1. Decide whether to approve Phase 0 containment (T-001, T-002 remainder, native PIN logging, T-004).
-2. `git fetch` (owner's call), then re-validate findings against `3696121` and review the new biometrics/USSD-code changes (T-011).
-3. Answer the open questions: live users? do demos rely on `000000`/on-screen OTP? which branch releases? were investor docs shared? keep/park/remove the dormant v1 stack (ADR-0013)?
-4. Put a CI test gate in place before any fix (T-010).
+1. **Run the verification plan in `HANDOFF_TESTS.md` (T-071).** Nothing in the pushed fixes has been verified on a device or on the deployed services: check that Render runs the new code, the environment variables (SMS provider, shared `JWT_SECRET`, no `ALLOW_DEV_OTP`), the OTP/PIN behaviour with a real SMS, and install the `build-111` APK.
+2. **Rotate the Gemini API key** and read the old NLP logs (before T-004 part 1, connection errors logged the key-bearing URL).
+3. Next implementation items, one at a time with the owner's approval: T-004 part 2 (`gemini_client.py`), T-061 (NLP client timeout), T-011 re-validation of T-003/T-007/T-017 against the merged tree (the device results of the plan feed it).
+4. Open decisions: live users? do demos rely on `000000`/on-screen OTP? which branch releases? were investor docs shared (T-012)? keep/park/remove the dormant v1 stack (ADR-0013)? PIN entry approach (ADR-0012)? lockout policy (T-005)?
+5. Put a CI test gate in place (T-010): CI currently only builds the APK.
