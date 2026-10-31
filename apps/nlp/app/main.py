@@ -653,11 +653,8 @@ async def cancel_action(
     
     Utilisé après la réponse de refus vocal ("Non")
     """
-    # Extraire user_id du JWT
-    try:
-        user_id = await extract_user_from_request(request)
-    except HTTPException:
-        user_id = "default"
+    # Extraire user_id du JWT (strict — pas de fallback "default")
+    user_id = await extract_user_from_request(request)
     
     logger.info(f"❌ Annulation reçue pour: {payload.transaction_id} (user_id={user_id})")
     
