@@ -21,6 +21,7 @@ Only meaningful decisions (architecture, data, dependencies, API contracts, auth
 | 0013 | Fate of the dormant v1/modem/MMI stack | **proposed** |
 | 0014 | Single schema/migration authority | **proposed** |
 | 0015 | OTP development behaviours are opt-in (`ALLOW_DEV_OTP`) | accepted (2026-10-31) |
+| 0016 | The default PIN `0000` never opens a session by PIN | accepted (2026-10-31) |
 
 ---
 
@@ -108,4 +109,11 @@ Only meaningful decisions (architecture, data, dependencies, API contracts, auth
 - **Decision:** both behaviours work only when `ALLOW_DEV_OTP=true` (default off; `legacy/services/auth.service.js`). By default an SMS failure returns HTTP 503 and the code is never returned or logged.
 - **Alternatives:** gate on `NODE_ENV` (rejected: Render runs `production` yet the intent is an explicit opt-in, and tests need control); delete the behaviours (rejected: demos and development without an SMS provider would lose their only path); a seeded demo account behind a flag (deferred — not needed while the flag exists).
 - **Consequences:** login requires a configured SMS provider (Twilio or Termii) in any environment that does not set the flag; local development without a provider needs `ALLOW_DEV_OTP=true` in its own `.env` (untouched); the app's `devCode` display branch is dead unless the flag is on; accounts created by OTP still carry the default PIN `0000` (T-068, closed by ADR-0016).
+
+### ADR-0016 — The default PIN `0000` never opens a session by PIN
+- **Date:** 2026-10-31 (owner chose option (a): "option a pour T-068"). **Status:** accepted.
+- **Context:** accounts created by OTP are registered with the default PIN `0000` (`DEFAULT_OTP_PIN`). `POST /api/auth/login` accepted it, so anyone could obtain a session for any OTP-created account without an OTP. **[Ran]** pinned by a test before the fix. The endpoint has no caller in the mobile app but is reachable and unthrottled (T-005).
+- **Decision:** `login()` refuses PIN `0000` with the same 401 "PIN incorrect." as a wrong PIN, before any account lookup, so the response reveals nothing about which accounts are on the default PIN. `updatePin` is unchanged: it verifies the old PIN directly, so changing the PIN from `0000` still works.
+- **Alternatives:** (b) a random unusable PIN hash for OTP accounts — rejected, it breaks the old-PIN prompt of the PIN screen; (c) disable `/api/auth/login` and `/api/auth/register` — not chosen, nothing in the app calls them but removal is a larger behaviour change; a distinct, explanatory error — rejected, it would act as an oracle for default-PIN accounts.
+- **Consequences:** a user who deliberately sets `0000` as a personal PIN cannot PIN-login (OTP login is unaffected); PIN-login brute force on personal PINs is still unthrottled (T-005); registering via `/api/auth/register` with `0000` creates an account that cannot PIN-login.
 
