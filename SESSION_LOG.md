@@ -21,3 +21,11 @@ Entry template: **Date · Objective · Work completed · Files modified · Decis
 - **Outstanding:** whole roadmap (T-001…T-030). Baseline gap discovered later (see 2026-10-31).
 - **Next action:** owner decides on Phase 0 containment.
 
+## 2026-10-30 — `CLAUDE.md` created
+- **Objective:** a permanent operating manual for Claude Code tied to the real architecture.
+- **Work completed:** wrote `CLAUDE.md` (architecture live/dormant table, verified commands, rules for understanding, preservation, quality, git, communication, task discipline, money, security, testing, docs; known-hazards list).
+- **Files modified:** `CLAUDE.md` (new).
+- **Decisions:** no AI co-author/attribution in commits; no unrequested commit/push.
+- **Tests executed:** none (docs only); cited paths checked to exist.
+- **Outstanding:** none. **Next action:** keep in sync via the protocol in `CLAUDE.md`.
+
