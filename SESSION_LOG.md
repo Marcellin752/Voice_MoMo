@@ -86,3 +86,13 @@ Entry template: **Date · Objective · Work completed · Files modified · Decis
 - **Outstanding:** nothing is committed or deployed. Before deploying: configure Twilio/Termii on Render (or set `ALLOW_DEV_OTP=true` knowingly). Local development without a provider needs `ALLOW_DEV_OTP=true` in the developer's own `.env`. T-068 (PIN `0000`) and T-005 (attempt limits) remain.
 - **Recommended next action:** decide T-068 (option a recommended: refuse PIN-login while the account is still on the default PIN), then T-002.
 
+## 2026-10-31 — T-068: the default PIN `0000` no longer opens a PIN session (option a)
+- **Objective:** close the second takeover path found by the T-001 tests: `POST /api/auth/login` accepting `0000` on OTP-created accounts. Owner chose option (a) ("option a pour T-068"); working tree, no branch, no commit.
+- **Work completed:** tests first — the pinned "known gap" test was replaced by 4 tests; on the unfixed code 2 failed (the closure checks) and 2 passed (PIN change from `0000`, personal PIN login — the no-regression checks). Then the fix: `DEFAULT_OTP_PIN` constant, and `login()` rejects it with the same 401 "PIN incorrect." as a wrong PIN, before any account lookup; `verifyOtp` now uses the constant.
+- **Files modified:** `apps/backend/legacy/services/auth.service.js`, `apps/backend/tests/unit/legacy-auth-otp.test.ts`; docs: `TODO.md` (T-068, T-001 status), `DECISIONS.md` (ADR-0016), `CHANGELOG.md`, `PROJECT_STATUS.md`, `CLAUDE.md` (test counts, hazards wording).
+- **Decisions:** ADR-0016 — uniform 401 rather than an explanatory error (an explanatory error would reveal which accounts are still on the default PIN).
+- **Tests executed:** `npx --no-install jest --ci tests/unit/legacy-auth-otp.test.ts` → 14/14; full backend suite → 6 suites, 26 tests passed; `node --check legacy/services/auth.service.js` OK; `npx --no-install tsc --noEmit -p .` no diagnostics; grep shows no remaining bare `"0000"` literal in `legacy/`.
+- **Problems:** the PIN screen was exercised only through the service (`updatePin`), not on a device; a user who deliberately chose `0000` can no longer PIN-login (OTP unaffected).
+- **Outstanding:** nothing is committed or deployed; production stays exposed until deployed (SMS provider must be configured first, see the T-001 entry). T-005 (attempt limits) and T-002 remain.
+- **Recommended next action:** T-002 (NLP endpoints that issue tokens without credentials), or deploy the T-001/T-068 working tree after configuring the SMS provider — owner's call.
+
