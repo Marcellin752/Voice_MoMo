@@ -309,6 +309,12 @@ async function _sendSms(phone, message) {
 
 const _otps = new Map(); // Fallback in-memory
 
+// Comportements de développement (code de test "000000", code OTP renvoyé dans la réponse) :
+// désactivés par défaut, activés seulement par ALLOW_DEV_OTP=true.
+function _devOtpAllowed() {
+  return String(process.env.ALLOW_DEV_OTP || "").trim().toLowerCase() === "true";
+}
+
 async function sendOtp(phone) {
   const cleaned = _cleanPhone(phone);
   _validatePhone(cleaned);
@@ -379,8 +385,8 @@ async function verifyOtp(phone, code) {
   const useDb = await _isDbAvailable();
 
   let isBypass = false;
-  // Permet le bypass de test (Désactivé en prod logiciellement par NODE_ENV, ou gardé en environnement sandbox)
-  if (String(code) === "000000") {
+  // Bypass de test : uniquement si ALLOW_DEV_OTP=true (désactivé par défaut).
+  if (_devOtpAllowed() && String(code) === "000000") {
     console.log(`🔓 [OTP] Bypass de test '000000' utilisé pour ${cleaned}`);
     isBypass = true;
   }
