@@ -76,3 +76,13 @@ Entry template: **Date · Objective · Work completed · Files modified · Decis
 - **Outstanding:** T-052…T-067; nothing started.
 - **Recommended next action:** the cheapest safe wins are T-061 (NLP client with timeout), T-059 (Python dependency hygiene) and step 1 of T-058 (unused packages), each small and behind `npm run build`/pytest. T-052 must wait for a confirm-idempotency guard (T-031/T-034).
 
+## 2026-10-31 — First implementation: T-001 part 1 (OTP bypass and devCode off by default)
+- **Objective:** close the critical legacy OTP takeover (T-001) with a minimal, tested change. Owner approved ("oui vas-y pour A, pas de branche"): work in the working tree, no branch, no commit.
+- **Work completed:** tests written first and run against the unmodified code (5 failed, 6 passed — the 5 failures are the vulnerability checks), then the fix: `000000` and `devCode` only when `ALLOW_DEV_OTP=true`; SMS failure returns 503 instead of a fake success; the OTP code is no longer logged. Residual found by the tests: OTP-created accounts keep PIN `0000` and `login()` accepts it → T-068 (not changed: PIN behaviour needs approval).
+- **Files modified:** `apps/backend/legacy/services/auth.service.js` (+helper `_devOtpAllowed`, 3 call-site changes), `apps/backend/.env.example` (documents `ALLOW_DEV_OTP` and the SMS provider variables), `apps/backend/tests/unit/legacy-auth-otp.test.ts` (new, 11 tests); docs: `TODO.md` (T-001 status, T-068), `DECISIONS.md` (ADR-0015; ADR-0009 index row), `CHANGELOG.md`, `PROJECT_STATUS.md`, `CLAUDE.md` (test counts, hazards wording). `apps/backend/.env` (local, untracked) was not touched. The mobile app needed no change (`LoginScreen` already tolerates a missing `devCode` and shows the send error).
+- **Decisions:** ADR-0015.
+- **Tests executed:** `npx --no-install jest --ci tests/unit/legacy-auth-otp.test.ts` → before fix 5 failed / 6 passed; after fix 11/11 passed. Full backend suite → 6 suites, 23 tests passed. `node --check legacy/services/auth.service.js` → OK. `npx --no-install tsc --noEmit -p .` → no diagnostics.
+- **Problems:** `legacy/` is not covered by `tsc`, hence the explicit `node --check`; the SQL branch of `verifyOtp` needs a database to test; with the flag off and no SMS provider configured, login now fails by design (503).
+- **Outstanding:** nothing is committed or deployed. Before deploying: configure Twilio/Termii on Render (or set `ALLOW_DEV_OTP=true` knowingly). Local development without a provider needs `ALLOW_DEV_OTP=true` in the developer's own `.env`. T-068 (PIN `0000`) and T-005 (attempt limits) remain.
+- **Recommended next action:** decide T-068 (option a recommended: refuse PIN-login while the account is still on the default PIN), then T-002.
+
