@@ -117,3 +117,30 @@ describe("legacy auth — OTP, configuration par défaut (ALLOW_DEV_OTP absent)"
     await expectStatus(auth.verifyOtp(PHONE, FIXED_OTP), 400);
   });
 });
+
+describe("legacy auth — OTP, mode développement explicite (ALLOW_DEV_OTP=true)", () => {
+  beforeEach(() => {
+    process.env.ALLOW_DEV_OTP = "true";
+  });
+
+  test("accepte 000000", async () => {
+    const auth = loadService();
+    const session = await auth.verifyOtp(PHONE, "000000");
+    expect(typeof session.token).toBe("string");
+  });
+
+  test("renvoie devCode quand le SMS n'a pas pu être envoyé", async () => {
+    configureSms(false);
+    const auth = loadService();
+    const res = await auth.sendOtp(PHONE);
+    expect(res.success).toBe(true);
+    expect(res.devCode).toBe(FIXED_OTP);
+  });
+
+  test("ne renvoie pas devCode quand le SMS est bien parti", async () => {
+    configureSms(true);
+    const auth = loadService();
+    const res = await auth.sendOtp(PHONE);
+    expect(res.devCode).toBeUndefined();
+  });
+});
