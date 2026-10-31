@@ -23,6 +23,7 @@ Only meaningful decisions (architecture, data, dependencies, API contracts, auth
 | 0015 | OTP development behaviours are opt-in (`ALLOW_DEV_OTP`) | accepted (2026-10-31) |
 | 0016 | The default PIN `0000` never opens a session by PIN | accepted (2026-10-31) |
 | 0017 | NLP test endpoints are opt-in; JWT required; no default JWT secret | accepted (2026-10-31) |
+| 0018 | Gemini calls: key in a header, TLS verified, sanitized errors | accepted (2026-10-31) — part 1 |
 
 ---
 
@@ -125,3 +126,9 @@ Only meaningful decisions (architecture, data, dependencies, API contracts, auth
 - **Alternatives:** delete the mock endpoints (rejected: removal needs approval and they remain useful for local development); require a JWT on them and derive identity from it (rejected: larger behaviour change, and their purpose is token-less local use); gate on `NODE_ENV` (rejected, as in ADR-0015).
 - **Consequences:** the NLP service will not start without `JWT_SECRET`, which must equal the backend's (the Render blueprint links them; a local `apps/nlp/.env` needs it); `docs/nlp/README_PRODUCTION.md` curl examples need the flag; `/ai/parse` is still unauthenticated (T-016) and users still share state in the in-memory store (T-050); the two never-read example flags were replaced by `ENABLE_TEST_ENDPOINTS`; `tests/conftest.py` now makes the NLP tests hermetic (test secret, dummy Gemini key).
 
+### ADR-0018 — Gemini calls: key in a header, TLS verified, sanitized errors
+- **Date:** 2026-10-31 (owner: "continue", after the T-004 mention). **Status:** accepted for the voice/audio path (`gemini_rest_service.py`); the `/ai/parse` client is pending the upstream merge (T-004 part 2).
+- **Context:** the voice path disabled TLS verification in three places (a global `session.verify = False`, a per-request `verify=False`, and `urllib3.disable_warnings()`), put the API key in the URL query string, and returned raw exception text to clients. `requests` connection errors embed the full URL, so failures logged the key at WARNING level and could return it in the response. The comment history ("Web Filter 403", "SSL bypass") shows verification was disabled to cope with a filtering network.
+- **Decision:** verification is on and cannot be switched off by configuration; the key travels in `x-goog-api-key`; log text goes through `_scrub()`; failures return fixed, user-safe messages while details stay in server logs; the 500 handler of `/api/voice-command` no longer echoes the exception.
+- **Alternatives:** honour the existing but unused `settings.disable_ssl_verify` (rejected: an insecure switch for a credential-bearing request; the standard `REQUESTS_CA_BUNDLE` / `SSL_CERT_FILE` covers inspecting proxies); keep the key in the URL and only redact (rejected: it also appears in intermediary logs).
+- **Consequences:** developers behind a TLS-inspecting network must point `REQUESTS_CA_BUNDLE` at their CA bundle (`start_backend.sh` already exports certifi's bundle when `.env` exists); the Gemini key may sit in historical Render logs and should be rotated after deploying; `gemini_client.py` keeps the key in the URL until its call lines can be edited on top of upstream's retry loop.
