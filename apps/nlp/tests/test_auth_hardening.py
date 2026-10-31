@@ -150,3 +150,26 @@ def test_expired_token_is_rejected():
 def test_unsigned_alg_none_token_is_rejected():
     unsigned = jwt.encode({"user_id": "victim"}, key=None, algorithm="none")
     assert client.get("/api/pending-transactions", headers={"Authorization": f"Bearer {unsigned}"}).status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Démarrage : pas de secret par défaut
+# ---------------------------------------------------------------------------
+
+def test_service_refuses_to_start_without_jwt_secret():
+    env = {k: v for k, v in os.environ.items() if k != "JWT_SECRET"}
+    result = subprocess.run(
+        [sys.executable, "-c", "import app.auth"],
+        cwd=NLP_ROOT, env=env, capture_output=True, text=True, timeout=60,
+    )
+    assert result.returncode != 0
+    assert "JWT_SECRET" in result.stderr
+
+
+def test_service_starts_with_a_jwt_secret():
+    env = dict(os.environ, JWT_SECRET="some-secret-for-this-check")
+    result = subprocess.run(
+        [sys.executable, "-c", "import app.auth"],
+        cwd=NLP_ROOT, env=env, capture_output=True, text=True, timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
