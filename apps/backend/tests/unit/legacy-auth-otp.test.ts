@@ -144,3 +144,45 @@ describe("legacy auth — OTP, mode développement explicite (ALLOW_DEV_OTP=true
     expect(res.devCode).toBeUndefined();
   });
 });
+
+describe("legacy auth — PIN par défaut des comptes OTP (TODO T-068)", () => {
+  /** Inscrit PHONE par OTP ; le compte reçoit le PIN par défaut "0000". */
+  async function signUpByOtp(): Promise<{ auth: any; session: any }> {
+    configureSms(true);
+    const auth = loadService();
+    await auth.sendOtp(PHONE);
+    const session = await auth.verifyOtp(PHONE, FIXED_OTP);
+    return { auth, session };
+  }
+
+  test("un compte créé par OTP n'ouvre pas de session avec le PIN par défaut 0000", async () => {
+    const { auth } = await signUpByOtp();
+    await expect(auth.login(PHONE, "0000")).rejects.toMatchObject({ status: 401, message: "PIN incorrect." });
+  });
+
+  test("le PIN par défaut reçoit exactement la même réponse qu'un PIN faux (pas d'indice)", async () => {
+    const { auth } = await signUpByOtp();
+    const defaultPin = await auth.login(PHONE, "0000").catch((e: any) => e);
+    const wrongPin = await auth.login(PHONE, "1111").catch((e: any) => e);
+    expect({ status: defaultPin.status, message: defaultPin.message }).toEqual({
+      status: wrongPin.status,
+      message: wrongPin.message,
+    });
+  });
+
+  test("le changement de PIN depuis le PIN par défaut fonctionne toujours, et le nouveau PIN ouvre une session", async () => {
+    const { auth, session } = await signUpByOtp();
+    const users: any = require("../../legacy/services/users.service"); // même registre de modules que `auth`
+    await users.updatePin(session.user.id, "0000", "4321");
+    const again = await auth.login(PHONE, "4321");
+    expect(typeof again.token).toBe("string");
+    await expect(auth.login(PHONE, "0000")).rejects.toMatchObject({ status: 401 });
+  });
+
+  test("un PIN personnel choisi à l'inscription par PIN reste utilisable pour login()", async () => {
+    const auth = loadService();
+    await auth.register("0197000002", "1234", "Test Utilisateur");
+    const session = await auth.login("0197000002", "1234");
+    expect(typeof session.token).toBe("string");
+  });
+});
