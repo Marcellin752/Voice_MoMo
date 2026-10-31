@@ -4,6 +4,10 @@ const db = require("../config/db");
 
 const ROUNDS = parseInt(process.env.BCRYPT_ROUNDS, 10) || 10;
 
+// PIN donné aux comptes créés par OTP (ils n'en ont pas choisi). Il ne doit JAMAIS ouvrir de session
+// par PIN, sinon POST /api/auth/login contournerait l'OTP. Voir login() et TODO T-068.
+const DEFAULT_OTP_PIN = "0000";
+
 // ─── Détection de la DB ───────────────────────────────────────────────────────
 let _dbAvailable = null;
 
@@ -470,7 +474,7 @@ async function verifyOtp(phone, code) {
     console.log(`👤 [OTP] Nouvel utilisateur détecté (${cleaned}), inscription automatique...`);
     const shortPhone = cleaned.slice(-4);
     const defaultName = `Utilisateur ${shortPhone}`;
-    const regResult = await register(cleaned, "0000", defaultName); // PIN par défaut "0000" pour les comptes OTP-only
+    const regResult = await register(cleaned, DEFAULT_OTP_PIN, defaultName); // PIN par défaut des comptes OTP-only
     return { token: regResult.token, user: regResult.user };
   }
 
