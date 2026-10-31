@@ -12,8 +12,14 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Configuration JWT - À overrider via .env
-JWT_SECRET = os.getenv("JWT_SECRET", "your-secret-key-change-in-production")
+# Configuration JWT. Aucun secret par défaut : un secret connu (public dans le dépôt) permettrait de
+# forger des jetons. Doit être le MÊME secret que celui du backend qui émet les jetons.
+JWT_SECRET = os.getenv("JWT_SECRET", "")
+if not JWT_SECRET:
+    raise RuntimeError(
+        "JWT_SECRET n'est pas défini : le service NLP refuse de démarrer sans secret JWT "
+        "(utiliser le même secret que le backend)."
+    )
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_HOURS = int(os.getenv("JWT_EXPIRATION_HOURS", "24"))
 
