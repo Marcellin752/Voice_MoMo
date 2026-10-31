@@ -298,7 +298,7 @@ FORMAT DE RÉPONSE (JSON uniquement, rien d'autre):
                     provider="gemini-rest-fallback",
                     model=settings.gemini_model,
                     confidence=0.0,
-                    raw_output=f"Error: {str(e)}"
+                    raw_output="Parse error"
                 )
             )
     
