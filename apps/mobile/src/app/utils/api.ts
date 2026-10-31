@@ -1,4 +1,5 @@
-const BASE_URL = (import.meta.env.VITE_API_BASE_URL as string) || 'http://localhost:3001';
+// `?.` : hors de Vite (tests Node), import.meta.env n'existe pas ; sous Vite l'objet est toujours défini.
+const BASE_URL = (import.meta.env?.VITE_API_BASE_URL as string) || 'http://localhost:3001';
 const TOKEN_KEY = 'momo.auth.token';
 
 let activeToken: string | null = null;
