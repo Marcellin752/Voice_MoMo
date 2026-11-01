@@ -26,17 +26,18 @@ export default function Layout() {
     executeTransferWithPin,
   } = useVoiceAssistantNLP(undefined, token ?? undefined);
 
+  const choosingContact = !!ambiguityContacts && ambiguityContacts.length > 0;
+
   const handleMicClick = () => {
     if (status === 'idle') {
       startListening();
     } else if (status === 'listening' || status === 'awaiting_voice_biometric') {
       stopListening();
-    } else if (
-      status === 'processing' ||
-      status === 'awaiting_confirmation' ||
-      status === 'awaiting_pin' ||
-      status === 'awaiting_disambiguation'
-    ) {
+    } else if (status === 'awaiting_confirmation' || status === 'awaiting_disambiguation') {
+      // L'utilisateur veut répondre (oui / non / numéro du contact) : on ouvre le micro tout de
+      // suite au lieu d'annuler. L'annulation se dit à voix haute (« non », « annule »).
+      startListening();
+    } else if (status === 'processing' || status === 'awaiting_pin') {
       cancelAction();
     }
   };
@@ -46,10 +47,10 @@ export default function Layout() {
       ? 'Saisissez le PIN sur le clavier (jamais à voix haute).'
       : status === 'awaiting_voice_biometric'
         ? 'Dites la phrase courte demandée pour confirmer votre voix.'
-        : status === 'awaiting_disambiguation'
-          ? 'Touchez le bon contact, ou dites son numéro dans la liste.'
-          : status === 'awaiting_confirmation'
-          ? 'Répondez à voix haute ou dites « annule ».'
+        : choosingContact
+          ? 'Touchez le bon contact, ou dites son numéro dans la liste. Touchez le micro pour finir de parler.'
+          : status === 'awaiting_confirmation' || status === 'listening'
+          ? 'Parlez, puis touchez le micro pour finir. Dites « non » pour annuler.'
           : null;
 
   return (
@@ -58,7 +59,8 @@ export default function Layout() {
         <Outlet />
       </div>
 
-      <div className="absolute bottom-[92px] right-6 z-40 flex flex-col items-end gap-3 pointer-events-none max-w-[280px]">
+      {/* z-[60] : reste touchable au-dessus de la modale de choix de contact (z-50), pour arrêter le micro. */}
+      <div className="absolute bottom-[92px] right-6 z-[60] flex flex-col items-end gap-3 pointer-events-none max-w-[280px]">
         <AnimatePresence>
           {status !== 'idle' && (
             <motion.div
@@ -131,7 +133,7 @@ export default function Layout() {
       </nav>
 
       <ContactDisambiguationModal
-        isOpen={status === 'awaiting_disambiguation'}
+        isOpen={choosingContact}
         contacts={ambiguityContacts || []}
         query={ambiguityQuery}
         onSelect={resolveAmbiguity}

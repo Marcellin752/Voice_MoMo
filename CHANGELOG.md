@@ -5,7 +5,13 @@ User-oriented, newest first. Categories: **Added · Changed · Fixed · Removed 
 **Provenance:** reconstructed on 2026-10-31 from git commit subjects (the repo has no earlier changelog). Dates are commit dates. Entries describe what the commits say; they were **not re-verified on a device**. There are no semantic versions: CI publishes a debug-APK prerelease per push to `main` (tags `build-N`, last known `build-104` on 2026-09-03). New entries go under **Unreleased**.
 
 ## [Unreleased]
-### Fixed — local working tree 2026-11-01, not pushed, not on a device
+### Fixed — 2026-11-01, voice dialogue (owner's phone test, not re-tested on a device yet)
+- The contact-choice window closed by itself after about two seconds: it was tied to the assistant's status, which the automatic microphone restart changed. It now stays open until a contact is chosen (tap or voice) or the user cancels, and the voice prompt finishes before the microphone opens.
+- "Oui" after a confirmation request, and "1/2/3" or a name during a contact choice, were handled as brand-new commands because the microphone restart had already replaced the waiting status. The app now remembers the dialogue phase separately, so the answer goes where it belongs and the USSD step is reached.
+- Tapping the microphone while the app waits for "oui" or for a contact choice now opens the microphone to answer instead of cancelling; the microphone button stays reachable above the contact window to end the recording. Cancelling is done by voice ("non", "annule").
+- The app no longer announces "Opération réussie" when there was nothing to execute (e.g. a stray "oui").
+
+### Fixed — 2026-11-01, pushed as `3f6c6c20`, not on a device
 - Error and success messages were never displayed anywhere in the app: the notification component (`sonner` `<Toaster />`) was never mounted, so every `toast.error(...)` (login, home, voice-only redirect) was silently dropped. On the login screen this looked like "it spins, then nothing". The toaster is now mounted at the app root, and the login screen additionally shows the error under the button until the next attempt.
 
 ### Security — 2026-11-01, demo switch (ADR-0022)

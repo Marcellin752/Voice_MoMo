@@ -148,10 +148,28 @@ export function useVoiceAssistantNLP(
     statusRef.current = status;
   }, [status]);
 
+  /**
+   * Phase de dialogue en cours (confirmation / choix de contact / PIN), indépendante du statut
+   * du micro. Le ré-armement automatique du micro passe `status` à 'listening' puis 'processing' :
+   * sans cette référence, le « oui » ou le « 2 » de l'utilisateur était traité comme une NOUVELLE
+   * commande (et la modale de choix, liée au statut, se refermait au bout de 1,8 s).
+   */
+  const phaseRef = useRef<'awaiting_confirmation' | 'awaiting_disambiguation' | 'awaiting_pin' | null>(null);
+
   const updateStatus = useCallback((newStatus: AssistantStatus) => {
     console.log(`[STATUS] ${statusRef.current} -> ${newStatus}`);
     setStatus(newStatus);
     statusRef.current = newStatus;
+    if (
+      newStatus === 'awaiting_confirmation' ||
+      newStatus === 'awaiting_disambiguation' ||
+      newStatus === 'awaiting_pin'
+    ) {
+      phaseRef.current = newStatus;
+    } else if (newStatus === 'idle' || newStatus === 'success' || newStatus === 'error') {
+      phaseRef.current = null;
+    }
+    // 'listening' / 'processing' / 'awaiting_voice_biometric' : la phase en cours est conservée.
   }, []);
 
   // UX Fix #9: Reprise automatique après échec de compréhension (1 tentative max)
@@ -405,7 +423,13 @@ export function useVoiceAssistantNLP(
   }, [updateStatus]);
 
   const triggerUSSD = useCallback(async (intent: string, data: any) => {
-    if (!intent || ['unknown', 'confirm', 'cancel'].includes(intent)) return { success: true, message: '' };
+    // Rien à exécuter côté USSD : ne jamais annoncer « Opération réussie » dans ce cas.
+    if (!intent || ['unknown', 'confirm', 'cancel'].includes(intent)) {
+      return {
+        success: false,
+        message: "Je n'ai pas d'opération à lancer. Dites votre demande, par exemple : envoie 5000 à Maman.",
+      };
+    }
 
     const run = async (): Promise<{ success: boolean; message?: string; isAwaiting?: boolean }> => {
       console.log(`📱 [USSD] Intent: ${intent}`, data);
@@ -425,13 +449,16 @@ export function useVoiceAssistantNLP(
 
         if (resultAny.ambiguity) {
           console.log('🤔 [USSD] Ambiguity detected');
+          // La modale s'ouvre tout de suite (liée à ambiguityContacts, pas au statut), on lit la
+          // liste, PUIS on passe en attente : le micro se ré-arme après la synthèse vocale,
+          // pas pendant (sinon il enregistrait la voix de l'app).
           setAmbiguityContacts(resultAny.ambiguity);
           setAmbiguityQuery(data?.recipient || 'Contact');
           ambiguityContextRef.current = { intent, data };
-          updateStatus('awaiting_disambiguation');
           const msg = formatAmbiguityVoicePrompt(resultAny.ambiguity, data?.recipient || 'ce nom');
           setFeedback(msg);
-          speakFeedback(msg);
+          await speakFeedback(msg);
+          updateStatus('awaiting_disambiguation');
           return { success: false, isAwaiting: true };
         }
 
@@ -478,7 +505,8 @@ export function useVoiceAssistantNLP(
 
   const sendAudioToBackend = async (audioBlob: Blob, filename: string = 'audio.webm') => {
     const epoch = cancelEpochRef.current;
-    const captureStatus = statusRef.current;
+    // La phase de dialogue prime sur le statut du micro (voir phaseRef).
+    const captureStatus: AssistantStatus = phaseRef.current ?? statusRef.current;
     lastUserAudioRef.current = audioBlob;
     // Apprentissage passif (style Siri) sur chaque commande / confirmation orale
     void learnFromUserSpeech(audioBlob);
@@ -534,15 +562,19 @@ export function useVoiceAssistantNLP(
       }
 
       if (captureStatus === 'awaiting_disambiguation' && ambiguityContactsRef.current?.length) {
+        if (result.intent === 'cancel' || isCancelSpeech(understood)) {
+          await cancelAction();
+          return;
+        }
         const match = matchContactFromSpeech(understood, ambiguityContactsRef.current);
         if (match) {
           await resolveAmbiguity(match);
           return;
         }
         const msg = formatAmbiguityVoicePrompt(ambiguityContactsRef.current, ambiguityQuery);
-        updateStatus('awaiting_disambiguation');
         setFeedback(msg);
-        speakFeedback('Je n\'ai pas reconnu ce contact. ' + msg);
+        await speakFeedback('Je n\'ai pas reconnu ce contact. ' + msg);
+        updateStatus('awaiting_disambiguation');
         return;
       }
 
@@ -556,9 +588,9 @@ export function useVoiceAssistantNLP(
           return;
         }
         const msg = 'Dites oui pour confirmer, ou non pour annuler.';
-        updateStatus('awaiting_confirmation');
         setFeedback(msg);
-        speakFeedback(msg);
+        await speakFeedback(msg);
+        updateStatus('awaiting_confirmation');
         return;
       }
 
@@ -704,6 +736,9 @@ export function useVoiceAssistantNLP(
       setFeedback('Saisissez votre PIN sur le clavier uniquement.');
       return;
     }
+    // Déjà en train d'enregistrer (ex. l'utilisateur a touché le micro juste avant le
+    // ré-armement automatique) : ne pas ouvrir un second enregistreur.
+    if (mediaRecorderRef.current?.state === 'recording') return;
     resetSessionActivity();
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -760,7 +795,15 @@ export function useVoiceAssistantNLP(
   }, [updateStatus]);
 
   const confirmAction = useCallback(async () => {
-    if (!transactionIdRef.current) return;
+    if (!transactionIdRef.current) {
+      // Ne pas rester bloqué en 'processing' sans rien dire.
+      updateStatus('error');
+      const msg = "Je n'ai plus la demande à confirmer. Redites-la, s'il vous plaît.";
+      setFeedback(msg);
+      speakFeedback(msg);
+      setTimeout(() => { if (statusRef.current === 'error') updateStatus('idle'); }, 5000);
+      return;
+    }
     const epoch = cancelEpochRef.current;
     try {
       updateStatus('processing');
