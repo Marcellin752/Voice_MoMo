@@ -24,7 +24,7 @@ import {
   wipeSecret,
 } from '../services/voiceBiometric.service';
 import { buildTransferConfirmSpeech, formatContactForSpeech } from '../utils/speakableName';
-import { NlpRequestError, requestNlp } from '../utils/nlpClient';
+import { NlpRequestError, requestNlp, warmUpNlp } from '../utils/nlpClient';
 
 type AssistantStatus =
   | 'idle'
@@ -178,6 +178,12 @@ export function useVoiceAssistantNLP(
   useEffect(() => {
     return () => { stopProgressiveRef.current?.(); };
   }, []);
+
+  // Réveiller le service NLP (Render gratuit) dès l'arrivée sur l'écran principal, avant la
+  // première commande vocale.
+  useEffect(() => {
+    warmUpNlp(nlpApiUrl);
+  }, [nlpApiUrl]);
 
   // Ré-arme le micro après confirmation / désambiguïsation uniquement.
   // Biométrie : le micro démarre APRÈS la fin du TTS (voir requestVoiceBiometric).

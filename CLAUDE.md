@@ -50,7 +50,7 @@ Run from the stated directory.
   `ENABLE_TEST_ENDPOINTS=true` (local development only). Gemini calls verify TLS; behind a TLS-inspecting
   proxy set `REQUESTS_CA_BUNDLE` to its CA bundle — never disable verification. `tests/test_voice_pipeline.py` is a manual script,
   excluded by `conftest.py`.
-- Mobile `apps/mobile`: `npm test` (plain Node ≥ 22.18, no dependency; 14 tests in `src/app/utils/*.test.ts`:
+- Mobile `apps/mobile`: `npm test` (plain Node ≥ 22.18, no dependency; 16 tests in `src/app/utils/*.test.ts`:
   `api.ts`, `nlpClient.ts`, `speakableName.ts`) and `npm run build` (Vite; verified 2026-10-31 with `--outDir` pointed at a temporary directory
   so the project's `dist/` is not overwritten). There is still **no** lint or typecheck setup and no `tsconfig`.
 - Run locally: see `docs/LAUNCH_GUIDE.md` and `start_backend.sh`. Build APK: `docs/BUILD_APK.md`.

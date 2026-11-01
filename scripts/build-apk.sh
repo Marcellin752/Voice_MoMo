@@ -51,6 +51,21 @@ if [[ ! -f .env ]]; then
   echo "  Copie apps/mobile/.env.example si tu testes sur téléphone en local."
 fi
 
+# URL backend qui sera figée dans l'APK : variable d'environnement (prioritaire pour Vite),
+# sinon apps/mobile/.env, sinon le défaut de api.ts (localhost).
+effective_api_url="${VITE_API_BASE_URL:-}"
+if [[ -z "$effective_api_url" && -f .env ]]; then
+  effective_api_url="$(grep -E '^VITE_API_BASE_URL=' .env | tail -n1 | cut -d= -f2- || true)"
+fi
+effective_api_url="${effective_api_url:-http://localhost:3001 (défaut)}"
+echo "→ Backend figé dans l'APK : $effective_api_url"
+if [[ "$effective_api_url" == http://* ]]; then
+  echo "⚠ URL locale/LAN : cet APK ne fonctionnera que sur le même Wi-Fi, avec le backend lancé."
+  echo "  Pour un APK autonome (serveurs Render), exporte avant de lancer ce script :"
+  echo "    export VITE_API_BASE_URL=https://voice-momo-backend-2qy2.onrender.com"
+  echo "    export VITE_VOICE_AI_URL=https://voice-momo.onrender.com"
+fi
+
 echo "→ npm run build…"
 npm run build
 

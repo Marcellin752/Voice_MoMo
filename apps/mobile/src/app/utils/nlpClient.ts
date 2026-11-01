@@ -76,3 +76,12 @@ export async function requestNlp(
 
   return res;
 }
+
+/**
+ * Réveille le service NLP (Render gratuit : 20–60 s de démarrage à froid) dès que l'écran
+ * principal s'affiche, pour que la première commande vocale ne paraisse pas bloquée.
+ * Échec ignoré volontairement : la commande réelle affichera sa propre erreur.
+ */
+export function warmUpNlp(baseUrl: string): Promise<void> {
+  return requestNlp(baseUrl, '/health').then(() => undefined, () => undefined);
+}

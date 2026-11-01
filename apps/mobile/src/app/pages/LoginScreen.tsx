@@ -2,11 +2,18 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
 import { ArrowRight, Phone, KeyRound, ArrowLeft, RefreshCw, Smartphone } from "lucide-react";
 import * as authService from "../services/auth.service";
+import { warmUpBackend } from "../utils/api";
 import { useAuth } from "../contexts/AuthContext";
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
 
 type AuthStep = "phone" | "otp";
+
+// Délai avant de pouvoir redemander un code. Le code reste valable 5 min (OTP_VALIDITY_S), mais
+// si le SMS n'arrive pas, attendre 5 min avant de réessayer bloquait l'utilisateur. Le serveur
+// limite de son côté à 3 codes par 15 min (429 affiché tel quel).
+const RESEND_COOLDOWN_S = 60;
+const OTP_VALIDITY_S = 300;
 
 export default function LoginScreen() {
   const [step, setStep] = useState<AuthStep>("phone");
@@ -17,11 +24,19 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
   const [slowServer, setSlowServer] = useState(false);
   const [timer, setTimer] = useState(0);
+  const [resendCooldown, setResendCooldown] = useState(0);
+  // Erreur affichée sous le bouton, en plus du toast (le toast disparaît ; ceci reste lisible).
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const navigate = useNavigate();
   const { setAuth, token, loading: authLoading } = useAuth();
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const verifyingRef = useRef(false);
+
+  // Réveiller le backend pendant que l'utilisateur tape son numéro (démarrage à froid Render).
+  useEffect(() => {
+    warmUpBackend();
+  }, []);
 
   // Auto-redirect if already authenticated
   useEffect(() => {
@@ -54,6 +69,13 @@ export default function LoginScreen() {
     };
   }, [timer]);
 
+  // Compte à rebours séparé pour « Renvoyer le code »
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const t = setTimeout(() => setResendCooldown((prev) => prev - 1), 1000);
+    return () => clearTimeout(t);
+  }, [resendCooldown]);
+
   // Nettoyer le numéro de téléphone (uniquement les chiffres)
   const handlePhoneChange = (val: string) => {
     setPhone(val.replace(/\D/g, ""));
@@ -77,11 +99,13 @@ export default function LoginScreen() {
     }
 
     setLoading(true);
+    setErrorMessage(null);
     try {
       const res = await authService.sendOtp(phone);
       if (res.success) {
         setStep("otp");
-        setTimer(300); // 5 minutes
+        setTimer(OTP_VALIDITY_S);
+        setResendCooldown(RESEND_COOLDOWN_S);
         if (res.devCode) {
           // Le SMS n'a pas pu être envoyé (numéro non vérifié Twilio trial)
           // On affiche le code directement sur l'écran pour permettre la connexion
@@ -92,10 +116,14 @@ export default function LoginScreen() {
           toast.success("Code OTP envoyé par SMS !");
         }
       } else {
-        toast.error((res as any).message || "Impossible d'envoyer l'OTP.");
+        const msg = (res as any).message || "Impossible d'envoyer l'OTP.";
+        setErrorMessage(msg);
+        toast.error(msg);
       }
     } catch (err: any) {
-      toast.error(err.message || "Impossible d'envoyer l'OTP.");
+      const msg = err.message || "Impossible d'envoyer l'OTP.";
+      setErrorMessage(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -109,13 +137,16 @@ export default function LoginScreen() {
     verifyingRef.current = true;
 
     setLoading(true);
+    setErrorMessage(null);
     try {
       const result = await authService.verifyOtp(phone, targetCode);
       toast.success("Authentification réussie !");
       await setAuth(result.token, result.user);
       navigate("/app");
     } catch (err: any) {
-      toast.error(err.message || "Code OTP incorrect ou expiré.");
+      const msg = err.message || "Code OTP incorrect ou expiré.";
+      setErrorMessage(msg);
+      toast.error(msg);
       setOtp(""); // Vider en cas d'erreur
     } finally {
       verifyingRef.current = false;
@@ -145,6 +176,7 @@ export default function LoginScreen() {
             setStep("phone");
             setOtp("");
             setOtpSentCode(null);
+            setErrorMessage(null);
           }}
           className="self-start p-3 bg-white dark:bg-[#1A1A1A] rounded-2xl shadow-sm border border-slate-100 dark:border-white/5 text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer"
         >
@@ -217,6 +249,11 @@ export default function LoginScreen() {
                 <span>{loading ? "Envoi du code..." : "Recevoir l'OTP"}</span>
                 {!loading && <ArrowRight size={18} />}
               </button>
+              {errorMessage && !loading && (
+                <p role="alert" className="text-center text-sm font-bold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 rounded-2xl px-4 py-3">
+                  {errorMessage}
+                </p>
+              )}
               {slowServer && (
                 <p className="text-center text-xs font-semibold text-slate-400 dark:text-zinc-500">
                   Le serveur démarre (mode gratuit), cela peut prendre jusqu'à 30 secondes. Merci de patienter…
@@ -294,6 +331,11 @@ export default function LoginScreen() {
                 >
                   <span>{loading ? "Vérification..." : "Valider le code"}</span>
                 </button>
+                {errorMessage && !loading && (
+                  <p role="alert" className="text-center text-sm font-bold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 rounded-2xl px-4 py-3">
+                    {errorMessage}
+                  </p>
+                )}
                 {slowServer && (
                   <p className="text-center text-xs font-semibold text-slate-400 dark:text-zinc-500">
                     Le serveur démarre (mode gratuit), cela peut prendre jusqu'à 30 secondes. Merci de patienter…
@@ -302,15 +344,19 @@ export default function LoginScreen() {
 
                 <button
                   onClick={submitSendOtp}
-                  disabled={timer > 0 || loading}
+                  disabled={resendCooldown > 0 || loading}
                   className={`w-full flex items-center justify-center space-x-2 py-4 px-6 rounded-2xl font-bold text-sm transition-all border border-slate-200 dark:border-white/5 cursor-pointer ${
-                    timer === 0 && !loading
+                    resendCooldown === 0 && !loading
                       ? 'bg-white dark:bg-[#1A1A1A] text-slate-700 dark:text-zinc-300 active:scale-95 hover:bg-slate-50'
                       : 'bg-transparent text-slate-300 dark:text-zinc-700 cursor-not-allowed'
                   }`}
                 >
                   <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
-                  <span>Renvoyer le code</span>
+                  <span>
+                    {resendCooldown > 0
+                      ? `SMS non reçu ? Renvoyer dans ${resendCooldown} s`
+                      : "Renvoyer le code"}
+                  </span>
                 </button>
               </div>
             </motion.div>

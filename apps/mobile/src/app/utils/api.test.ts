@@ -12,7 +12,7 @@ const store = new Map<string, string>();
   setItem: (k: string, v: string) => void store.set(k, v),
   removeItem: (k: string) => void store.delete(k),
 };
-const { request, setApiToken } = await import('./api.ts');
+const { request, setApiToken, warmUpBackend } = await import('./api.ts');
 
 const realFetch = globalThis.fetch;
 let sentHeaders: Record<string, string> = {};
@@ -93,6 +93,24 @@ test('échec réseau : message convivial inchangé', async () => {
   };
   const err = await rejection(request('GET', '/x'));
   assert.match(err.message, /^Impossible de contacter le serveur/);
+});
+
+test('warmUpBackend : GET /health, et ne rejette jamais (même hors ligne)', async () => {
+  let calledUrl = '';
+  let calledMethod = '';
+  (globalThis as any).fetch = async (url: string, init: RequestInit) => {
+    calledUrl = url;
+    calledMethod = String(init.method);
+    return { ok: true, status: 200 };
+  };
+  await warmUpBackend();
+  assert.match(calledUrl, /\/health$/);
+  assert.equal(calledMethod, 'GET');
+
+  (globalThis as any).fetch = async () => {
+    throw new TypeError('fetch failed');
+  };
+  await warmUpBackend(); // ne doit pas lever
 });
 
 test('succès : renvoie le JSON et envoie le jeton en Authorization', async () => {

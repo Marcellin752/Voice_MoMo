@@ -5,11 +5,19 @@ User-oriented, newest first. Categories: **Added · Changed · Fixed · Removed 
 **Provenance:** reconstructed on 2026-10-31 from git commit subjects (the repo has no earlier changelog). Dates are commit dates. Entries describe what the commits say; they were **not re-verified on a device**. There are no semantic versions: CI publishes a debug-APK prerelease per push to `main` (tags `build-N`, last known `build-104` on 2026-09-03). New entries go under **Unreleased**.
 
 ## [Unreleased]
-### Security — local working tree 2026-10-31, not pushed, not on a device
+### Fixed — local working tree 2026-11-01, not pushed, not on a device
+- Error and success messages were never displayed anywhere in the app: the notification component (`sonner` `<Toaster />`) was never mounted, so every `toast.error(...)` (login, home, voice-only redirect) was silently dropped. On the login screen this looked like "it spins, then nothing". The toaster is now mounted at the app root, and the login screen additionally shows the error under the button until the next attempt.
+
+### Changed — local working tree 2026-11-01, not pushed, not on a device
+- Login screen: the "Renvoyer le code" button becomes available 60 s after a code was requested (it used to wait the full 5 minutes of code validity); the server still limits to 3 codes per 15 min.
+- The app wakes the backend as soon as the login screen opens, and the voice service as soon as the main screen opens, so the first SMS-code request and the first voice command do not run into the free-tier cold start.
+- Build: `scripts/build-apk.sh` prints the backend URL that will be baked into the APK and warns when it is a local/LAN address; `docs/BUILD_APK.md` documents how to build a stand-alone APK against the Render servers.
+
+### Security — pushed to `origin/main` on 2026-10-31 (`86217bf9`), deployment not verified, not on a device
 - The `/ai/parse` Gemini client no longer puts the API key in the URL (same header as the voice path). Connection errors no longer include the exception text.
 - Voice operations no longer require recording enrollment phrases: the app learns the speaker from ordinary commands on the phone (first few commands are not blocked).
 
-### Changed — local working tree 2026-10-31, not pushed, not on a device
+### Changed — pushed to `origin/main` on 2026-10-31 (`86217bf9`), not on a device
 - When several contacts share a name, the list is tappable (voice “1, 2, 3” still works). Confirmation **shows** the full name and **speaks** the first name plus the last four digits, so the voice does not mangle the surname.
 - If the voice service does not answer within two minutes, the app stops waiting and says so (instead of spinning forever).
 

@@ -109,3 +109,14 @@ Puis relancer le build.
 
 - **CI / Release** : URLs Render (définies dans `.github/workflows/build-apk.yml`)
 - **Dev local** : `apps/mobile/.env` avec ton IP LAN avant `npm run build`
+- **Build local d'un APK autonome** (à installer sur un téléphone hors de ton Wi-Fi) : les variables
+  d'environnement du shell priment sur `.env` pour Vite — exporte les URLs Render avant le build,
+  sinon l'APK embarque l'IP LAN de `.env` et l'OTP ne part jamais (45 s d'attente puis erreur réseau) :
+
+  ```bash
+  export VITE_API_BASE_URL=https://voice-momo-backend-2qy2.onrender.com
+  export VITE_VOICE_AI_URL=https://voice-momo.onrender.com
+  ./scripts/build-apk.sh
+  ```
+
+  Le script affiche l'URL backend qui sera figée dans l'APK et prévient si elle est locale.

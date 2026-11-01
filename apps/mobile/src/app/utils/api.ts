@@ -62,6 +62,21 @@ export async function request<T>(method: string, path: string, body?: unknown): 
   return res.json() as Promise<T>;
 }
 
+/**
+ * Réveille le backend (offre gratuite Render : en veille après inactivité, 30 s+ pour démarrer).
+ * À appeler dès l'affichage de l'écran de connexion, pendant que l'utilisateur tape son numéro,
+ * pour que la demande d'OTP ne tombe pas sur le démarrage à froid.
+ * Pas d'état ni de retour : ce n'est pas un chemin d'argent ni d'auth, l'échec est ignoré
+ * volontairement (la vraie requête affichera sa propre erreur).
+ */
+export function warmUpBackend(): Promise<void> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  return fetch(`${BASE_URL}/health`, { method: 'GET', signal: controller.signal })
+    .then(() => undefined, () => undefined)
+    .finally(() => clearTimeout(timeoutId));
+}
+
 // Types partagés entre les services
 export type ApiUser = { id: string; phone: string };
 

@@ -4,7 +4,7 @@
  */
 import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { NLP_REQUEST_TIMEOUT_MS, NlpRequestError, requestNlp } from './nlpClient.ts';
+import { NLP_REQUEST_TIMEOUT_MS, NlpRequestError, requestNlp, warmUpNlp } from './nlpClient.ts';
 
 const realFetch = globalThis.fetch;
 let lastUrl = '';
@@ -65,6 +65,20 @@ test('timeout : abort du fetch et message français', async () => {
       return true;
     }
   );
+});
+
+test('warmUpNlp : GET /health, et ne rejette jamais', async () => {
+  (globalThis as any).fetch = async (url: string) => {
+    lastUrl = url;
+    return { ok: true, status: 200 };
+  };
+  await warmUpNlp('http://nlp.example/');
+  assert.equal(lastUrl, 'http://nlp.example/health');
+
+  (globalThis as any).fetch = async () => {
+    throw new TypeError('fetch failed');
+  };
+  await warmUpNlp('http://nlp.example'); // ne doit pas lever
 });
 
 test('constante de timeout : borner l\'attente (pas infini)', () => {
