@@ -1,6 +1,7 @@
 export type AmbiguousContact = { name: string; phone: string };
 
-const CONFIRM_RE = /\b(oui|ok|d'accord|dac|confirme|vas[- ]?y|valide|exact|correct)\b/i;
+// Testé après suppression des accents (« c'est ça » → « c'est ca », « bien sûr » → « bien sur »).
+const CONFIRM_RE = /\b(oui|ouais?|yes|ok|okay|d'accord|dac|je confirme|confirme|vas[- ]?y|valide|exact|correct|c'est (ca|bon|cela)|bien sur|tout a fait|affirmatif)\b/i;
 const CANCEL_RE = /\b(non|annule|arrête|stop|pas maintenant|abandonne)\b/i;
 
 const ORDINALS: Record<string, number> = {

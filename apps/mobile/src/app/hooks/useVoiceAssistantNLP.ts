@@ -237,6 +237,7 @@ export function useVoiceAssistantNLP(
   /** Phase que le message en cours de lecture ouvrira à la fin (pour qu'un tap l'ouvre tout de suite). */
   const pendingPromptPhaseRef = useRef<'awaiting_confirmation' | 'awaiting_disambiguation' | null>(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const speakingCountRef = useRef(0);
 
   const stopSpeaking = useCallback(async () => {
     speechEpochRef.current += 1;
@@ -250,23 +251,45 @@ export function useVoiceAssistantNLP(
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
   }, []);
 
-  /** Lit `text` ; renvoie `true` si la lecture est allée au bout, `false` si elle a été interrompue. */
+  /**
+   * Lit `text` ; renvoie `true` si la lecture est allée au bout, `false` si elle a été interrompue.
+   *
+   * Important : le plugin natif ne règle JAMAIS la promesse de `speak()` quand `stop()` l'interrompt
+   * (Android : `requests.clear()` sans onStop). Sans garde-fou, la file `speakChainRef` restait
+   * bloquée à vie après une interruption et plus aucune consigne n'était lue ni aucune phase ouverte
+   * (écran figé après « oui »). La lecture est donc bornée par l'interruption ET par un délai
+   * proportionnel au texte.
+   */
   const speakFeedback = async (text: string): Promise<boolean> => {
     const epoch = speechEpochRef.current;
+    let interrupted = false;
+    let signalInterrupt: () => void = () => {};
+    const interruptPromise = new Promise<void>((resolve) => {
+      signalInterrupt = () => { interrupted = true; resolve(); };
+    });
+    const maxMs = Math.min(20000, Math.max(3000, text.length * 90));
+    const timeoutPromise = new Promise<void>((resolve) => setTimeout(resolve, maxMs));
+
     const run = async () => {
-      if (epoch !== speechEpochRef.current) return; // interrompu avant même de commencer
+      if (epoch !== speechEpochRef.current) { interrupted = true; return; } // interrompu avant de commencer
+      speechInterruptRef.current = signalInterrupt;
       try {
-        const { TextToSpeech } = await import('@capacitor-community/text-to-speech');
-        await TextToSpeech.stop().catch(() => {});
-        await TextToSpeech.speak({
-          text: text,
-          lang: 'fr-FR',
-          rate: 1.0,
-          pitch: 1.0,
-          volume: 1.0,
-          category: 'ambient',
-        });
+        const native = (async () => {
+          const { TextToSpeech } = await import('@capacitor-community/text-to-speech');
+          await TextToSpeech.stop().catch(() => {});
+          await TextToSpeech.speak({
+            text: text,
+            lang: 'fr-FR',
+            rate: 1.0,
+            pitch: 1.0,
+            volume: 1.0,
+            category: 'ambient',
+          });
+        })();
+        native.catch(() => {}); // évite un « unhandled rejection » si l'échec arrive après l'interruption
+        await Promise.race([native, interruptPromise, timeoutPromise]);
       } catch (e) {
+        if (interrupted) return;
         console.warn('⚠️ [TTS] Fallback Web Speech API', e);
         if (!('speechSynthesis' in window)) return;
         window.speechSynthesis.cancel();
@@ -279,21 +302,22 @@ export function useVoiceAssistantNLP(
           utterance.onend = () => resolve();
           utterance.onerror = () => resolve();
           window.speechSynthesis.speak(utterance);
+          interruptPromise.then(resolve);
           setTimeout(resolve, Math.min(15000, Math.max(2500, text.length * 80)));
         });
+      } finally {
+        if (speechInterruptRef.current === signalInterrupt) speechInterruptRef.current = null;
       }
     };
-    let interrupted = false;
-    const interruptPromise = new Promise<void>((resolve) => {
-      speechInterruptRef.current = () => { interrupted = true; resolve(); };
-    });
     const next = speakChainRef.current.then(run, run);
     speakChainRef.current = next.catch(() => {});
+    speakingCountRef.current += 1;
     setIsSpeaking(true);
     try {
-      await Promise.race([next, interruptPromise]);
+      await next;
     } finally {
-      setIsSpeaking(false);
+      speakingCountRef.current -= 1;
+      if (speakingCountRef.current <= 0) { speakingCountRef.current = 0; setIsSpeaking(false); }
     }
     return !interrupted && epoch === speechEpochRef.current;
   };
@@ -814,6 +838,20 @@ export function useVoiceAssistantNLP(
     } catch (error: any) {
       endProcessingFeedback();
       console.error('❌ Erreur audio:', error);
+      // En pleine réponse (« oui » / choix de contact), une panne réseau ou un délai du serveur
+      // vocal ne doit pas faire perdre l'opération : on repose la question.
+      if (
+        epoch === cancelEpochRef.current &&
+        (captureStatus === 'awaiting_confirmation' || captureStatus === 'awaiting_disambiguation')
+      ) {
+        const again =
+          captureStatus === 'awaiting_confirmation'
+            ? "Je n'ai pas bien entendu. Dites oui pour confirmer, ou non pour annuler."
+            : "Je n'ai pas bien entendu. Touchez le bon contact, ou dites sa position.";
+        setFeedback(again);
+        await speakThenAwait(again, captureStatus);
+        return;
+      }
       updateStatus('error');
       const msg =
         error instanceof NlpRequestError
@@ -853,7 +891,14 @@ export function useVoiceAssistantNLP(
       mediaRecorder.ondataavailable = (e) => audioChunksRef.current.push(e.data);
       mediaRecorder.onstop = async () => {
         const audioBlob = new Blob(audioChunksRef.current, { type: recorderMimeTypeRef.current });
-        if (audioBlob.size <= 0) return;
+        if (audioBlob.size <= 0) {
+          // Rien capté : ne pas rester figé en « traitement ». On rouvre la phase en cours
+          // (le micro se ré-arme) ou on revient au repos.
+          const phase = phaseRef.current;
+          setFeedback("Je n'ai rien entendu. Parlez, puis touchez le micro pour finir.");
+          updateStatus(phase && phase !== 'awaiting_pin' ? phase : 'idle');
+          return;
+        }
         // Biométrie : traitement 100 % local, jamais envoyé au NLP
         if (biometricModeRef.current || statusRef.current === 'awaiting_voice_biometric') {
           await handleBiometricAudio(audioBlob);
