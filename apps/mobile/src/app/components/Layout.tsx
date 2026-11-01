@@ -18,6 +18,7 @@ export default function Layout() {
     startListening,
     stopListening,
     cancelAction,
+    isSpeaking,
     ambiguityContacts,
     ambiguityQuery,
     resolveAmbiguity,
@@ -33,9 +34,14 @@ export default function Layout() {
       startListening();
     } else if (status === 'listening' || status === 'awaiting_voice_biometric') {
       stopListening();
-    } else if (status === 'awaiting_confirmation' || status === 'awaiting_disambiguation') {
-      // L'utilisateur veut répondre (oui / non / numéro du contact) : on ouvre le micro tout de
-      // suite au lieu d'annuler. L'annulation se dit à voix haute (« non », « annule »).
+    } else if (
+      status === 'awaiting_confirmation' ||
+      status === 'awaiting_disambiguation' ||
+      (status === 'processing' && isSpeaking)
+    ) {
+      // L'utilisateur veut répondre (oui / non / numéro du contact), ou coupe l'app qui parle
+      // encore : on se tait et on ouvre le micro tout de suite au lieu d'annuler.
+      // L'annulation se dit à voix haute (« non », « annule »).
       startListening();
     } else if (status === 'processing' || status === 'awaiting_pin') {
       cancelAction();

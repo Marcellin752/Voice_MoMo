@@ -88,6 +88,8 @@ interface VoiceHookReturn {
   confirmAction: () => void;
   cancelAction: () => void;
   isListening: boolean;
+  /** L'app est en train de parler (un tap sur le micro l'interrompt et ouvre l'écoute). */
+  isSpeaking: boolean;
   ambiguityContacts: any[] | null;
   ambiguityQuery: string;
   resolveAmbiguity: (contact: { name: string; phone: string }) => void;
@@ -218,14 +220,41 @@ export function useVoiceAssistantNLP(
     if (status !== 'awaiting_confirmation' && status !== 'awaiting_disambiguation') {
       return;
     }
+    // La consigne est déjà lue en entier avant d'entrer dans la phase : délai court.
     const delay = setTimeout(() => {
       startListeningRef.current?.(true);
-    }, 1800);
+    }, 700);
     return () => clearTimeout(delay);
   }, [status]);
 
-  const speakFeedback = async (text: string) => {
+  /**
+   * Interruption de la voix de l'app (« barge-in ») : l'utilisateur touche le micro ou un contact
+   * pendant que l'app parle → on se tait tout de suite, et le `speakFeedback` en cours renvoie
+   * `false` pour que l'appelant n'enchaîne pas sur une étape déjà dépassée.
+   */
+  const speechEpochRef = useRef(0);
+  const speechInterruptRef = useRef<(() => void) | null>(null);
+  /** Phase que le message en cours de lecture ouvrira à la fin (pour qu'un tap l'ouvre tout de suite). */
+  const pendingPromptPhaseRef = useRef<'awaiting_confirmation' | 'awaiting_disambiguation' | null>(null);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+
+  const stopSpeaking = useCallback(async () => {
+    speechEpochRef.current += 1;
+    speechInterruptRef.current?.();
+    speechInterruptRef.current = null;
+    pendingPromptPhaseRef.current = null;
+    try {
+      const { TextToSpeech } = await import('@capacitor-community/text-to-speech');
+      await TextToSpeech.stop().catch(() => {});
+    } catch { /* plugin absent (web) */ }
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+  }, []);
+
+  /** Lit `text` ; renvoie `true` si la lecture est allée au bout, `false` si elle a été interrompue. */
+  const speakFeedback = async (text: string): Promise<boolean> => {
+    const epoch = speechEpochRef.current;
     const run = async () => {
+      if (epoch !== speechEpochRef.current) return; // interrompu avant même de commencer
       try {
         const { TextToSpeech } = await import('@capacitor-community/text-to-speech');
         await TextToSpeech.stop().catch(() => {});
@@ -254,9 +283,32 @@ export function useVoiceAssistantNLP(
         });
       }
     };
+    let interrupted = false;
+    const interruptPromise = new Promise<void>((resolve) => {
+      speechInterruptRef.current = () => { interrupted = true; resolve(); };
+    });
     const next = speakChainRef.current.then(run, run);
     speakChainRef.current = next.catch(() => {});
-    await next;
+    setIsSpeaking(true);
+    try {
+      await Promise.race([next, interruptPromise]);
+    } finally {
+      setIsSpeaking(false);
+    }
+    return !interrupted && epoch === speechEpochRef.current;
+  };
+
+  /**
+   * Lit une consigne puis ouvre la phase correspondante (le micro se ré-arme ensuite tout seul).
+   * Si l'utilisateur interrompt (tap micro / tap contact), c'est l'interrupteur qui fixe l'état.
+   */
+  const speakThenAwait = async (text: string, nextPhase: 'awaiting_confirmation' | 'awaiting_disambiguation') => {
+    pendingPromptPhaseRef.current = nextPhase;
+    const completed = await speakFeedback(text);
+    if (completed && pendingPromptPhaseRef.current === nextPhase) {
+      pendingPromptPhaseRef.current = null;
+      updateStatus(nextPhase);
+    }
   };
 
   const playAudioResponse = async (base64Audio: string): Promise<void> => {
@@ -337,8 +389,7 @@ export function useVoiceAssistantNLP(
       operation,
     });
     setFeedback(display);
-    await speakFeedback(speech);
-    updateStatus('awaiting_confirmation');
+    await speakThenAwait(speech, 'awaiting_confirmation');
   };
 
   const startLiveBiometricChallenge = useCallback(async (onSuccess: () => Promise<void>) => {
@@ -519,8 +570,7 @@ export function useVoiceAssistantNLP(
           ambiguityContextRef.current = { intent, data };
           const msg = formatAmbiguityVoicePrompt(resultAny.ambiguity, data?.recipient || 'ce nom');
           setFeedback(msg);
-          await speakFeedback(msg);
-          updateStatus('awaiting_disambiguation');
+          await speakThenAwait(msg, 'awaiting_disambiguation');
           return { success: false, isAwaiting: true };
         }
 
@@ -635,8 +685,7 @@ export function useVoiceAssistantNLP(
         }
         const msg = formatAmbiguityVoicePrompt(ambiguityContactsRef.current, ambiguityQuery);
         setFeedback(msg);
-        await speakFeedback('Je n\'ai pas reconnu ce contact. ' + msg);
-        updateStatus('awaiting_disambiguation');
+        await speakThenAwait('Je n\'ai pas reconnu ce contact. ' + msg, 'awaiting_disambiguation');
         return;
       }
 
@@ -651,8 +700,7 @@ export function useVoiceAssistantNLP(
         }
         const msg = 'Dites oui pour confirmer, ou non pour annuler.';
         setFeedback(msg);
-        await speakFeedback(msg);
-        updateStatus('awaiting_confirmation');
+        await speakThenAwait(msg, 'awaiting_confirmation');
         return;
       }
 
@@ -711,8 +759,7 @@ export function useVoiceAssistantNLP(
             ambiguityContextRef.current = { intent, data: { amount, recipient }, beforeConfirmation: true };
             const msg = formatAmbiguityVoicePrompt(candidates, String(recipient));
             setFeedback(msg);
-            await speakFeedback(msg);
-            updateStatus('awaiting_disambiguation');
+            await speakThenAwait(msg, 'awaiting_disambiguation');
             return;
           }
 
@@ -721,8 +768,7 @@ export function useVoiceAssistantNLP(
         }
 
         // Autres intentions (retrait, forfait…) : on répète le message du NLP, en TTS local
-        await speakFeedback(feedbackMsg);
-        updateStatus('awaiting_confirmation');
+        await speakThenAwait(feedbackMsg, 'awaiting_confirmation');
       } else {
         if (result.success && result.intent !== 'help') {
           autoRetryRef.current = 0;
@@ -791,6 +837,11 @@ export function useVoiceAssistantNLP(
     // Déjà en train d'enregistrer (ex. l'utilisateur a touché le micro juste avant le
     // ré-armement automatique) : ne pas ouvrir un second enregistreur.
     if (mediaRecorderRef.current?.state === 'recording') return;
+    // L'app parle encore ? L'utilisateur veut répondre : on se tait, on ouvre la phase que la
+    // consigne allait ouvrir, et on écoute tout de suite.
+    const pendingPhase = pendingPromptPhaseRef.current;
+    await stopSpeaking();
+    if (pendingPhase) updateStatus(pendingPhase);
     resetSessionActivity();
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -831,7 +882,7 @@ export function useVoiceAssistantNLP(
       updateStatus('error');
       setFeedback('Microphone inaccessible');
     }
-  }, [updateStatus, showPinModal, handleBiometricAudio, resetSessionActivity]);
+  }, [updateStatus, showPinModal, handleBiometricAudio, resetSessionActivity, stopSpeaking]);
 
   useEffect(() => {
     startListeningRef.current = startListening;
@@ -951,6 +1002,7 @@ export function useVoiceAssistantNLP(
 
   const cancelAction = useCallback(async () => {
     cancelEpochRef.current += 1;
+    await stopSpeaking();
     endProcessingFeedback();
     autoRetryRef.current = 0;
     biometricModeRef.current = false;
@@ -984,7 +1036,7 @@ export function useVoiceAssistantNLP(
       updateStatus('idle');
       setFeedback('Action annulée');
     }
-  }, [updateStatus, endProcessingFeedback]);
+  }, [updateStatus, endProcessingFeedback, stopSpeaking]);
 
   const closeAmbiguityModal = useCallback(() => {
     setAmbiguityContacts(null);
@@ -993,6 +1045,7 @@ export function useVoiceAssistantNLP(
   const resolveAmbiguity = useCallback(async (contact: { name: string; phone: string }) => {
     const ctx = ambiguityContextRef.current;
     if (!ctx) return;
+    await stopSpeaking(); // l'utilisateur a choisi : inutile de finir d'énumérer
     closeAmbiguityModal(); // Fermer la modale sans annuler
     updateStatus('processing');
     if (ctx.beforeConfirmation) {
@@ -1068,7 +1121,7 @@ export function useVoiceAssistantNLP(
   }, [pinContext, updateStatus, beginProcessingFeedback, endProcessingFeedback]);
 
   return {
-    status, transcript, feedback, parsedIntent, isListening, ambiguityContacts, ambiguityQuery, showPinModal, pinPrompt,
+    status, transcript, feedback, parsedIntent, isListening, isSpeaking, ambiguityContacts, ambiguityQuery, showPinModal, pinPrompt,
     startListening, stopListening, confirmAction, cancelAction,
     resolveAmbiguity, closeAmbiguityModal, executeTransferWithPin, cancelPinModal: cancelAction
   };

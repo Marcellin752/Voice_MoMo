@@ -79,12 +79,12 @@ export function parsePinFromSpeech(text: string): string | null {
   return null;
 }
 
+/**
+ * Consigne courte (demande du propriétaire, 2026-11-01) : on n'énumère plus chaque contact avec
+ * son numéro ; la liste numérotée est à l'écran, et la sélection à la voix reste possible
+ * (« un », « deux »…, voir matchContactFromSpeech).
+ */
 export function formatAmbiguityVoicePrompt(contacts: AmbiguousContact[], query: string): string {
-  const lines = contacts.slice(0, 5).map((c, i) => {
-    const first = (c.name || 'contact').trim().split(/\s+/)[0];
-    const last4 = (c.phone || '').replace(/\D/g, '').slice(-4);
-    const digits = last4 ? last4.split('').join(' ') : '';
-    return digits ? `${i + 1}, ${first}, numéro ${digits}` : `${i + 1}, ${first}`;
-  });
-  return `Plusieurs contacts pour "${query}". Touchez le bon sur l'écran, ou dites le numéro : ${lines.join(' ; ')}.`;
+  const n = Math.min(contacts.length, 5);
+  return `J'ai trouvé ${n} contacts pour ${query}. Choisissez le bon dans la liste : touchez-le, ou dites sa position, un, deux, trois.`;
 }
