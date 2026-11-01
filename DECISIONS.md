@@ -153,3 +153,9 @@ Only meaningful decisions (architecture, data, dependencies, API contracts, auth
 - **Context:** several contacts can share a first name; the modal had become display-only (`pointer-events-none`) and `resolveAmbiguity` was not wired. On-device TTS mangles many Beninese names.
 - **Decision:** the list is a button per contact (`onSelect` → `resolveAmbiguity`); voice selection (say 1, 2, 3…) remains. Confirmation **displays** the full name and **speaks** first name + last 4 digits spaced (`formatContactForSpeech`). NLP `audio_base64` is not used for that confirmation.
 - **Consequences:** a user who cannot see the screen can still say the number; a user who cannot parse the spoken list can tap. Device behaviour is T-072.
+
+### ADR-0022 — "Code on screen" fallback without the `000000` bypass (demo switch)
+- **Date:** 2026-11-01 (owner: Twilio trial refuses to verify Bénin numbers; presentation at 17:00). **Status:** accepted as a temporary demo measure; superseded the day a working SMS provider is configured (then the variable must be removed).
+- **Context:** since T-001 (ADR-0015) a failed SMS returns 503 and the only way to see the code was `ALLOW_DEV_OTP=true`, which also accepts `000000` for any number. Twilio in trial mode cannot verify a caller ID in Bénin ("restricted country"), so no SMS can leave for the owner's own number.
+- **Decision:** a second variable, `SHOW_OTP_WHEN_SMS_FAILS=true`, makes `sendOtp` return `devCode` (shown by `LoginScreen`) when the provider fails or none is configured, **without** enabling the `000000` bypass. 4 tests in `legacy-auth-otp.test.ts`.
+- **Consequences:** while it is set, anyone who knows a phone number can log in as that number (the code is displayed to whoever asked). Acceptable for a supervised demo only. Real fix: a provider that delivers to Bénin (paid Twilio with Benin enabled in Geo Permissions, or a local provider), then remove the variable.

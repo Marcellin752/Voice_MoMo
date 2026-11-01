@@ -9,7 +9,14 @@
 const PHONE = "0197000001";
 const FIXED_OTP = "550000"; // Math.random() = 0.5  ->  floor(100000 + 0.5 * 900000)
 
-const SMS_ENV = ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_PHONE_NUMBER", "SMS_API_KEY", "ALLOW_DEV_OTP"];
+const SMS_ENV = [
+  "TWILIO_ACCOUNT_SID",
+  "TWILIO_AUTH_TOKEN",
+  "TWILIO_PHONE_NUMBER",
+  "SMS_API_KEY",
+  "ALLOW_DEV_OTP",
+  "SHOW_OTP_WHEN_SMS_FAILS",
+];
 
 let originalFetch: typeof fetch;
 let logSpy: jest.SpyInstance;
@@ -142,6 +149,41 @@ describe("legacy auth — OTP, mode développement explicite (ALLOW_DEV_OTP=true
     const auth = loadService();
     const res = await auth.sendOtp(PHONE);
     expect(res.devCode).toBeUndefined();
+  });
+});
+
+describe("legacy auth — OTP, repli code à l'écran seul (SHOW_OTP_WHEN_SMS_FAILS=true, ADR-0022)", () => {
+  beforeEach(() => {
+    process.env.SHOW_OTP_WHEN_SMS_FAILS = "true";
+  });
+
+  test("renvoie devCode quand le SMS n'a pas pu être envoyé, et ce code ouvre une session", async () => {
+    configureSms(false);
+    const auth = loadService();
+    const res = await auth.sendOtp(PHONE);
+    expect(res.success).toBe(true);
+    expect(res.devCode).toBe(FIXED_OTP);
+    const session = await auth.verifyOtp(PHONE, res.devCode);
+    expect(typeof session.token).toBe("string");
+  });
+
+  test("aucun fournisseur configuré : devCode aussi (c'est le cas visé)", async () => {
+    const auth = loadService();
+    const res = await auth.sendOtp(PHONE);
+    expect(res.devCode).toBe(FIXED_OTP);
+  });
+
+  test("ne renvoie pas devCode quand le SMS est bien parti", async () => {
+    configureSms(true);
+    const auth = loadService();
+    const res = await auth.sendOtp(PHONE);
+    expect(res.devCode).toBeUndefined();
+  });
+
+  test("le code de test 000000 reste refusé (différence avec ALLOW_DEV_OTP)", async () => {
+    const auth = loadService();
+    await auth.sendOtp(PHONE);
+    await expectStatus(auth.verifyOtp(PHONE, "000000"), 400);
   });
 });
 

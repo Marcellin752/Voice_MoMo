@@ -8,6 +8,9 @@ User-oriented, newest first. Categories: **Added · Changed · Fixed · Removed 
 ### Fixed — local working tree 2026-11-01, not pushed, not on a device
 - Error and success messages were never displayed anywhere in the app: the notification component (`sonner` `<Toaster />`) was never mounted, so every `toast.error(...)` (login, home, voice-only redirect) was silently dropped. On the login screen this looked like "it spins, then nothing". The toaster is now mounted at the app root, and the login screen additionally shows the error under the button until the next attempt.
 
+### Security — 2026-11-01, demo switch (ADR-0022)
+- New backend variable `SHOW_OTP_WHEN_SMS_FAILS=true`: when the SMS cannot be sent (or no provider is configured), the login code is returned to the app and shown on screen, **without** re-enabling the `000000` test code (unlike `ALLOW_DEV_OTP`). While set, anyone who knows a phone number can log in as it — supervised demos only; remove it once a provider delivers to Bénin.
+
 ### Changed — local working tree 2026-11-01, not pushed, not on a device
 - Login screen: the "Renvoyer le code" button becomes available 60 s after a code was requested (it used to wait the full 5 minutes of code validity); the server still limits to 3 codes per 15 min.
 - The app wakes the backend as soon as the login screen opens, and the voice service as soon as the main screen opens, so the first SMS-code request and the first voice command do not run into the free-tier cold start.

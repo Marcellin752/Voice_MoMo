@@ -328,6 +328,14 @@ function _devOtpAllowed() {
   return String(process.env.ALLOW_DEV_OTP || "").trim().toLowerCase() === "true";
 }
 
+// Repli "code à l'écran" seul (SHOW_OTP_WHEN_SMS_FAILS=true) : quand aucun fournisseur SMS ne peut
+// livrer (ex. Twilio en essai refuse le Bénin), le code est renvoyé dans la réponse et affiché par
+// l'app. Contrairement à ALLOW_DEV_OTP, le code de test "000000" reste REFUSÉ. Démo uniquement :
+// n'importe qui connaissant un numéro peut alors s'y connecter. Voir ADR-0022 et TODO T-001.
+function _otpOnScreenAllowed() {
+  return String(process.env.SHOW_OTP_WHEN_SMS_FAILS || "").trim().toLowerCase() === "true";
+}
+
 async function sendOtp(phone) {
   const cleaned = _cleanPhone(phone);
   _validatePhone(cleaned);
@@ -369,10 +377,10 @@ async function sendOtp(phone) {
   const smsSent = await _sendSms(cleaned, `Votre code de connexion Voice MoMo est : ${otpCode}. Il expire dans 5 minutes.`);
 
   if (!smsSent) {
-    // Mode développement explicite uniquement (ALLOW_DEV_OTP=true) : renvoyer le code permet de
-    // tester sans fournisseur SMS (ex: numéro non vérifié sur compte Twilio trial).
-    if (_devOtpAllowed()) {
-      console.warn(`⚠️ [OTP] SMS non délivré pour ${cleaned}. Code renvoyé en réponse (ALLOW_DEV_OTP=true).`);
+    // Uniquement sur activation explicite (ALLOW_DEV_OTP=true ou SHOW_OTP_WHEN_SMS_FAILS=true) :
+    // renvoyer le code permet de tester sans fournisseur SMS (ex: numéro non vérifié sur compte Twilio trial).
+    if (_devOtpAllowed() || _otpOnScreenAllowed()) {
+      console.warn(`⚠️ [OTP] SMS non délivré pour ${cleaned}. Code renvoyé en réponse (repli à l'écran activé).`);
       return {
         success: true,
         message: "SMS non délivré. Utilisez le code ci-dessous pour vous connecter.",

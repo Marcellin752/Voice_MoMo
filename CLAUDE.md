@@ -41,7 +41,7 @@ yet reviewed — see `DECISIONS.md` ADR-0012). Do not describe either as end-to-
 Run from the stated directory.
 
 - Backend `apps/backend`: `npx tsc --noEmit` (typechecks `src/` only — `legacy/` is not
-  typechecked) and `npm test` (Jest, 26 tests: `src/` plus the legacy OTP and PIN-login flow).
+  typechecked) and `npm test` (Jest, 30 tests: `src/` plus the legacy OTP and PIN-login flow).
 - NLP `apps/nlp`: `venv/bin/python -m pytest -q -p no:cacheprovider tests/` (57 tests). `tests/conftest.py`
   sets a test `JWT_SECRET` and a dummy `GEMINI_API_KEY` by default, so the real key in `apps/nlp/.env`
   is never used (the tests still make outbound requests, with the dummy key). The service itself needs
