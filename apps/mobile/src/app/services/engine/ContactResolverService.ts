@@ -18,6 +18,21 @@ export class ContactResolverService {
   static readonly CLEAR_WINNER_GAP = 0.15;
 
   /**
+   * Le premier candidat peut-il être retenu sans demander à l'utilisateur ?
+   * Règle unique (seuils ci-dessus) partagée par VoiceIntentProcessor et le hook vocal :
+   * ne pas la recopier ailleurs.
+   */
+  static pickClearWinner<T extends { confidence: number }>(contacts: T[] | null | undefined): T | null {
+    if (!contacts || contacts.length === 0) return null;
+    const top = contacts[0];
+    const runnerUpConfidence = contacts[1]?.confidence ?? 0;
+    const isClearWinner =
+      top.confidence >= ContactResolverService.AUTO_ACCEPT_THRESHOLD &&
+      (top.confidence - runnerUpConfidence) >= ContactResolverService.CLEAR_WINNER_GAP;
+    return isClearWinner ? top : null;
+  }
+
+  /**
    * Normalise un numéro pour le plan de numérotation du Bénin (10 chiffres).
    * Ajoute '01' si le numéro est à 8 chiffres ou si l'indicatif +229 est présent sans le 01.
    */

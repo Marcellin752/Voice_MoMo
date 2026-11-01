@@ -6,6 +6,8 @@ User-oriented, newest first. Categories: **Added · Changed · Fixed · Removed 
 
 ## [Unreleased]
 ### Fixed — 2026-11-01, voice dialogue (owner's phone test, not re-tested on a device yet)
+- When several contacts match the name, the app now asks *which one* before asking "oui/non", and the confirmation question repeats the exact person (first name + last four digits spoken, full name on screen), the amount, the network and any Linka fees: "Vous voulez déposer 200 francs sur le compte de David, numéro 1 2 3 4. Est-ce bien cela ? Dites oui pour confirmer, ou non pour annuler." The chosen contact's number is the one used for the USSD step (ADR-0023).
+- "Erreur confirmation" no longer stops the operation: the voice server's simulated confirmation step is bookkeeping only; if it fails the phone proceeds to the USSD step with what it understood (ADR-0023).
 - The contact-choice window closed by itself after about two seconds: it was tied to the assistant's status, which the automatic microphone restart changed. It now stays open until a contact is chosen (tap or voice) or the user cancels, and the voice prompt finishes before the microphone opens.
 - "Oui" after a confirmation request, and "1/2/3" or a name during a contact choice, were handled as brand-new commands because the microphone restart had already replaced the waiting status. The app now remembers the dialogue phase separately, so the answer goes where it belongs and the USSD step is reached.
 - Tapping the microphone while the app waits for "oui" or for a contact choice now opens the microphone to answer instead of cancelling; the microphone button stays reachable above the contact window to end the recording. Cancelling is done by voice ("non", "annule").

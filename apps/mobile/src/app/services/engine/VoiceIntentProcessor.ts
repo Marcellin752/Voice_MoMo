@@ -122,9 +122,7 @@ export class VoiceIntentProcessor {
 
     const top = contacts[0];
     const runnerUpConfidence = contacts[1]?.confidence ?? 0;
-    const isClearWinner =
-      top.confidence >= ContactResolverService.AUTO_ACCEPT_THRESHOLD &&
-      (top.confidence - runnerUpConfidence) >= ContactResolverService.CLEAR_WINNER_GAP;
+    const isClearWinner = ContactResolverService.pickClearWinner(contacts) !== null;
 
     console.log('🔄 [VIP] Contact match decision:', {
       top: `${top.name} (${top.confidence})`,

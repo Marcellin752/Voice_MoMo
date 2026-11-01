@@ -23,7 +23,7 @@ import {
   verifyVoiceBiometric,
   wipeSecret,
 } from '../services/voiceBiometric.service';
-import { buildTransferConfirmSpeech, formatContactForSpeech } from '../utils/speakableName';
+import { buildTransferConfirmSpeech } from '../utils/speakableName';
 import { NlpRequestError, requestNlp, warmUpNlp } from '../utils/nlpClient';
 
 type AssistantStatus =
@@ -56,6 +56,9 @@ const SENSITIVE_INTENTS = new Set([
   'gopack_week',
   'gopack_month',
 ]);
+
+/** Intentions « portefeuille » : un montant vers un destinataire (contact à résoudre sur l'appareil). */
+const WALLET_INTENTS = ['transfer', 'momo_send', 'deposit', 'momo_deposit'];
 
 interface ParsedResponse {
   success: boolean;
@@ -109,8 +112,13 @@ export function useVoiceAssistantNLP(
 
   const [ambiguityContacts, setAmbiguityContacts] = useState<any[] | null>(null);
   const [ambiguityQuery, setAmbiguityQuery] = useState('');
-  const ambiguityContextRef = useRef<{ intent: string; data: any } | null>(null);
+  /** `beforeConfirmation` : choix du contact demandé AVANT la question « oui / non » (homonymes). */
+  const ambiguityContextRef = useRef<{ intent: string; data: any; beforeConfirmation?: boolean } | null>(null);
   const ambiguityContactsRef = useRef<any[] | null>(null);
+  /** Contact choisi (par tap ou à la voix) pour la demande en cours : c'est SON numéro qui part en USSD. */
+  const chosenRecipientRef = useRef<{ name: string; phone: string } | null>(null);
+  /** Dernière demande comprise par le NLP (source locale si /api/confirm échoue, voir confirmAction). */
+  const parsedIntentRef = useRef<ParsedResponse | null>(null);
   const biometricVerifiedRef = useRef(false);
   const speakChainRef = useRef<Promise<void>>(Promise.resolve());
 
@@ -277,6 +285,60 @@ export function useVoiceAssistantNLP(
         resolve();
       }
     });
+  };
+
+  /**
+   * Pose la question de confirmation en répétant la demande (montant, destinataire exact, réseau,
+   * frais Linka), puis ouvre la phase « oui / non ». `chosen` = contact retenu (gagnant net ou
+   * choisi par l'utilisateur) ; sans contact, on répète le nom tel qu'entendu.
+   */
+  const askConfirmation = async (
+    intent: string,
+    amount: number,
+    recipientLabel: string,
+    chosen: { name?: string; phone: string } | null
+  ) => {
+    const operation: 'envoyer' | 'déposer' = ['deposit', 'momo_deposit'].includes(intent) ? 'déposer' : 'envoyer';
+    let linkaFees: number | null = null;
+    let networkLabel: string | null = null;
+
+    if (chosen?.phone) {
+      chosenRecipientRef.current = { name: chosen.name || recipientLabel, phone: chosen.phone };
+      try {
+        const { InterNetworkTransferEngine } = await import('../services/ussd_engine/InterNetworkTransferEngine');
+        const { NetworkDetector, MobileNetwork } = await import('../services/engine/NetworkDetector');
+        const { StorageService } = await import('../services/storage.service');
+        const authUser = await StorageService.get<{ phone?: string }>('momo.auth.user');
+        const network = NetworkDetector.detectNetwork(chosen.phone);
+        if (authUser?.phone) {
+          const engine = new InterNetworkTransferEngine(authUser.phone, chosen.phone);
+          const info = engine.getTransferInfo();
+          if (network !== MobileNetwork.UNKNOWN && info.service === 'Linka Send') {
+            linkaFees = engine.getTransferFees(amount);
+            networkLabel = NetworkDetector.getNetworkLabel(network);
+          } else if (network === MobileNetwork.MTN) {
+            networkLabel = 'MTN';
+          }
+        }
+      } catch (e) {
+        console.warn('⚠️ [FEES] Impossible d\'estimer les frais avant confirmation:', e);
+      }
+    } else {
+      chosenRecipientRef.current = null;
+    }
+
+    // Écran : nom complet ; oral : prénom + 4 derniers chiffres (TTS fiable), toujours en local
+    const { speech, display } = buildTransferConfirmSpeech({
+      amount,
+      name: chosen?.name || recipientLabel,
+      phone: chosen?.phone || null,
+      linkaFees,
+      networkLabel,
+      operation,
+    });
+    setFeedback(display);
+    await speakFeedback(speech);
+    updateStatus('awaiting_confirmation');
   };
 
   const startLiveBiometricChallenge = useCallback(async (onSuccess: () => Promise<void>) => {
@@ -601,6 +663,7 @@ export function useVoiceAssistantNLP(
       }
 
       setParsedIntent(result);
+      parsedIntentRef.current = result;
       setTranscript(result.understood_text || '');
       if (result.transaction_id) transactionIdRef.current = result.transaction_id;
 
@@ -623,53 +686,42 @@ export function useVoiceAssistantNLP(
 
       if (result.needs_confirmation || result.requires_confirmation) {
         autoRetryRef.current = 0;
-        let confirmMsg = feedbackMsg;
-        // Enrichir avec frais Linka avant confirmation (si destinataire connu)
-        try {
-          const intent = String(result.intent || '').toLowerCase();
-          const amount = result.amount ?? result.data?.amount;
-          const recipient = result.recipient || result.data?.recipient;
-          if (['transfer', 'momo_send', 'deposit', 'momo_deposit'].includes(intent) && amount && recipient) {
+        chosenRecipientRef.current = null;
+        const intent = String(result.intent || '').toLowerCase();
+        const amount = result.amount ?? result.data?.amount;
+        const recipient = result.recipient || result.data?.recipient;
+
+        if (WALLET_INTENTS.includes(intent) && amount && recipient) {
+          // Résoudre le contact AVANT de poser la question : s'il y a plusieurs homonymes,
+          // l'utilisateur choisit d'abord, puis confirme la bonne personne (nom + numéro).
+          let contacts: any[] = [];
+          let clearWinner: any = null;
+          try {
             const { ContactResolverService } = await import('../services/engine/ContactResolverService');
-            const { InterNetworkTransferEngine } = await import('../services/ussd_engine/InterNetworkTransferEngine');
-            const { NetworkDetector, MobileNetwork } = await import('../services/engine/NetworkDetector');
-            const { StorageService } = await import('../services/storage.service');
-            const resolver = new ContactResolverService();
-            const contacts = await resolver.resolve(String(recipient));
-            const authUser = await StorageService.get<{ phone?: string }>('momo.auth.user');
-            if (contacts?.[0]?.phone && authUser?.phone) {
-              const engine = new InterNetworkTransferEngine(authUser.phone, contacts[0].phone);
-              const info = engine.getTransferInfo();
-              const fees = engine.getTransferFees(Number(amount));
-              const network = NetworkDetector.detectNetwork(contacts[0].phone);
-              const isLinka = network !== MobileNetwork.UNKNOWN && info.service === 'Linka Send';
-              const spoken = buildTransferConfirmSpeech({
-                amount: Number(amount),
-                name: contacts[0].name || String(recipient),
-                phone: contacts[0].phone,
-                linkaFees: isLinka ? fees : null,
-                networkLabel: isLinka
-                  ? NetworkDetector.getNetworkLabel(network)
-                  : network === MobileNetwork.MTN
-                    ? 'MTN'
-                    : null,
-              });
-              // Écran : nom complet ; oral : prénom + 4 derniers chiffres (TTS fiable)
-              setFeedback(
-                isLinka
-                  ? spoken.display
-                  : `Envoyer ${Number(amount).toLocaleString('fr-FR')} F à ${contacts[0].name || recipient}${network === MobileNetwork.MTN ? ' (MTN)' : ''}. Dites oui pour confirmer.`
-              );
-              confirmMsg = isLinka
-                ? spoken.speech
-                : `Envoyer ${Number(amount).toLocaleString('fr-FR')} francs à ${formatContactForSpeech(contacts[0].name, contacts[0].phone)}${network === MobileNetwork.MTN ? ' sur MTN' : ''}. Dites oui pour confirmer.`;
-            }
+            contacts = (await new ContactResolverService().resolve(String(recipient))) || [];
+            clearWinner = ContactResolverService.pickClearWinner(contacts);
+          } catch (e) {
+            console.warn('⚠️ [CONTACTS] Résolution impossible avant confirmation:', e);
           }
-        } catch (e) {
-          console.warn('⚠️ [FEES] Impossible d\'estimer les frais Linka:', e);
+
+          if (!clearWinner && contacts.length > 0) {
+            const candidates = contacts.slice(0, 5);
+            setAmbiguityContacts(candidates);
+            setAmbiguityQuery(String(recipient));
+            ambiguityContextRef.current = { intent, data: { amount, recipient }, beforeConfirmation: true };
+            const msg = formatAmbiguityVoicePrompt(candidates, String(recipient));
+            setFeedback(msg);
+            await speakFeedback(msg);
+            updateStatus('awaiting_disambiguation');
+            return;
+          }
+
+          await askConfirmation(intent, Number(amount), String(recipient), clearWinner);
+          return;
         }
-        // Toujours TTS local pour les noms (le audio_base64 NLP malprononce souvent)
-        await speakFeedback(confirmMsg);
+
+        // Autres intentions (retrait, forfait…) : on répète le message du NLP, en TTS local
+        await speakFeedback(feedbackMsg);
         updateStatus('awaiting_confirmation');
       } else {
         if (result.success && result.intent !== 'help') {
@@ -828,7 +880,7 @@ export function useVoiceAssistantNLP(
         }
         throw e;
       }
-      const result = await response.json();
+      const result = await response.json().catch(() => ({}));
       endProcessingFeedback();
 
       // UX Fix #11: L'utilisateur a annulé pendant la confirmation → ne pas lancer l'USSD
@@ -837,14 +889,41 @@ export function useVoiceAssistantNLP(
         return;
       }
 
-      if (!result.success) {
-        updateStatus('error');
-        setFeedback(result.message || 'Erreur confirmation');
-        // UX Fix #13: Délai plus long pour lire le message
-        setTimeout(() => { if (statusRef.current === 'error') updateStatus('idle'); }, 8000);
-        return;
+      // ADR-0023 : /api/confirm tient une comptabilité SIMULÉE côté NLP (cache en mémoire, solde
+      // fictif, modem mock). La vérité d'une opération est l'USSD sur la SIM de l'utilisateur, avec
+      // son PIN. Si cette étape échoue (transaction expirée côté serveur, « solde insuffisant »
+      // fictif, redémarrage de l'instance…), on poursuit avec la demande comprise localement.
+      // Les 401 restent bloquants (gérés plus haut).
+      const local = parsedIntentRef.current;
+      let intent: string | undefined;
+      let data: any;
+      if (!response.ok || !result?.success) {
+        console.warn(
+          '⚠️ [NLP] /api/confirm a échoué, poursuite avec la demande locale :',
+          result?.detail || result?.message || `HTTP ${response.status}`
+        );
+        if (!local?.intent) {
+          updateStatus('error');
+          const msg = "Je n'ai plus la demande à confirmer. Redites-la, s'il vous plaît.";
+          setFeedback(msg);
+          speakFeedback(msg);
+          setTimeout(() => { if (statusRef.current === 'error') updateStatus('idle'); }, 8000);
+          return;
+        }
+        intent = local.intent;
+        data = {
+          amount: local.amount ?? local.data?.amount,
+          recipient: local.recipient ?? local.data?.recipient,
+        };
+      } else {
+        intent = result.intent || local?.intent;
+        data = result.data || result;
       }
-      const ussdRes = await triggerUSSD(result.intent || parsedIntent?.intent, result.data || result);
+      // Le contact choisi (homonymes) l'emporte sur le nom brut : c'est son numéro qui part en USSD.
+      if (chosenRecipientRef.current?.phone) {
+        data = { ...data, recipient: chosenRecipientRef.current.phone };
+      }
+      const ussdRes = await triggerUSSD(intent as string, data);
       if (ussdRes.success) {
         updateStatus('success');
         setFeedback(ussdRes.message);
@@ -882,6 +961,9 @@ export function useVoiceAssistantNLP(
       biometricTimerRef.current = null;
     }
     setParsedIntent(null);
+    parsedIntentRef.current = null;
+    chosenRecipientRef.current = null;
+    ambiguityContextRef.current = null;
     setAmbiguityContacts(null);
     ambiguityContactsRef.current = null;
     setShowPinModal(false);
@@ -913,6 +995,12 @@ export function useVoiceAssistantNLP(
     if (!ctx) return;
     closeAmbiguityModal(); // Fermer la modale sans annuler
     updateStatus('processing');
+    if (ctx.beforeConfirmation) {
+      // Homonyme choisi avant la question : on confirme maintenant la bonne personne.
+      ambiguityContextRef.current = null;
+      await askConfirmation(ctx.intent, Number(ctx.data?.amount), String(ctx.data?.recipient || contact.name), contact);
+      return;
+    }
     beginProcessingFeedback(USSD_PROCESSING_STEPS);
     const ussdRes = await triggerUSSD(ctx.intent, { ...ctx.data, recipient: contact.phone });
     endProcessingFeedback();
