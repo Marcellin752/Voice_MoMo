@@ -129,12 +129,16 @@ Parcours visiteurs : **QR → page d’install → APK**.
 
 | Élément | URL / chemin |
 |---------|----------------|
-| Page d’install (QR) | https://marcellin752.github.io/Voice_MoMo/installer/ |
+| Page d’install (QR) | https://voice-momo-backend-2qy2.onrender.com/installer/ |
 | Release stable APK | https://github.com/Marcellin752/Voice_MoMo/releases/tag/village-2026 |
 | Téléchargement direct | https://github.com/Marcellin752/Voice_MoMo/releases/download/village-2026/app-debug.apk |
-| Fichiers page / QR imprimable | `docs/installer/` (`index.html`, `qr.png`, `qr-print.png`, `print-qr.html`) |
+| Fichiers page / QR imprimable | `docs/installer/` et miroir déployé `apps/backend/public/installer/` (`index.html`, `qr.png`, `qr-print.png`, `print-qr.html`) |
 
-Republier l’APK figé : Actions → **Release village APK** → Run workflow (ou `git tag village-2026 && git push origin village-2026` sur le commit validé).
+Le QR pointe vers le backend Render (page servie sous `/installer`). Garder les deux dossiers `docs/installer/` et `apps/backend/public/installer/` alignés quand on change la page.
+
+Republier l’APK figé : Actions → **Release village APK** → Run workflow (sur le commit validé). Pour déplacer le tag : supprimer la release `village-2026` sur GitHub puis relancer le workflow.
+
+Optionnel — GitHub Pages (`deploy-installer.yml`) : dans le dépôt → Settings → Pages → Source **GitHub Actions**, puis relancer le workflow ; l’URL secondaire serait `https://marcellin752.github.io/Voice_MoMo/installer/`.
 
 ### Checklist stand (matin, avant ouverture)
 

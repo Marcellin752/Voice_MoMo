@@ -6,7 +6,7 @@ User-oriented, newest first. Categories: **Added · Changed · Fixed · Removed 
 
 ## [Unreleased]
 ### Added — 2026-11-15, Village de l’Innovation (distribution)
-- Page d’installation publique (QR) : https://marcellin752.github.io/Voice_MoMo/installer/ — téléchargement Android, étapes en français, avertissements (pas d’iPhone, sources inconnues, argent réel via USSD).
+- Page d’installation publique (QR) : https://voice-momo-backend-2qy2.onrender.com/installer/ — téléchargement Android, étapes en français, avertissements (pas d’iPhone, sources inconnues, argent réel via USSD). Servie par le backend (`/installer`).
 - Release stable `village-2026` pour l’APK de démo (URL fixe pour le stand) ; checklist stand dans `docs/BUILD_APK.md`.
 
 ### Fixed — 2026-11-01, voice dialogue (owner's phone test, not re-tested on a device yet)
