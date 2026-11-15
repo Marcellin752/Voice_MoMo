@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Voice MoMo — Installer (Village de l’Innovation)</title>
+  <meta name="description" content="Télécharger et installer Voice MoMo (Android) pour le Village de l’Innovation 2026." />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎤</text></svg>" />
+  <style>
+    :root {
+      --ink: #0b1f2a;
+      --muted: #3d5563;
+      --paper: #f7f4ec;
+      --card: #ffffff;
+      --brand: #004f71;
+      --accent: #ffcc00;
+      --line: #d7dde2;
+      --warn-bg: #fff6d6;
+      --warn-ink: #5c4a00;
+      --ok: #0b6b3a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(1200px 500px at 10% -10%, #ffe58a 0%, transparent 55%),
+        radial-gradient(900px 420px at 100% 0%, #9ed7ef 0%, transparent 50%),
+        var(--paper);
+      line-height: 1.45;
+    }
+    main {
+      max-width: 34rem;
+      margin: 0 auto;
+      padding: 1.25rem 1.1rem 3rem;
+    }
+    header {
+      background: linear-gradient(145deg, var(--brand), #026891 55%, #0380ad);
+      color: #fff;
+      border-radius: 1.1rem;
+      padding: 1.35rem 1.2rem 1.2rem;
+      box-shadow: 0 12px 30px rgba(0, 79, 113, 0.22);
+    }
+    header .eyebrow {
+      display: inline-block;
+      font-size: 0.72rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      background: var(--accent);
+      color: var(--ink);
+      font-weight: 800;
+      padding: 0.25rem 0.55rem;
+      border-radius: 999px;
+      margin-bottom: 0.7rem;
+    }
+    h1 {
+      margin: 0 0 0.35rem;
+      font-size: 1.85rem;
+      letter-spacing: -0.02em;
+    }
+    header p { margin: 0; opacity: 0.92; font-size: 0.98rem; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 1rem;
+      padding: 1.1rem 1.05rem;
+      margin-top: 1rem;
+      box-shadow: 0 4px 16px rgba(11, 31, 42, 0.05);
+    }
+    .card h2 {
+      margin: 0 0 0.7rem;
+      font-size: 1.05rem;
+    }
+    .download {
+      display: block;
+      text-align: center;
+      text-decoration: none;
+      background: var(--accent);
+      color: var(--ink);
+      font-weight: 800;
+      font-size: 1.05rem;
+      padding: 0.95rem 1rem;
+      border-radius: 0.85rem;
+      border: 2px solid #e0b400;
+      box-shadow: 0 6px 0 #c9a200;
+    }
+    .download:active { transform: translateY(2px); box-shadow: 0 4px 0 #c9a200; }
+    .download small {
+      display: block;
+      font-weight: 600;
+      font-size: 0.78rem;
+      margin-top: 0.25rem;
+      opacity: 0.8;
+    }
+    ol {
+      margin: 0;
+      padding-left: 1.2rem;
+    }
+    li { margin: 0.55rem 0; }
+    li strong { color: var(--brand); }
+    .warn {
+      background: var(--warn-bg);
+      color: var(--warn-ink);
+      border: 1px solid #f0d889;
+      border-radius: 0.85rem;
+      padding: 0.85rem 0.95rem;
+      margin-top: 1rem;
+      font-size: 0.92rem;
+    }
+    .warn ul { margin: 0.4rem 0 0; padding-left: 1.1rem; }
+    .meta {
+      margin-top: 1rem;
+      font-size: 0.85rem;
+      color: var(--muted);
+      text-align: center;
+    }
+    .qr-block {
+      text-align: center;
+      margin-top: 0.4rem;
+    }
+    .qr-block img {
+      width: min(220px, 70vw);
+      height: auto;
+      background: #fff;
+      padding: 0.6rem;
+      border-radius: 0.75rem;
+      border: 1px solid var(--line);
+    }
+    .ok { color: var(--ok); font-weight: 700; }
+    a.inline { color: var(--brand); font-weight: 700; }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <span class="eyebrow">Village de l’Innovation · Cotonou 2026</span>
+      <h1>Voice MoMo</h1>
+      <p>Mobile money à la voix — scannez, installez, testez. Android uniquement.</p>
+    </header>
+
+    <section class="card">
+      <h2>1. Télécharger</h2>
+      <a class="download" href="https://github.com/Marcellin752/Voice_MoMo/releases/download/village-2026/app-debug.apk">
+        Télécharger l’application (Android)
+        <small>APK · démo Village 2026 · ~4 Mo</small>
+      </a>
+      <p class="meta">
+        Si le bouton ne marche pas :
+        <a class="inline" href="https://github.com/Marcellin752/Voice_MoMo/releases/tag/village-2026">ouvrir la page de release</a>
+        puis toucher <em>app-debug.apk</em>.
+      </p>
+    </section>
+
+    <section class="card">
+      <h2>2. Installer (2–3 minutes)</h2>
+      <ol>
+        <li><strong>Autoriser les sources inconnues</strong> pour votre navigateur ou votre gestionnaire de fichiers (Paramètres → Applications → Accès spécial → Installer des apps inconnues).</li>
+        <li>Ouvrir le fichier <strong>app-debug.apk</strong> téléchargé, puis toucher <strong>Installer</strong>.</li>
+        <li>Au premier lancement, accepter :
+          <strong>microphone</strong>, <strong>téléphone / appels</strong>,
+          <strong>SMS</strong> (lecture des confirmations MTN),
+          et activer le service <strong>Accessibilité Voice MoMo</strong>
+          (nécessaire pour l’USSD).</li>
+        <li>Saisir votre <strong>numéro MTN Bénin</strong>. Un code s’affiche à l’écran (démo) — saisissez-le pour entrer.</li>
+        <li>Toucher le micro et dire par exemple :
+          <em>« Quel est mon solde »</em> ou
+          <em>« Envoie 200 francs à … »</em>.</li>
+      </ol>
+    </section>
+
+    <div class="warn">
+      <strong>À savoir avant de tester</strong>
+      <ul>
+        <li><span class="ok">Android uniquement</span> — pas d’iPhone pour l’instant.</li>
+        <li>Pas encore sur le Play Store : l’avertissement « source inconnue » est normal.</li>
+        <li>Les transferts passent par l’USSD MTN sur <em>votre</em> SIM : c’est de l’argent réel. Préférez un petit montant.</li>
+        <li>Recharge / retrait / factures : l’app ouvre le menu USSD ; le parcours 100 % vocal n’est pas terminé pour ces cas.</li>
+      </ul>
+    </div>
+
+    <section class="card qr-block">
+      <h2>Partager cette page</h2>
+      <img src="qr.png" width="220" height="220" alt="QR code vers cette page d’installation Voice MoMo" />
+      <p class="meta">Même QR que sur le stand — à rescanner si besoin.</p>
+    </section>
+
+    <p class="meta">
+      Voice MoMo · association d’intelligence artificielle ·
+      <a class="inline" href="https://github.com/Marcellin752/Voice_MoMo">code source</a>
+    </p>
+  </main>
+</body>
+</html>

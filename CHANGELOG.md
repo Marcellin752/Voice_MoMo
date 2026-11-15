@@ -5,6 +5,10 @@ User-oriented, newest first. Categories: **Added · Changed · Fixed · Removed 
 **Provenance:** reconstructed on 2026-10-31 from git commit subjects (the repo has no earlier changelog). Dates are commit dates. Entries describe what the commits say; they were **not re-verified on a device**. There are no semantic versions: CI publishes a debug-APK prerelease per push to `main` (tags `build-N`, last known `build-104` on 2026-09-03). New entries go under **Unreleased**.
 
 ## [Unreleased]
+### Added — 2026-11-15, Village de l’Innovation (distribution)
+- Page d’installation publique (QR) : https://marcellin752.github.io/Voice_MoMo/installer/ — téléchargement Android, étapes en français, avertissements (pas d’iPhone, sources inconnues, argent réel via USSD).
+- Release stable `village-2026` pour l’APK de démo (URL fixe pour le stand) ; checklist stand dans `docs/BUILD_APK.md`.
+
 ### Fixed — 2026-11-01, voice dialogue (owner's phone test, not re-tested on a device yet)
 - When several contacts match the name, the app now asks *which one* before asking "oui/non", and the confirmation question repeats the exact person (first name + last four digits spoken, full name on screen), the amount, the network and any Linka fees: "Vous voulez déposer 200 francs sur le compte de David, numéro 1 2 3 4. Est-ce bien cela ? Dites oui pour confirmer, ou non pour annuler." The chosen contact's number is the one used for the USSD step (ADR-0023).
 - "Erreur confirmation" no longer stops the operation: the voice server's simulated confirmation step is bookkeeping only; if it fails the phone proceeds to the USSD step with what it understood (ADR-0023).

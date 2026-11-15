@@ -120,3 +120,28 @@ Puis relancer le build.
   ```
 
   Le script affiche l'URL backend qui sera figée dans l'APK et prévient si elle est locale.
+
+---
+
+## Village de l’Innovation (distribution QR)
+
+Parcours visiteurs : **QR → page d’install → APK**.
+
+| Élément | URL / chemin |
+|---------|----------------|
+| Page d’install (QR) | https://marcellin752.github.io/Voice_MoMo/installer/ |
+| Release stable APK | https://github.com/Marcellin752/Voice_MoMo/releases/tag/village-2026 |
+| Téléchargement direct | https://github.com/Marcellin752/Voice_MoMo/releases/download/village-2026/app-debug.apk |
+| Fichiers page / QR imprimable | `docs/installer/` (`index.html`, `qr.png`, `qr-print.png`, `print-qr.html`) |
+
+Republier l’APK figé : Actions → **Release village APK** → Run workflow (ou `git tag village-2026 && git push origin village-2026` sur le commit validé).
+
+### Checklist stand (matin, avant ouverture)
+
+1. **Render** : `SHOW_OTP_WHEN_SMS_FAILS=true` encore actif sur `voice-momo-backend` (code à l’écran ; SMS Twilio ne part pas vers le Bénin).
+2. **Warm-up** : `GET` `/health` sur le backend et le NLP (Render gratuit) ; re-ping toutes les ~10 min.
+3. **Téléphones du stand** (2–3, SIM MTN) : APK `village-2026` installé ; permissions micro, téléphone, SMS, **Accessibilité Voice MoMo** déjà accordées ; contact de démo prêt ; petit montant.
+4. **QR** : imprimer `docs/installer/print-qr.html` (A4 + petit format table) ; une personne « install » pour aider aux sources inconnues.
+5. **Filet hors-ligne** : copie de `app-debug.apk` sur une clé USB / partage Nearby si GitHub est lent sur le site.
+6. **Script démo ~60 s** : « Quel est mon solde » ou « Envoie 200 francs à … » → confirmation orale → USSD.
+7. **Ne pas promettre** : iPhone, OTP par SMS réel, recharge/retrait/facture 100 % vocaux, Play Store.
