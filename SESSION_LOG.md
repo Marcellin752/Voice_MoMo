@@ -230,5 +230,6 @@ Entry template: **Date · Objective · Work completed · Files modified · Decis
 ## 2026-11-15 — Distribution QR pour le Village de l’Innovation (18–20 nov.)
 - **Demande :** parcours simple pour les visiteurs / enquêteurs — scanner un QR, télécharger, tester sans envoyer l’APK à la main.
 - **Work completed:** page `docs/installer/` (FR + QR) ; workflows `deploy-installer.yml` (GitHub Pages) et `release-village.yml` (tag/release stable `village-2026`) ; checklist stand dans `docs/BUILD_APK.md` ; APK local rebuild avec URLs Render (15 nov. 20:28, 4,4 Mo) **[Ran]**.
-- **Outstanding (mis à jour):** release GitHub `village-2026` + `app-debug.apk` **[Ran]** (CI). GitHub Pages a échoué (Settings → Pages pas en mode Actions) — repli : page servie par le backend Render sous `/installer/` ; QR retargeté. Déploiement Render de cette route encore à vérifier après push. `SHOW_OTP_WHEN_SMS_FAILS` (teammate) ; test téléphone stand.
-- **Recommended next action:** après redeploy Render, ouvrir https://voice-momo-backend-2qy2.onrender.com/installer/ , imprimer `docs/installer/print-qr.html`, vérifier le téléchargement APK sur un Android.
+- **Verified after push [Ran]:** `GET https://voice-momo-backend-2qy2.onrender.com/installer/` → 200 (page FR) ; `/installer/qr.png` → 200 ; release `village-2026` APK → 302 download. GitHub Pages reste optionnel (Settings → Pages → GitHub Actions).
+- **Outstanding:** `SHOW_OTP_WHEN_SMS_FAILS` sur Render (teammate) ; imprimer le QR ; test téléphone stand avant ouverture.
+- **Recommended next action:** imprimer `docs/installer/print-qr.html`, installer l’APK `village-2026` sur les 2–3 téléphones du stand, cocher la checklist dans `docs/BUILD_APK.md`.
